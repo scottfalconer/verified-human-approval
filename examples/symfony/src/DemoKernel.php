@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace ExactApproval\Demo;
 
+use ExactApproval\Core\Audit\AuditLog;
 use ExactApproval\Core\Evidence\EvidenceExporter;
 use ExactApproval\Core\Evidence\SodiumEvidenceSigner;
 use ExactApproval\Core\Storage\PdoApprovalStore;
 use ExactApproval\Demo\Action\DemoAuthorizer;
 use ExactApproval\Demo\Action\DemoPolicyProvider;
 use ExactApproval\Demo\Controller\AccountController;
+use ExactApproval\Demo\Controller\AuditController;
 use ExactApproval\Demo\Controller\DemoController;
 use ExactApproval\Demo\Controller\EvidenceController;
 use ExactApproval\Demo\Controller\OAuthController;
@@ -18,10 +20,13 @@ use ExactApproval\Demo\Mcp\DemoTools;
 use ExactApproval\Demo\Security\DemoActorProvider;
 use ExactApproval\Demo\Security\DemoUser;
 use ExactApproval\Demo\Security\DemoUserProvider;
+use ExactApproval\Demo\Security\DemoRequesterLabel;
 use ExactApproval\Demo\Security\PersonalTokenAuthenticator;
 use ExactApproval\Symfony\ExactApprovalBundle;
 use ExactApproval\Symfony\Mcp\ApprovalCardApp;
 use ExactApproval\Symfony\Mcp\ApprovalStatusTool;
+use ExactApproval\Symfony\RequesterLabel;
+use ExactApproval\WebAuthn\AnchoredCredentialRepository;
 use ExactApproval\WebAuthn\Configuration;
 use ExactApproval\WebAuthn\CredentialRepository;
 use ExactApproval\WebAuthn\PdoCredentialRepository;
@@ -48,6 +53,9 @@ final class DemoKernel extends Kernel
     {
         if (!is_file($runtimeDirectory.'/settings.json')) throw new \RuntimeException('Initialize the demo with: php examples/symfony/bin/setup.php');
         $this->settings = json_decode(file_get_contents($runtimeDirectory.'/settings.json'), true, 32, JSON_THROW_ON_ERROR);
+        if (($this->settings['schema'] ?? 1) < DemoSetup::SCHEMA) {
+            throw new \RuntimeException('This demo was set up by an older version. Start a fresh one with: php examples/symfony/bin/setup.php --reset');
+        }
         parent::__construct($environment, $debug);
     }
 
@@ -128,6 +136,8 @@ final class DemoKernel extends Kernel
             'public_origin' => $this->settings['origin'], 'actor_provider' => DemoActorProvider::class,
             'policy_provider' => DemoPolicyProvider::class, 'authorizer' => DemoAuthorizer::class,
             'store' => PdoApprovalStore::class, 'verifier' => WebAuthnVerifier::class,
+            // Each receipt is signed as the action commits, so a later edit to the record shows.
+            'receipt_signer' => SodiumEvidenceSigner::class,
             'attempts_per_minute' => $this->settings['approval_attempts_per_minute'] ?? 30,
             // Claude Code shows URL-mode elicitation (2.1.287 and later); other clients get the card and link.
             'url_elicitation' => ['enabled' => true, 'clients' => ['claude-code']],
@@ -138,12 +148,16 @@ final class DemoKernel extends Kernel
         $services->set(\PDO::class, \PDO::class)->factory([DemoDatabase::class, 'connect'])->args([$this->runtimeDirectory.'/application.sqlite']);
         $services->set(PdoApprovalStore::class);
         $services->set(PdoCredentialRepository::class);
-        $services->alias(CredentialRepository::class, PdoCredentialRepository::class);
+        // Approvals accept only passkeys whose signed enrollment record vouches for them.
+        $services->set(AuditLog::class)->args([service(\PDO::class), service(SodiumEvidenceSigner::class), $this->settings['receipt_public_key'], service('exact_approval.clock')]);
+        $services->set(AnchoredCredentialRepository::class);
+        $services->alias(CredentialRepository::class, AnchoredCredentialRepository::class);
+        $services->alias(RequesterLabel::class, DemoRequesterLabel::class);
         $services->set(Configuration::class)->args([$this->settings['rp_id'], $this->settings['origin']]);
         $services->set(WebAuthnVerifier::class);
         $services->set(SodiumEvidenceSigner::class, SodiumEvidenceSigner::class)->factory([SodiumEvidenceSigner::class, 'fromEncoded'])->args([$this->settings['receipt_key_id'], $this->settings['receipt_secret_key']]);
         $services->set(EvidenceExporter::class)->args([service(SodiumEvidenceSigner::class)]);
-        foreach ([DemoController::class, AccountController::class, EvidenceController::class, PublicController::class, OAuthController::class] as $controller) $services->set($controller)->public()->tag('controller.service_arguments');
+        foreach ([DemoController::class, AccountController::class, AuditController::class, EvidenceController::class, PublicController::class, OAuthController::class] as $controller) $services->set($controller)->public()->tag('controller.service_arguments');
         $services->set('demo.enrollment_limiter', RateLimiterFactory::class)->args([
             ['id' => 'demo-passkey-enrollment', 'policy' => 'fixed_window', 'limit' => $this->settings['enrollment_attempts_per_minute'] ?? 10, 'interval' => '1 minute'],
             service('exact_approval.limiter.storage'), service('exact_approval.limiter.lock_factory'),
@@ -163,6 +177,16 @@ final class DemoKernel extends Kernel
         $routes->add('exact_approval_passkeys', '/account/passkeys')->controller([AccountController::class, 'passkeys'])->methods(['GET']);
         $routes->add('exact_approval_enrollment_options', '/account/passkeys/options')->controller([AccountController::class, 'enrollmentOptions'])->methods(['POST']);
         $routes->add('exact_approval_enrollment_complete', '/account/passkeys/complete')->controller([AccountController::class, 'enrollmentComplete'])->methods(['POST']);
+        $routes->add('demo_passkey_link', '/account/passkeys/link/{token}')->controller([AccountController::class, 'passkeyLink'])->methods(['GET']);
+        $routes->add('demo_confirm_options', '/account/passkeys/confirm/options')->controller([AccountController::class, 'confirmOptions'])->methods(['POST']);
+        $routes->add('demo_confirm_complete', '/account/passkeys/confirm/complete')->controller([AccountController::class, 'confirmComplete'])->methods(['POST']);
+        $routes->add('demo_passkey_revoke', '/account/passkeys/{id}/revoke')->controller([AccountController::class, 'revokePasskey'])->methods(['POST']);
+        $routes->add('demo_connection_revoke', '/account/connections/{id}/revoke')->controller([AccountController::class, 'revokeConnection'])->methods(['POST']);
+        $routes->add('demo_audit', '/admin/audit')->controller([AuditController::class, 'audit'])->methods(['GET']);
+        $routes->add('demo_audit_evidence', '/admin/audit/{id}/evidence')->controller([AuditController::class, 'evidence'])->methods(['GET']);
+        $routes->add('demo_audit_passkey_revoke', '/admin/audit/passkeys/{id}/revoke')->controller([AuditController::class, 'revokePasskey'])->methods(['POST']);
+        $routes->add('demo_audit_connection_revoke', '/admin/audit/connections/{id}/revoke')->controller([AuditController::class, 'revokeConnection'])->methods(['POST']);
+        $routes->add('demo_audit_link', '/admin/audit/links')->controller([AuditController::class, 'issueLink'])->methods(['POST']);
         $routes->add('exact_approval_policy', '/admin/approval-policy')->controller([DemoController::class, 'policy'])->methods(['GET', 'POST']);
         $routes->add('exact_approval_request_publication', '/announcements/{id}/publish')->controller([DemoController::class, 'requestPublication'])->methods(['POST']);
         $routes->add('exact_approval_edit_draft', '/announcements/{id}/draft')->controller([DemoController::class, 'editDraft'])->methods(['POST']);

@@ -8,7 +8,13 @@ The first persistence implementation is SQLite. `PdoApprovalStore` uses `BEGIN I
 
 ## Trusted components
 
-The application, its action adapter, ordinary authorization provider, database, code deployment, review UI, credential-to-account association, credential enrollment and recovery are trusted. The agent is an ordinary application client with a personal delegated credential. It cannot choose the authenticated actor in tool arguments or change the approval policy through its agent scope.
+The application, its action adapter, ordinary authorization provider, code deployment, review UI and its evidence signing key are trusted. The agent is an ordinary application client with a personal delegated credential. It cannot choose the authenticated actor in tool arguments, approve anything, add a passkey or change a rule.
+
+The database is not fully trusted after the fact. Records that matter are signed with the application's evidence key, which is kept outside the database (`settings.json` in the demo), so database access alone cannot forge them:
+- each execution's receipt, signed inside the completing transaction;
+- each passkey enrollment, recorded with the enrolled public key in a signed, hash-chained audit log.
+
+Only a passkey whose signed enrollment record matches it can approve (`AnchoredCredentialRepository`). A credential row inserted or altered directly in the database approves nothing.
 
 The component does not sandbox an actor who can rewrite application code, replace the review UI, modify the database directly or control its trusted enrollment process. Run an actual demonstration outside a coding agent’s writable application/code/database environment if the claim involves independence from that coding agent.
 
@@ -40,22 +46,49 @@ All version checks and writes participate in the transaction. A write that has a
 
 Failed execution and postconditions roll back protected state, credential updates, consumed approval and result together. The service then retires the failed ceremony. If commit outcome is uncertain, it checks persisted state and returns an existing completion where available; otherwise it reports uncertainty or known failure. It never claims automatic rollback of remote effects.
 
-Signing is a separate export step over the durable execution report. A signer outage is not an instruction to reexecute the action.
+With a receipt signer configured (the bundle's `receipt_signer`), `ApprovalService` signs the receipt inside the completing transaction. If signing fails, nothing executes: there is no unrecorded action. Without a signer, the exporter signs at download time and marks the receipt `at_export`, which cannot show edits made in between. Exporting never re-executes anything.
 
 ## Web and operational controls
 
 The Symfony flow requires an interactive session, ownership checks, CSRF, request-to-ceremony session pairing, bounded request bodies, rate limits, output escaping, restrictive content security policy, frame blocking and no-store responses. The demo separates stateless MCP bearer authentication from human sessions, credential enrollment and policy administration.
 
-The bundled credential enrollment is a minimal local demonstration. Production hosts should supply their established enrollment/recovery policy and decide how existing credentials, recent authentication and account recovery affect the ability to add approval keys. An MCP token is not sufficient to enroll one.
+A password is not enough to add an approval passkey, because whoever holds it (including an agent the person handed it to) could otherwise enroll a passkey of their own and approve without the person:
+- **The first passkey** needs a one-time link, from setup or from an administrator who has just confirmed with their own passkey. The link works once, only for its own account, and only in that account's signed-in session.
+- **Any further passkey** needs a fresh confirmation with an existing passkey.
+
+Revoking a passkey or disconnecting an agent takes effect at once, and both are recorded. Production hosts should map this onto their own identity, enrollment and recovery processes.
+
+**Changing who must verify is itself an approved action.** The administrator proposes the rule change, then approves that exact change with their own passkey. Its policy is fixed in code, so no rule change can switch off approval of rule changes. An agent cannot propose one.
+
+**The phone code.** It opens one review, for one person, for two minutes, once, and its redemption is locked. Opening the link only shows a Continue button, so link previewers cannot use the code up. The scoped session can approve with the passkey but cannot cancel, which needs the signed-in person. The tool that mints codes checks the connection's read scope and has a budget. Its "app only" visibility is a convention hosts follow, not a server boundary.
+
+**OAuth client metadata** (client ID metadata documents) is fetched through Symfony's `NoPrivateNetworkHttpClient`, so a client ID cannot make the server fetch from loopback, private or link-local addresses. The resolved address is pinned against DNS rebinding.
 
 Limiter/lock storage must be shared appropriately in a multi-host deployment. Runtime secrets and database files must not be exposed by the web document root. Do not log assertions, tokens or full approval content in normal request logs.
+
+## Tamper evidence and the administrator's view
+
+The demo's audit page (`/admin/audit`, administrators only) lists, for every action in the organization:
+- who asked, through which agent connection;
+- under which rule version;
+- whether a person verified it, with which passkey, and when.
+
+It re-checks each completed action on every visit. The receipt is checked against the signature made at commit. The person's passkey signature is checked against the public key in that passkey's signed enrollment record, using a challenge recomputed from the stored proposal. Editing what was approved, or when it happened, makes a check fail visibly.
+
+The same page lists passkeys, one-time links and agent connections, with revocation. It also shows the security log, verified as a chain: enrollments, revocations, links issued and alert take-downs.
+
+What this cannot show:
+- **Cut-off entries.** Truncating the newest log entries is not detectable without an external copy of the newest sequence number, so the page shows it.
+- **A full server compromise.** Whoever holds both the database and the signing key can forge anything.
+- **Which authenticator.** Without attestation, the authenticator type is what the authenticator reports.
 
 ## Explicit limits
 
 - This is a tested initial implementation, not a third-party security audit or a claim of being bulletproof.
 - One local transaction does not cover remote MCP/HTTP calls, emails, payments or nontransactional hooks.
 - The Drupal adapter is implemented using Drupal's connection and transaction manager, and is verified with SQLite. PostgreSQL/MySQL deployments are not verified in this build. See `drupal-verification.md` and the module README for its storage and authentication boundaries.
-- Demo personal tokens are not OAuth federation or a complete OAuth server.
+- The demo's OAuth server and personal tokens are reference implementations. Production deployments connect their own identity provider.
+- Without attestation (the demo uses `none`, which iCloud Keychain and Google Password Manager require), the application cannot prove a passkey lives in hardware. A person who deliberately enrolls an automatable software authenticator can approve without being present. The audit view shows each passkey's reported authenticator and how it was enrolled. Deployments that must prevent this can require attestation, at the cost of synced passkeys.
 - User verification does not attest an exact biometric modality.
 - Independent evidence establishes credential approval and an application-signed report, not independent observation of the database or UI.
-- Physical device, external browser UI and hosted-agent compatibility still need recorded end-to-end runs.
+- Recorded end-to-end runs so far: Claude Code's native prompt, a Claude Desktop chat with Touch ID, and claude.ai through a public tunnel with an iPhone approving the phone code. See `verification.md`.

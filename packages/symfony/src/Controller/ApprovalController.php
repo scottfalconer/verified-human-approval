@@ -10,6 +10,7 @@ use ExactApproval\Core\ApprovalService;
 use ExactApproval\Symfony\ActorProvider;
 use ExactApproval\Symfony\ApprovalPresenter;
 use ExactApproval\Symfony\Handoff\ApprovalHandoff;
+use ExactApproval\Symfony\RequesterLabel;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -34,6 +35,7 @@ final readonly class ApprovalController
         private RateLimiterFactoryInterface $limiter,
         private ?ApprovalHandoff $handoff = null,
         private ?UrlGeneratorInterface $urls = null,
+        private ?RequesterLabel $requesters = null,
     ) {}
 
     public function review(Request $request, string $id): Response
@@ -49,6 +51,9 @@ final readonly class ApprovalController
             'proposal' => $state->request->payload(),
             'prepared' => $state->request->prepared(),
             'csrf' => $this->csrf->getToken('exact_approval.'.$id)->getValue(),
+            // Who asked: an agent's request should not look like the person's own.
+            'requested_by' => $this->requesters?->describe($state->request->actor()),
+            'scoped' => $this->handoff?->personFor($request, $id) !== null,
         ]));
     }
 
@@ -97,8 +102,15 @@ final readonly class ApprovalController
     public function cancel(Request $request, string $id): JsonResponse
     {
         $this->assertCsrf($request, $id);
+        // Cancelling needs the signed-in person. A phone code opens one review to approve with a passkey;
+        // whoever scans it must not be able to call the request off.
+        try {
+            $person = $this->actors->interactive();
+        } catch (AccessDeniedException) {
+            return new JsonResponse(['status' => 'rejected', 'reason' => 'sign_in_required', 'message' => 'Cancel this request from your signed-in browser.'], 403);
+        }
 
-        return $this->respond(fn () => $this->presenter->data($this->approvals->cancel($this->reviewer($request, $id), $id)));
+        return $this->respond(fn () => $this->presenter->data($this->approvals->cancel($person, $id)));
     }
 
     public function script(): Response
@@ -111,9 +123,27 @@ final readonly class ApprovalController
         return new Response(file_get_contents(\dirname(__DIR__, 2).'/assets/approval.css'), headers: ['Content-Type' => 'text/css; charset=utf-8']);
     }
 
-    /** Opens a one-time phone link: a session scoped to one request's review, then that review page. */
+    /**
+     * A one-time phone link, step one: a page with a Continue button. Opening the link does not use it,
+     * so a link previewer or scanner fetching the URL cannot burn the code before the person does.
+     */
     public function handoff(Request $request, string $token): Response
     {
+        if ($this->handoff === null || !$this->handoff->peek($token)) {
+            return new Response($this->twig->render('@ExactApproval/handoff_expired.html.twig'), 410);
+        }
+
+        return new Response($this->twig->render('@ExactApproval/handoff_continue.html.twig', [
+            'csrf' => $this->csrf->getToken('exact_approval.handoff')->getValue(),
+        ]));
+    }
+
+    /** Step two: redeems the code once, scopes this browser session to its request, then opens the review. */
+    public function handoffContinue(Request $request, string $token): Response
+    {
+        if (!$this->csrf->isTokenValid(new CsrfToken('exact_approval.handoff', (string) $request->request->get('_token', '')))) {
+            return new Response($this->twig->render('@ExactApproval/handoff_expired.html.twig'), 410);
+        }
         $id = $this->handoff?->redeem($token, $request->getSession());
         if ($id === null) {
             return new Response($this->twig->render('@ExactApproval/handoff_expired.html.twig'), 410);
@@ -121,7 +151,7 @@ final readonly class ApprovalController
 
         $review = $this->urls?->generate('exact_approval_review', ['id' => $id]) ?? '/approval/'.rawurlencode($id);
 
-        return new RedirectResponse($review.'#return=handoff');
+        return new RedirectResponse($review.'#return=handoff', 303);
     }
 
     /** The person reviewing: a phone session scoped to this request, or the signed-in person. */

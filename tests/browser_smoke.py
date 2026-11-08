@@ -80,7 +80,9 @@ def main():
                 page.locator("#password").fill(credentials["editor"]["password"])
                 page.get_by_role("button", name="Sign in", exact=True).click()
                 page.wait_for_url(initial["review_url"])
-                page.goto(origin + "/account/passkeys")
+                # A password alone cannot add an approval passkey: the first one needs the account's one-time link.
+                page.goto(credentials["editor"]["passkey_link"])
+                page.wait_for_url(origin + "/account/passkeys")
                 page.locator("[data-approve]").click()
                 expect(page.get_by_text("Personal passkey", exact=True)).to_be_visible(timeout=15000)
 

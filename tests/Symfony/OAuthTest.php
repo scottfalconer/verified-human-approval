@@ -16,6 +16,7 @@ use PHPUnit\Framework\TestCase;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpClient\MockHttpClient;
+use Symfony\Component\HttpClient\NoPrivateNetworkHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
 
 /** MCP authorization the way a remote client such as claude.ai does it, end to end. */
@@ -106,6 +107,20 @@ final class OAuthTest extends TestCase
         $impostor = ['client_id' => 'https://other.example/client', 'redirect_uris' => [self::CALLBACK]];
         self::assertNull((new ClientRegistry($database, new MockHttpClient(new MockResponse(json_encode($impostor)))))->find($url));
         self::assertNull((new ClientRegistry($database, new MockHttpClient(new MockResponse('', ['http_code' => 302]))))->find($url));
+    }
+
+    public function testClientMetadataIsNeverFetchedFromThisServersOwnNetwork(): void
+    {
+        $database = new DemoDatabase(DemoDatabase::connect($this->runtime.'/application.sqlite'));
+        $registry = new ClientRegistry($database);
+        self::assertInstanceOf(NoPrivateNetworkHttpClient::class, (new \ReflectionProperty(ClientRegistry::class, 'http'))->getValue($registry));
+        // Anyone can name a client ID; none of these may make this server fetch from its own network.
+        foreach (['https://127.0.0.1/client.json', 'https://[::1]/client.json', 'https://10.0.0.8/client.json', 'https://192.168.1.1/client.json', 'https://169.254.169.254/latest/meta-data/client'] as $url) {
+            self::assertNull($registry->find($url), $url);
+        }
+        $guarded = new NoPrivateNetworkHttpClient($mock = new MockHttpClient(new MockResponse('{}')));
+        self::assertNull((new ClientRegistry($database, $guarded))->find('https://169.254.169.254/client'));
+        self::assertSame(0, $mock->getRequestsCount(), 'The guard refuses before any request is made.');
     }
 
     /** @return array{0: string, 1: string} the authorization code and its PKCE verifier */

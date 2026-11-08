@@ -14,7 +14,14 @@ if (!is_file($runtime.'/settings.json')) {
     echo "Initialize the example first: php examples/symfony/bin/setup.php\n";
     exit;
 }
-$kernel = new DemoKernel($runtime);
+try {
+    $kernel = new DemoKernel($runtime);
+} catch (\RuntimeException $error) {
+    http_response_code(503);
+    header('Content-Type: text/plain; charset=utf-8');
+    echo $error->getMessage(), "\n";
+    exit;
+}
 $request = Request::createFromGlobals();
 $response = $kernel->handle($request);
 $response->send();

@@ -20,3 +20,16 @@ pre {overflow: auto; padding: 1rem; background: #f3f6f8; border-radius: 6px; fon
 .approval-sheet .actions {margin-top: 1.2rem;} button.primary {font-size: 1.05rem; padding: .85rem 1.3rem;} .small {font-size: .85rem;}
 .approval-sheet .done .notice {font-weight: 650; color: #14513f;} details {margin-top: 1rem;} summary {cursor: pointer; color: #5b6c77;}
 [hidden] {display: none !important;}
+
+/* Who asked, rule changes, account and audit pages. */
+.requester { margin: -4px 0 12px; color: #4b5563; font-size: .95rem; }
+.ok { color: #166534; }
+.small { font-size: .85rem; }
+ul.plain { list-style: none; padding: 0; }
+ul.plain li { padding: 8px 0; border-bottom: 1px solid #e5e7eb; }
+form.inline { display: inline; margin-left: 8px; }
+button.small { padding: 4px 10px; font-size: .85rem; min-height: 0; }
+table.audit, table.rule-change { width: 100%; border-collapse: collapse; font-size: .92rem; }
+table.audit th, table.audit td, table.rule-change th, table.rule-change td { text-align: left; vertical-align: top; padding: 8px 10px 8px 0; border-bottom: 1px solid #e5e7eb; }
+table.rule-change tr.changed td { font-weight: 600; background: #fef3c7; }
+td.checks { min-width: 14em; }

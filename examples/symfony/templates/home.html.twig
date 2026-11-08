@@ -2,7 +2,7 @@
 {% block title %}Riverside Council · Verified Human Approval{% endblock %}
 {% block body %}
 <p class="eyebrow">{{ actor.userId }} · Riverside Council website</p><h1>Public alerts</h1>
-<p><a href="{{ path('exact_approval_passkeys') }}">Your passkeys</a>{% if is_granted('ROLE_ADMIN') %} · <a href="{{ path('exact_approval_policy') }}">Administrator settings</a>{% endif %}</p>
+<p><a href="{{ path('exact_approval_passkeys') }}">Your passkeys</a>{% if is_granted('ROLE_ADMIN') %} · <a href="{{ path('exact_approval_policy') }}">Administrator settings</a> · <a href="{{ path('demo_audit') }}">Audit log</a>{% endif %}</p>
 {% for item in announcements %}
 <section class="card"><h2>{{ item.title }}</h2><p class="content-preview">{{ item.body }}</p>
 <dl><dt>Draft revision</dt><dd>{{ item.revision }}</dd><dt>Published revision</dt><dd>{{ item.published_revision ?? 'Not published' }}</dd><dt>Committed changes</dt><dd>{{ item.mutation_count }}</dd></dl>

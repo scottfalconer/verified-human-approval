@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace ExactApproval\Core;
 
+use ExactApproval\Core\Evidence\EvidenceSigner;
+use ExactApproval\Core\Evidence\Receipt;
 use Psr\Clock\ClockInterface;
 
 /** Request -> frozen review -> user verification -> one local atomic execution. */
@@ -19,6 +21,9 @@ final class ApprovalService
         private readonly ApprovalVerifier $verifier,
         private readonly ClockInterface $clock,
         private readonly ExecutionGuard $guard,
+        // Signs each execution's receipt inside the completing transaction. Without it, receipts are
+        // signed only when evidence is exported, which cannot show edits made in between.
+        private readonly ?EvidenceSigner $receipts = null,
     ) {
         $this->executionOwner = new \stdClass();
         $guard->bind($this->executionOwner);
@@ -44,6 +49,7 @@ final class ApprovalService
                     throw new ApprovalException('idempotency_conflict', 'This request key already belongs to different arguments. Use a new key for a new action.');
                 }
                 $this->assertOwner($actor, $existing['state']);
+                $this->assertSameContent($existing['state'], $actor, $actionId, $input);
                 return $this->expire($existing['state']);
             }
             // A retry without a key (a client re-sending the call, or MCP re-entering the handler
@@ -216,7 +222,9 @@ final class ApprovalService
             'recordedAt' => ApprovalRequest::timestamp($this->clock->now()),
             'approval' => $proof === null ? 'not_required' : 'user_verified',
         ];
-        $completed = new ApprovalState($request, 'completed', null, $result, $execution, $proof);
+        // Signed before commit: if signing fails, nothing executes, so no action goes unrecorded.
+        $receipt = $this->receipts === null ? null : Receipt::sign($this->receipts, $request->digest, $proof, $execution);
+        $completed = new ApprovalState($request, 'completed', null, $result, $execution, $proof, $receipt);
         $this->store->save($completed);
         return $completed;
     }
@@ -285,6 +293,25 @@ final class ApprovalService
     {
         if (!$state->request->actor()->samePerson($actor)) {
             throw new ApprovalException('not_found', 'The approval request was not found.');
+        }
+    }
+
+    /**
+     * A request key replays its recorded outcome only while the content it named is unchanged. If the
+     * resource changed since (say, a new draft), replaying "completed" would suggest the new content
+     * was approved, so the caller must use a new key.
+     */
+    private function assertSameContent(ApprovalState $state, Actor $actor, string $actionId, array $input): void
+    {
+        try {
+            $current = $this->actions->get($actionId)->prepare($actor, $input);
+        } catch (ApprovalException) {
+            return; // Nothing current to compare with, such as a deleted resource: the recorded outcome stands.
+        }
+        $recorded = $state->request->prepared();
+        if (CanonicalJson::encode((object) $current->target) !== CanonicalJson::encode((object) $recorded->target)
+            || CanonicalJson::encode((object) $current->effect) !== CanonicalJson::encode((object) $recorded->effect)) {
+            throw new ApprovalException('idempotency_conflict', 'This request key belongs to an earlier proposal, and the content has changed since. Use a new key to request the current content.');
         }
     }
 

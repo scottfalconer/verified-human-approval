@@ -2,8 +2,9 @@
 # Serves a second copy of the demo on a public HTTPS address through a Cloudflare quick tunnel, for
 # claude.ai and phones. Both run under launchd, so they survive Claude restarts.
 # The tunnel's hostname changes each time it starts, and passkeys are tied to the hostname,
-# so a new hostname gets a fresh public demo. Usage: public start | stop | status | all-clear
+# so a new hostname gets a fresh public demo. Usage: public start | stop | status | all-clear | reset
 # all-clear takes the live alert down for another take, keeping accounts, passkeys and connections.
+# reset starts a fresh public demo on the same address: new accounts, passkey links and connections.
 set -eu
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 RUNTIME="$ROOT/var/public-demo"
@@ -46,5 +47,12 @@ case "${1:-status}" in
   stop) stop ;;
   status) echo "Tunnel: $(tunnel_url)"; PORT=$PORT "$SERVER" status ;;
   all-clear) EXACT_APPROVAL_RUNTIME="$RUNTIME" php "$ROOT/examples/symfony/bin/console" demo:all-clear ;;
-  *) echo "Usage: $0 start | stop | status | all-clear"; exit 2 ;;
+  reset)
+    ORIGIN=$(demo_origin)
+    [ -n "$ORIGIN" ] || { echo "No public demo to reset; run: $0 start"; exit 1; }
+    PORT=$PORT EXACT_APPROVAL_RUNTIME="$RUNTIME" "$SERVER" stop >/dev/null 2>&1 || true
+    (umask 077; EXACT_APPROVAL_RUNTIME="$RUNTIME" EXACT_APPROVAL_ORIGIN="$ORIGIN" php "$ROOT/examples/symfony/bin/setup.php" --reset > "$ROOT/var/public-demo-setup.txt")
+    PORT=$PORT EXACT_APPROVAL_RUNTIME="$RUNTIME" "$SERVER" start
+    echo "Fresh public demo for $ORIGIN; its credentials and passkey links are in var/public-demo-setup.txt" ;;
+  *) echo "Usage: $0 start | stop | status | all-clear | reset"; exit 2 ;;
 esac

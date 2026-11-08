@@ -85,11 +85,30 @@ final readonly class PdoCredentialRepository implements CredentialRepository
         }
     }
 
-    /** Call only from a trusted host account-management flow. */
-    public function revoke(string $id): void
+    /**
+     * Every passkey in a tenant, revoked ones included, for an administrator's audit view.
+     *
+     * @return list<Credential>
+     */
+    public function forTenant(string $tenantId): array
     {
-        $statement = $this->pdo->prepare('UPDATE exact_approval_credentials SET revoked = 1 WHERE credential_id = :id');
-        $statement->execute(['id' => $id]);
+        $statement = $this->pdo->prepare('SELECT * FROM exact_approval_credentials WHERE tenant_id = :tenant ORDER BY user_id, credential_id');
+        $statement->execute(['tenant' => $tenantId]);
+
+        return array_map($this->hydrate(...), $statement->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Revokes one of the owner's passkeys; another account's ID matches nothing. Call only from a
+     * trusted host account-management flow. Returns false if no active passkey matched.
+     */
+    public function revoke(Actor $owner, string $id): bool
+    {
+        $statement = $this->pdo->prepare('UPDATE exact_approval_credentials SET revoked = 1
+            WHERE credential_id = :id AND user_id = :user AND tenant_id = :tenant AND revoked = 0');
+        $statement->execute(['id' => $id, 'user' => $owner->userId, 'tenant' => $owner->tenantId]);
+
+        return $statement->rowCount() === 1;
     }
 
     /** @param array<string, mixed> $row */

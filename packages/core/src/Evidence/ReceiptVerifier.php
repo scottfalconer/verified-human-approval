@@ -51,11 +51,7 @@ final class ReceiptVerifier
                     throw new \UnexpectedValueException('The proof is not bound to the proposal.');
                 }
             }
-            $key = ChallengeBinding::decode($trustedPublicKey);
-            $signature = ChallengeBinding::decode($receipt['signature']);
-            if (strlen($key) !== SODIUM_CRYPTO_SIGN_PUBLICKEYBYTES || strlen($signature) !== SODIUM_CRYPTO_SIGN_BYTES
-                || !sodium_crypto_sign_verify_detached($signature, "ExactApproval/Receipt/v1\0".$receipt['manifest'], $key)
-            ) {
+            if (!\is_string($receipt['signature'] ?? null) || !Receipt::signatureValid($trustedPublicKey, $receipt['manifest'], $receipt['signature'])) {
                 throw new \UnexpectedValueException('The trusted application signature is invalid.');
             }
             return ['request' => $request, 'proof' => $proof, 'execution' => $execution, 'applicationSignatureValid' => true];

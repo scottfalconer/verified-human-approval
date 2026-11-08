@@ -251,6 +251,53 @@ final class ApprovalEvidenceTest extends TestCase
         self::assertSame(1, $this->fixture->effectCount());
     }
 
+    public function testReceiptsSignedAtCommitExposeEditsMadeAfterwards(): void
+    {
+        [$service, $actor] = $this->signingService();
+        $pending = $service->request($actor, 'article.publish', ['id' => 1]);
+        $ceremony = $service->begin($this->fixture->reviewer, $pending->request->id);
+        $id = $service->complete($this->fixture->reviewer, $ceremony->id, $this->authenticator->assertion($ceremony->options))->request->id;
+        $export = fn (): array => (new EvidenceExporter($this->signer))->export($service->get($actor, $id));
+
+        $bundle = $export();
+        self::assertSame('at_commit', $bundle['receipt']->signed);
+        $this->verifyHuman((new ReceiptVerifier())->verify($bundle, $this->signer->keyId(), $this->signer->publicKey()));
+
+        // Someone with database access rewrites when it happened. The receipt signed at commit no longer matches.
+        $record = CanonicalJson::map(CanonicalJson::decode($this->fixture->pdo->query("SELECT record FROM exact_approval_executions WHERE request_id = '$id'")->fetchColumn()));
+        $record['recordedAt'] = '2020-01-01T00:00:00.000000Z';
+        $this->fixture->pdo->prepare('UPDATE exact_approval_executions SET record = ? WHERE request_id = ?')->execute([CanonicalJson::encode((object) $record), $id]);
+        $this->expectException(ApprovalException::class);
+        (new ReceiptVerifier())->verify($export(), $this->signer->keyId(), $this->signer->publicKey());
+    }
+
+    public function testAReceiptSignerFailureMeansNothingExecutes(): void
+    {
+        $unavailable = new class implements EvidenceSigner {
+            public function keyId(): string { return 'unavailable'; }
+            public function sign(string $manifest): string { throw new \RuntimeException('Injected signer outage.'); }
+        };
+        [$service, $actor] = $this->signingService($unavailable);
+        $pending = $service->request($actor, 'article.publish', ['id' => 1]);
+        $ceremony = $service->begin($this->fixture->reviewer, $pending->request->id);
+        try {
+            $service->complete($this->fixture->reviewer, $ceremony->id, $this->authenticator->assertion($ceremony->options));
+            self::fail('An action executed without its signed receipt.');
+        } catch (ApprovalException $error) {
+            self::assertSame('execution_failed', $error->reason);
+        }
+        self::assertSame(0, $this->fixture->effectCount(), 'No unrecorded action: the transaction rolled back.');
+    }
+
+    /** @return array{ApprovalService, \ExactApproval\Core\Actor} */
+    private function signingService(?EvidenceSigner $signer = null): array
+    {
+        $guard = new ExecutionGuard();
+        $service = new ApprovalService(new ActionRegistry([new FixtureAction($this->fixture->pdo, $guard)]), $this->fixture->policies, $this->fixture->authorizer, $this->fixture->store, $this->verifier, $this->fixture->clock, $guard, $signer ?? $this->signer);
+
+        return [$service, $this->fixture->actor];
+    }
+
     private function complete(): ApprovalState
     {
         $pending = $this->service->request($this->fixture->actor, 'article.publish', ['id' => 1]);

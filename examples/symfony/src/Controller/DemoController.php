@@ -7,6 +7,7 @@ namespace ExactApproval\Demo\Controller;
 use ExactApproval\Core\ApprovalException;
 use ExactApproval\Core\ApprovalPolicy;
 use ExactApproval\Core\ApprovalService;
+use ExactApproval\Demo\Action\ChangeAlertRule;
 use ExactApproval\Demo\Action\PublishAnnouncement;
 use ExactApproval\Demo\DemoDatabase;
 use ExactApproval\Demo\Form\ApprovalPolicyType;
@@ -74,6 +75,10 @@ final readonly class DemoController
         return new RedirectResponse('/');
     }
 
+    /**
+     * The administrator's rule. Saving proposes the change; it takes effect only once the administrator
+     * approves the exact change with their passkey on the review page that follows.
+     */
     public function policy(Request $request): Response
     {
         $actor = $this->actors->interactive();
@@ -82,35 +87,22 @@ final readonly class DemoController
         $modes = ['manager' => $this->database->roleMode('announcement.publish', 'manager') ?? 'denied', 'staff' => $this->database->roleMode('announcement.publish', 'staff') ?? 'denied'];
         $form = $this->forms->create(ApprovalPolicyType::class, $modes + ['statement' => $row['statement'], 'version' => (string) $row['version']]);
         $form->handleRequest($request);
-        $preview = null;
         if ($form->isSubmitted() && $form->isValid()) {
             $data = $form->getData();
-            try {
-                $policy = new ApprovalPolicy('announcement.publish', (string) ((int) $data['version'] + 1), $data['statement']);
-                $preview = $policy->statement($this->action->prepare($actor, ['announcement_id' => 'riverside-evacuation']));
-                // One transaction: a new policy version, its statement and the per-role rules change together.
-                $this->database->pdo->beginTransaction();
-                $query = $this->database->pdo->prepare('UPDATE demo_policies SET version = version + 1, statement = ? WHERE action_id = ? AND version = ?');
-                $query->execute([$data['statement'], 'announcement.publish', (int) $data['version']]);
-                if ($query->rowCount() !== 1) {
-                    $this->database->pdo->rollBack();
-                    $form->addError(new FormError('The policy changed in another session. Reload before saving.'));
-                } else {
-                    $rule = $this->database->pdo->prepare('UPDATE demo_role_policies SET mode = ? WHERE action_id = ? AND role = ?');
-                    foreach (['manager', 'staff'] as $role) $rule->execute([$data[$role], 'announcement.publish', $role]);
-                    $this->database->pdo->commit();
+            if ((int) $data['version'] !== (int) $row['version']) {
+                $form->addError(new FormError('The rule changed in another session. Reload before proposing a change.'));
+            } else {
+                try {
+                    $state = $this->approvals->request($actor, ChangeAlertRule::ID, ['manager' => $data['manager'], 'staff' => $data['staff'], 'statement' => $data['statement']]);
 
-                    return new RedirectResponse('/admin/approval-policy?saved=1');
+                    return new RedirectResponse($this->urls->generate('exact_approval_review', ['id' => $state->request->id]));
+                } catch (ApprovalException $error) {
+                    $form->addError(new FormError($error->getMessage()));
                 }
-            } catch (\InvalidArgumentException | ApprovalException $error) {
-                if ($this->database->pdo->inTransaction()) $this->database->pdo->rollBack();
-                $form->addError(new FormError($error->getMessage()));
             }
         }
-        if ($preview === null) {
-            $preview = (new ApprovalPolicy('announcement.publish', (string) $row['version'], $row['statement']))->statement($this->action->prepare($actor, ['announcement_id' => 'riverside-evacuation']));
-        }
+        $preview = (new ApprovalPolicy('announcement.publish', (string) $row['version'], $row['statement']))->statement($this->action->prepare($actor, ['announcement_id' => 'riverside-evacuation']));
 
-        return new Response($this->twig->render('policy.html.twig', ['form' => $form->createView(), 'preview' => $preview, 'saved' => $request->query->getBoolean('saved')]));
+        return new Response($this->twig->render('policy.html.twig', ['form' => $form->createView(), 'preview' => $preview]));
     }
 }

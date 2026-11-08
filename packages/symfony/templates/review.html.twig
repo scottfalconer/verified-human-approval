@@ -5,13 +5,14 @@
 <section class="card approval-sheet" data-status="{{ state.status }}">
     <p class="eyebrow">Approval requested · {{ prepared.target.application|default('This application') }}</p>
     <h1>{{ prepared.display.title|default('Review this exact action') }}</h1>
+    <p class="requester">Requested by {{ requested_by ?? (proposal.actor.delegationId ? 'an agent connected to your account' : 'you, on this site') }}.</p>
     <p class="statement">{{ state.request.statement }}</p>
     {% if state.status == 'pending' %}
     <div data-passkey-panel data-mode="approval" data-csrf="{{ csrf }}"
          data-options-url="{{ path('exact_approval_options', {id: state.request.id}) }}"
          data-complete-url="{{ path('exact_approval_complete', {id: state.request.id}) }}"
          data-cancel-url="{{ path('exact_approval_cancel', {id: state.request.id}) }}">
-        <div class="actions"><button type="button" class="primary" data-approve>Approve with your passkey</button><button type="button" class="secondary" data-cancel>Cancel request</button></div>
+        <div class="actions"><button type="button" class="primary" data-approve>Approve with your passkey</button>{% if not scoped %}<button type="button" class="secondary" data-cancel>Cancel request</button>{% endif %}</div>
         <p data-message aria-live="polite"></p>
         <p class="muted small">Only this exact proposal runs, once. A changed draft, a revoked permission or an expired request stops it. Expires {{ state.request.expiresAt|date('H:i T') }}.</p>
     </div>

@@ -108,20 +108,15 @@ final class TransactionTest extends TestCase
         self::assertSame(0, $fixture->effectCount());
     }
 
-    public function testNewReviewRetiresOldChallengeButAllowsTheNewOne(): void
+    public function testASecondReviewDoesNotCancelTheFirstAndTheActionRunsOnce(): void
     {
         $fixture = new CoreFixture();
         $pending = $fixture->service->request($fixture->actor, 'article.publish', ['id' => 1]);
-        $old = $fixture->service->begin($fixture->reviewer, $pending->request->id);
-        $new = $fixture->service->begin($fixture->reviewer, $pending->request->id);
-        try {
-            $fixture->service->complete($fixture->reviewer, $old->id, $fixture->proof($old));
-            self::fail('An older review challenge remained active.');
-        } catch (ApprovalException $exception) {
-            self::assertSame('ceremony_consumed', $exception->reason);
-        }
-        self::assertSame('completed', $fixture->service->complete($fixture->reviewer, $new->id, $fixture->proof($new))->status);
-        self::assertSame(1, $fixture->effectCount());
+        $first = $fixture->service->begin($fixture->reviewer, $pending->request->id);
+        $second = $fixture->service->begin($fixture->reviewer, $pending->request->id);
+        self::assertSame('completed', $fixture->service->complete($fixture->reviewer, $first->id, $fixture->proof($first))->status, 'Another session starting a review cannot cancel one already in progress.');
+        self::assertSame('completed', $fixture->service->complete($fixture->reviewer, $second->id, $fixture->proof($second))->status, 'The other review reads the recorded outcome.');
+        self::assertSame(1, $fixture->effectCount(), 'The action runs once.');
     }
 
     public function testCeremonyExpirationDoesNotConsumeTheLongerLivedProposal(): void

@@ -6,6 +6,7 @@ namespace ExactApproval\Demo\OAuth;
 
 use ExactApproval\Demo\DemoDatabase;
 use Symfony\Component\HttpClient\HttpClient;
+use Symfony\Component\HttpClient\NoPrivateNetworkHttpClient;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 /**
@@ -19,7 +20,10 @@ final readonly class ClientRegistry
 
     public function __construct(private DemoDatabase $database, ?HttpClientInterface $http = null)
     {
-        $this->http = $http ?? HttpClient::create();
+        // A client ID is a URL anyone can name, so fetching it must not reach this server's own network:
+        // loopback, private and link-local addresses (such as cloud metadata) are refused, and the
+        // resolved address is pinned, so DNS rebinding cannot swap it in afterwards.
+        $this->http = $http ?? new NoPrivateNetworkHttpClient(HttpClient::create());
     }
 
     /** @return array<string, mixed> the registration response */

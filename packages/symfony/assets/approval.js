@@ -57,7 +57,7 @@ for (const panel of document.querySelectorAll('[data-passkey-panel]')) {
                 credential: serializeCredential(credential),
             });
             message.textContent = result.message ?? (registration ? 'Passkey registered.' : `Action status: ${result.status}.`);
-            if (result.status === 'completed' || result.status === 'registered') window.location.reload();
+            if (['completed', 'registered', 'confirmed'].includes(result.status)) window.location.reload();
         } catch (error) {
             message.textContent = error.name === 'NotAllowedError'
                 ? 'The device request was cancelled or timed out. Nothing was approved.'

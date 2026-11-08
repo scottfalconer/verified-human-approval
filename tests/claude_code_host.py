@@ -32,7 +32,7 @@ if not (PHP and CLAUDE and CHROMIUM):
     raise SystemExit("Set PHP_BIN, CLAUDE_BIN and CHROMIUM_BIN.")
 
 
-def approve_in_browser(url: str, origin: str, password: str) -> None:
+def approve_in_browser(url: str, origin: str, password: str, passkey_link: str) -> None:
     """The person: sign in, enroll a passkey, review the exact page and approve it."""
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(executable_path=CHROMIUM, headless=True, args=["--no-sandbox"])
@@ -48,7 +48,9 @@ def approve_in_browser(url: str, origin: str, password: str) -> None:
         page.locator("#password").fill(password)
         page.get_by_role("button", name="Sign in", exact=True).click()
         page.wait_for_url(url)
-        page.goto(origin + "/account/passkeys")
+        # A password alone cannot add an approval passkey: the first one needs the account's one-time link.
+        page.goto(passkey_link)
+        page.wait_for_url(origin + "/account/passkeys")
         page.locator("[data-approve]").click()
         expect(page.get_by_text("Personal passkey", exact=True)).to_be_visible(timeout=15000)
         page.goto(url)
@@ -81,7 +83,7 @@ def main() -> None:
                             break
                     except OSError:
                         time.sleep(0.1)
-                report = run_claude(config, work, origin, editor["password"])
+                report = run_claude(config, work, origin, editor["password"], editor["passkey_link"])
                 with sqlite3.connect(work / "runtime/application.sqlite") as db:
                     report["committed_effects"] = db.execute("SELECT mutation_count FROM demo_announcements WHERE id = 'riverside-evacuation'").fetchone()[0]
             finally:
@@ -96,7 +98,7 @@ def main() -> None:
     print(json.dumps(report, indent=2))
 
 
-def run_claude(config: Path, work: Path, origin: str, password: str) -> dict:
+def run_claude(config: Path, work: Path, origin: str, password: str, passkey_link: str) -> dict:
     tools = "mcp__verified-human-approval__publish_alert,mcp__verified-human-approval__approval_status"
     claude = subprocess.Popen([CLAUDE, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
                                "--mcp-config", str(config), "--strict-mcp-config", "--allowedTools", tools,
@@ -133,7 +135,7 @@ def run_claude(config: Path, work: Path, origin: str, password: str) -> dict:
             request = message.get("request", {})
             if request.get("subtype") == "elicitation":
                 report["elicitation"] = {key: request.get(key) for key in ("mcp_server_name", "mode", "url", "message")}
-                approve_in_browser(request["url"], origin, password)
+                approve_in_browser(request["url"], origin, password, passkey_link)
                 send({"type": "control_response", "response": {"subtype": "success", "request_id": message["request_id"], "response": {"action": "accept"}}})
                 report["host_answer"] = "accept, after the person approved with a passkey"
             elif request.get("subtype") == "can_use_tool":

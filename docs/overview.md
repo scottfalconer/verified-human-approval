@@ -79,7 +79,15 @@ Also try the `reader` account’s token. The rule does not let that role issue a
 
 ### Administrator controls
 
-`manager` is the human administrator. At `/admin/approval-policy`, **Who can issue public alerts** sets each role’s mode: issue directly, approve each exact alert with a passkey, or not allowed. It also sets the exact required statement, with a preview of its registered placeholders. Saving creates a new policy version, and every changed policy invalidates pending requests made under the old one. Unknown placeholders are rejected; templates are plain text and do not execute Twig or expressions.
+`manager` is the human administrator. At `/admin/approval-policy`, **Who can issue public alerts** sets each role’s mode: issue directly, approve each exact alert with a passkey, or not allowed. It also sets the exact required statement, with a preview of its registered placeholders. Saving proposes the change. It takes effect only when the administrator approves that exact change with their own passkey, and the approval creates a new policy version, which invalidates pending requests made under the old one. Unknown placeholders are rejected; templates are plain text and do not execute Twig or expressions.
+
+`/admin/audit` shows the administrator how every change happened:
+- who asked, through which agent;
+- under which rule;
+- whether a person verified it, with which passkey;
+- whether its signed receipt and the passkey signature still check out.
+
+It also lists passkeys, one-time passkey links, agent connections and the signed security log, with revocation. A person's first approval passkey needs a one-time link from setup or an administrator, and any further one needs an existing passkey: a password alone never adds one.
 
 "Issue directly" has an explicit meaning: new authorized requests from that role execute without passkey approval. Their execution records say `not_required`; they are not represented as signed human approvals. Old protected proposals cannot use a rule change to bypass their original approval flow. Agent credentials cannot change the rule, and the application applies it the same way to its own **Issue alert** button and to every MCP client.
 

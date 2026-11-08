@@ -2,6 +2,18 @@
 
 Build verification completed on November 8, 2026, using PHP 8.4.24. These results describe the implemented Symfony/PHP slice, not a production certification or physical-device demonstration.
 
+## Update: maintainer review fixes (November 8, 2026, evening)
+
+A maintainer-level review found two password-only ways around verification, receipts signed only at download, and no administrator view. All of it is fixed, with tests:
+
+| Check | Result |
+| --- | --- |
+| PHPUnit, `composer test` | 181 tests, 1,015 assertions, all passing. New tests cover:<ul><li>passkey links and confirmation;</li><li>a database-inserted or swapped passkey being refused;</li><li>revocation;</li><li>rule changes needing the administrator's passkey;</li><li>receipts signed at commit catching later edits;</li><li>the audit page catching edited records;</li><li>the signed audit log's chain;</li><li>request keys refusing changed content;</li><li>the phone code's Continue step, scope check and budget;</li><li>the SSRF guard.</li></ul> |
+| PHPStan | No errors |
+| `tests/browser_smoke.py`, `tests/card_smoke.py`, `tests/phone_smoke.py`, `tests/http_smoke.py` | Passed, with the passkey links and the phone code's Continue step |
+
+`tests/claude_code_host.py` was updated for passkey links but not re-run, since it makes a model call. Demos set up before this change need `setup.php --reset` (or `bin/public reset`).
+
 ## Update: claude.ai and a physical phone (November 8, 2026, 17:46 UTC)
 
 Run by Scott through `examples/symfony/bin/public start` (a Cloudflare quick tunnel) and checked on the server.

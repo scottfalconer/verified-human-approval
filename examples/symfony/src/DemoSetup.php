@@ -4,13 +4,20 @@ declare(strict_types=1);
 
 namespace ExactApproval\Demo;
 
+use ExactApproval\Core\Audit\AuditLog;
 use ExactApproval\Core\ChallengeBinding;
+use ExactApproval\Core\Evidence\SodiumEvidenceSigner;
 use ExactApproval\Core\Storage\PdoApprovalStore;
 use ExactApproval\WebAuthn\Configuration;
 use ExactApproval\WebAuthn\PdoCredentialRepository;
+use Symfony\Component\Clock\NativeClock;
 
 final class DemoSetup
 {
+    /** The runtime layout this code expects; an older runtime has to be reset. */
+    public const SCHEMA = 2;
+    private const LINK_SECONDS = 7 * 86400;
+
     /** Returns credentials once. No plaintext account password or token is stored. */
     public static function initialize(string $directory, string $origin = 'http://localhost:8080'): array
     {
@@ -27,6 +34,12 @@ final class DemoSetup
         $database->initialize();
         (new PdoApprovalStore($database->pdo))->initialize();
         (new PdoCredentialRepository($database->pdo))->initialize();
+        // The application's evidence key signs receipts and the security log. It lives in settings.json,
+        // outside the database, so database access alone cannot forge either.
+        $keypair = sodium_crypto_sign_keypair();
+        $signer = new SodiumEvidenceSigner('demo-application-1', sodium_crypto_sign_secretkey($keypair));
+        $audit = new AuditLog($database->pdo, $signer, $signer->publicKey(), new NativeClock());
+        $audit->initialize();
         $credentials = [];
         $users = [
             ['manager', 'campaigns', 'Emergency manager', true, true, 'manager'],
@@ -40,9 +53,12 @@ final class DemoSetup
             $database->pdo->prepare('INSERT INTO demo_users (id, tenant_id, display_name, password_hash, can_publish, is_admin, role) VALUES (?, ?, ?, ?, ?, ?, ?)')
                 ->execute([$id, $tenant, $name, password_hash($password, PASSWORD_DEFAULT), (int) $publish, (int) $admin, $role]);
             $scopes = $publish ? ['announcement.read', 'announcement.publish', 'approval.read'] : ['announcement.read', 'approval.read'];
-            $database->pdo->prepare('INSERT INTO demo_grants (id, user_id, tenant_id, token_hash, scopes) VALUES (?, ?, ?, ?, ?)')
-                ->execute([$id.'-personal', $id, $tenant, hash('sha256', $token), json_encode($scopes, JSON_THROW_ON_ERROR)]);
-            $credentials[$id] = ['password' => $password, 'personal_token' => $token];
+            $database->pdo->prepare('INSERT INTO demo_grants (id, user_id, tenant_id, token_hash, scopes, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+                ->execute([$id.'-personal', $id, $tenant, hash('sha256', $token), json_encode($scopes, JSON_THROW_ON_ERROR), time()]);
+            // A password alone cannot add an approval passkey: each person's first one needs this one-time link.
+            $link = $database->issuePasskeyLink($id, $tenant, 'setup', self::LINK_SECONDS);
+            $audit->append($tenant, 'passkey_link.issued', $id, ['issuedBy' => 'setup', 'expiresAt' => time() + self::LINK_SECONDS]);
+            $credentials[$id] = ['password' => $password, 'personal_token' => $token, 'passkey_link' => rtrim($origin, '/').'/account/passkeys/link/'.$link];
         }
         $database->pdo->prepare('INSERT INTO demo_announcements (id, tenant_id, revision, title, body) VALUES (?, ?, ?, ?, ?)')
             ->execute(['riverside-evacuation', 'campaigns', 1, 'Evacuation order: Riverside Road area', "Water is rising fast. If you are between Mill Street and the river bridge, leave now.\nUse the Hill Street route: Riverside Road is closed.\nShelter is open at the Station Lane community centre."]);
@@ -52,9 +68,8 @@ final class DemoSetup
         foreach (['manager' => 'direct', 'staff' => 'approval', 'reader' => 'denied'] as $role => $mode) {
             $database->pdo->prepare('INSERT INTO demo_role_policies (action_id, role, mode) VALUES (?, ?, ?)')->execute(['announcement.publish', $role, $mode]);
         }
-        $keypair = sodium_crypto_sign_keypair();
         $settings = [
-            'origin' => $origin, 'rp_id' => $rpId, 'app_secret' => ChallengeBinding::encode(random_bytes(48)),
+            'schema' => self::SCHEMA, 'origin' => $origin, 'rp_id' => $rpId, 'app_secret' => ChallengeBinding::encode(random_bytes(48)),
             'receipt_key_id' => 'demo-application-1',
             'receipt_secret_key' => ChallengeBinding::encode(sodium_crypto_sign_secretkey($keypair)),
             'receipt_public_key' => ChallengeBinding::encode(sodium_crypto_sign_publickey($keypair)),

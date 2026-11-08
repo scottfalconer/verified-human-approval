@@ -109,7 +109,7 @@ final readonly class OAuthController
                 return $this->page('oauth/error.html.twig', ['message' => 'This consent form expired. Start connecting again from your application.'], 400);
             }
             if (($input['decision'] ?? null) !== 'allow') throw new OAuthError('access_denied', 'You did not allow the connection.');
-            $code = $this->server->issueCode($client['client_id'], $redirect, $actor->userId, $actor->tenantId, $scopes, $input['code_challenge']);
+            $code = $this->server->issueCode($client['client_id'], $redirect, $actor->userId, $actor->tenantId, $scopes, $input['code_challenge'], $client['client_name']);
 
             return new RedirectResponse(self::withQuery($redirect, ['code' => $code, 'state' => $state, 'iss' => $this->origin]));
         } catch (OAuthError $error) {

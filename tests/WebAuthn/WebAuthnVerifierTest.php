@@ -141,7 +141,8 @@ final class WebAuthnVerifierTest extends TestCase
     {
         $challenge = random_bytes(32);
         $assertion = $this->authenticator->assertion($this->verifier->requestOptions($this->actor, $challenge));
-        $this->credentials->revoke($this->authenticator->id());
+        self::assertFalse($this->credentials->revoke(new \ExactApproval\Core\Actor('mallory', $this->actor->tenantId), $this->authenticator->id()), 'Another account cannot revoke it.');
+        self::assertTrue($this->credentials->revoke($this->actor, $this->authenticator->id()));
         $this->expectException(ApprovalException::class);
         $this->verifier->verify($this->actor, $challenge, $assertion);
     }

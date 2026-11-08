@@ -51,9 +51,15 @@ final class HandoffTest extends TestCase
         self::assertSame('approval_handoff', $agent->callTool('approval_status', ['request_id' => $id])->structuredContent['approval']['handoffTool'], 'On a public HTTPS address the card offers the phone.');
         self::assertTrue($this->mcp('reader')->callTool('approval_handoff', ['request_id' => $id])->isError, 'Only the requester can get a code.');
 
+        $previewer = $this->browser();
+        $previewer->request('GET', $code->structuredContent['url']);
+        self::assertSame(200, $previewer->getResponse()->getStatusCode(), 'A link previewer fetching the URL sees a Continue page.');
         $phone = $this->browser();
-        $phone->request('GET', $code->structuredContent['url']);
-        self::assertSame(302, $phone->getResponse()->getStatusCode());
+        $crawler = $phone->request('GET', $code->structuredContent['url']);
+        self::assertSame(200, $phone->getResponse()->getStatusCode(), 'The previewer did not use the code up.');
+        self::assertStringNotContainsString('Evacuation', (string) $phone->getResponse()->getContent(), 'The Continue page reveals nothing about the request.');
+        $phone->submit($crawler->selectButton('Continue')->form());
+        self::assertSame(303, $phone->getResponse()->getStatusCode());
         self::assertStringEndsWith('/approval/'.$id.'#return=handoff', (string) $phone->getResponse()->headers->get('Location'));
         $crawler = $phone->request('GET', self::ORIGIN.'/approval/'.$id);
         self::assertSame(200, $phone->getResponse()->getStatusCode());
@@ -69,7 +75,12 @@ final class HandoffTest extends TestCase
         $again->request('GET', $code->structuredContent['url']);
         self::assertSame(410, $again->getResponse()->getStatusCode(), 'A code works once.');
 
-        $csrf = (string) $phone->request('GET', self::ORIGIN.'/approval/'.$id)->filter('[data-passkey-panel]')->attr('data-csrf');
+        $review = $phone->request('GET', self::ORIGIN.'/approval/'.$id);
+        self::assertCount(0, $review->filter('[data-cancel]'), 'The phone gets no Cancel button.');
+        $csrf = (string) $review->filter('[data-passkey-panel]')->attr('data-csrf');
+        $refused = $this->post($phone, '/approval/'.$id.'/cancel', $csrf, []);
+        self::assertSame(403, $phone->getResponse()->getStatusCode());
+        self::assertSame('sign_in_required', $refused['reason'], 'Whoever holds the code cannot call the request off.');
         $ceremony = $this->post($phone, '/approval/'.$id.'/options', $csrf, []);
         self::assertSame(200, $phone->getResponse()->getStatusCode(), (string) $phone->getResponse()->getContent());
         $done = $this->post($phone, '/approval/'.$id.'/complete', $csrf, ['ceremony_id' => $ceremony['ceremony_id'], 'credential' => $authenticator->assertion($ceremony['publicKey'])]);
@@ -77,6 +88,26 @@ final class HandoffTest extends TestCase
         $database = new DemoDatabase(DemoDatabase::connect($this->runtime.'/application.sqlite'));
         self::assertSame(1, (int) $database->announcement('riverside-evacuation')['mutation_count']);
         self::assertSame('completed', $agent->callTool('approval_status', ['request_id' => $id])->structuredContent['status'], 'The card on the computer sees the outcome.');
+    }
+
+    public function testAConnectionWithoutTheReadScopeGetsNoCodeAndCodesHaveABudget(): void
+    {
+        $settings = json_decode((string) file_get_contents($this->runtime.'/settings.json'), true);
+        $settings['approval_attempts_per_minute'] = 2;
+        file_put_contents($this->runtime.'/settings.json', json_encode($settings));
+        $id = $this->mcp('editor')->callTool('publish_alert', ['alert_id' => 'riverside-evacuation'])->structuredContent['requestId'];
+        $limited = 'limited-'.bin2hex(random_bytes(16));
+        $database = new DemoDatabase(DemoDatabase::connect($this->runtime.'/application.sqlite'));
+        $database->pdo->prepare('INSERT INTO demo_grants (id, user_id, tenant_id, token_hash, scopes) VALUES (?, ?, ?, ?, ?)')
+            ->execute(['editor-limited', 'editor', 'campaigns', hash('sha256', $limited), '["announcement.read","announcement.publish"]']);
+        $this->accounts['limited'] = ['personal_token' => $limited];
+        $refused = $this->mcp('limited')->callTool('approval_handoff', ['request_id' => $id]);
+        self::assertTrue($refused->isError, 'A connection that may not read results cannot open the review elsewhere either.');
+
+        $agent = $this->mcp('editor');
+        self::assertFalse($agent->callTool('approval_handoff', ['request_id' => $id])->isError);
+        self::assertFalse($agent->callTool('approval_handoff', ['request_id' => $id])->isError);
+        self::assertStringContainsString('Too many phone codes', $agent->callTool('approval_handoff', ['request_id' => $id])->content[0]->text);
     }
 
     public function testNoCodeWithoutAPublicHttpsAddress(): void
@@ -124,6 +155,7 @@ final class HandoffTest extends TestCase
         $browser = $this->browser();
         $crawler = $browser->request('GET', self::ORIGIN.'/login');
         $browser->submit($crawler->selectButton('Sign in')->form(['_username' => $user, '_password' => $this->accounts[$user]['password']]));
+        $browser->request('GET', $this->accounts[$user]['passkey_link']);
         $crawler = $browser->request('GET', self::ORIGIN.'/account/passkeys');
         $csrf = (string) $crawler->filter('[data-passkey-panel]')->attr('data-csrf');
         $options = $this->post($browser, '/account/passkeys/options', $csrf, []);

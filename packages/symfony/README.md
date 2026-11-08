@@ -52,7 +52,11 @@ exact_approval:
     store: ExactApproval\Core\Storage\PdoApprovalStore
     verifier: ExactApproval\WebAuthn\WebAuthnVerifier
     attempts_per_minute: 30
+    # Optional but recommended: sign each execution's receipt inside the completing transaction.
+    receipt_signer: ExactApproval\Core\Evidence\SodiumEvidenceSigner
 ```
+
+With `receipt_signer` set, a later edit to an approval's record no longer matches its receipt, and if signing fails nothing executes. To show who made a request on the approval sheet, implement `ExactApproval\Symfony\RequesterLabel` and alias it. For example, it can name the agent connection, such as "Claude (claude.ai), an agent you connected to your account".
 
 Import the review routes. The directory depends on whether you install through Composer or a local path repository:
 
@@ -166,9 +170,16 @@ Publication is distinct from draft editing. Saving a new draft does not change p
 
 The core depends on `ApprovalVerifier`; the separate WebAuthn package supplies `WebAuthnVerifier`, using the existing PHP WebAuthn library. It requires user verification and validates credential ownership, origin, RP ID, challenge and signature. User verification can be a biometric, PIN or other authenticator verification method; it does not prove fingerprint-only use.
 
-Credential registration belongs to the application's trusted account process. The demo illustrates this with short-lived, single-use enrollment options held in the browser session, CSRF protection, separate human login and a registration rate limiter. Its MCP token cannot access that flow or policy administration.
+Credential registration belongs to the application's trusted account process, and a password alone must not be enough for it. The demo handles a person's passkeys like this:
+- **First passkey:** needs a one-time link, issued at setup or by an administrator confirming with their own passkey.
+- **Further passkeys:** need a fresh confirmation with an existing passkey.
+- **Every registration** is recorded with its public key in the core's signed `AuditLog`. The verifier uses `AnchoredCredentialRepository`, so only passkeys with a signed enrollment record can approve.
 
-The demo administrator form uses Symfony Form and Validator. For each role it sets whether that role issues alerts directly, must approve each exact alert with a passkey, or may not issue them, plus a plain-text statement template with known placeholders. Saving increments the policy version. A role set to issue directly lets **new** authorized requests from that role execute without proof. It cannot make an older pending proposal eligible under its previous policy. Your own `PolicyProvider` receives the requesting `Actor`, so the rule can depend on whatever your application knows about the person.
+Its MCP token cannot reach enrollment, policy administration or the audit page.
+
+The demo administrator form uses Symfony Form and Validator. For each role it sets whether that role issues alerts directly, must approve each exact alert with a passkey, or may not issue them, plus a plain-text statement template with known placeholders.
+
+Saving does not change anything by itself. It proposes a `policy.change` action, which the administrator approves with their own passkey like any other, and its policy is fixed in code. Approving it increments the policy version. A role set to issue directly lets **new** authorized requests from that role execute without proof. It cannot make an older pending proposal eligible under its previous policy. Your own `PolicyProvider` receives the requesting `Actor`, so the rule can depend on whatever your application knows about the person.
 
 Twig review templates live under `packages/symfony/templates`, and the shared browser asset uses `navigator.credentials.create()` / `navigator.credentials.get()`. The controller emits no-store, frame restrictions and a CSP. Applications can override the templates through normal Twig bundle overrides, while preserving the full frozen action and required statement.
 
@@ -205,6 +216,11 @@ It is off by default, applies only under MCP 2026-07-28 or later, and its retry 
 
 ### Approve on your phone
 
-When `public_origin` is HTTPS, the card also offers **Approve on your phone**. It calls the app-only `approval_handoff` tool, which issues a one-time link to `/approval/handoff/{token}` (single use, two minutes) and returns it as QR modules that the card draws itself. Opening the link starts a session scoped to that one request's review, for the same person. It is not a sign-in: the session reaches no other page, and approving still takes the person's passkey.
+When `public_origin` is HTTPS, the card also offers **Approve on your phone**. It calls the app-only `approval_handoff` tool, which issues a one-time link to `/approval/handoff/{token}` (single use, two minutes) and returns it as QR modules that the card draws itself.
+- **Opening the link** shows a Continue button. A link previewer fetching the URL cannot use the code up.
+- **Continue** redeems the code once, under a lock, and starts a session scoped to that one request's review, for the same person.
+- **That session** is not a sign-in. It reaches no other page, it cannot cancel the request (cancelling needs the signed-in person), and approving still takes the person's passkey.
+
+The tool applies the same read check as `approval_status` and a per-person budget. "App only" visibility is a convention hosts follow, not a server boundary, so treat the tool as callable by any client holding the person's token.
 
 Your firewall must let `/approval/handoff/{token}` and the review routes through without a sign-in. The controller then requires either the signed-in person or that scoped session; see the demo's `access_control`. Codes are kept in `cache.app`, so several web servers need a shared cache pool.

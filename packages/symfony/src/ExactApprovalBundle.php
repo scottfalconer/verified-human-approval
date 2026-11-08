@@ -44,6 +44,10 @@ final class ExactApprovalBundle extends AbstractBundle
             ->scalarNode('clock')->defaultValue('exact_approval.clock')->end()
             ->integerNode('attempts_per_minute')->min(2)->max(1000)->defaultValue(30)->end()
             ->scalarNode('rate_limiter')->defaultValue('exact_approval.limiter')->end()
+            ->scalarNode('receipt_signer')
+                ->info('An ExactApproval\\Core\\Evidence\\EvidenceSigner service. When set, each execution\'s receipt is signed inside the completing transaction, so later edits to the record show.')
+                ->defaultNull()
+            ->end()
             ->arrayNode('url_elicitation')
                 ->info('Native URL-mode elicitation for pending approvals, on MCP 2026-07-28 or later. Off by default: the card and link always work, and some clients declare URL mode and then decline or drop it.')
                 ->addDefaultsIfNotSet()
@@ -70,6 +74,7 @@ final class ExactApprovalBundle extends AbstractBundle
             service(ActionRegistry::class), service($config['policy_provider']),
             service($config['authorizer']), service($config['store']),
             service($config['verifier']), service($config['clock']), service(ExecutionGuard::class),
+            $config['receipt_signer'] === null ? null : service($config['receipt_signer']),
         ]);
         $services->set(ApprovalPresenter::class)->arg('$publicOrigin', $config['public_origin']);
         $services->alias(ResultPresenter::class, ApprovalPresenter::class);
@@ -82,8 +87,8 @@ final class ExactApprovalBundle extends AbstractBundle
         ]);
         $services->set(ApprovalController::class)->arg('$limiter', service($config['rate_limiter']))->public()->tag('controller.service_arguments');
         $services->set(ApprovalStatusTool::class);
-        $services->set(ApprovalHandoff::class)->args([service('cache.app'), service('router'), $config['public_origin']]);
-        $services->set(ApprovalCardApp::class);
+        $services->set(ApprovalHandoff::class)->args([service('cache.app'), service('router'), $config['public_origin'], service('exact_approval.limiter.lock_factory')]);
+        $services->set(ApprovalCardApp::class)->arg('$limiter', service($config['rate_limiter']));
         $services->set(UrlPrompt::class)->args([$config['url_elicitation']['enabled'], $config['url_elicitation']['clients']]);
         $services->set(ApprovalFlow::class);
         $services->set(SecurityHeadersSubscriber::class);

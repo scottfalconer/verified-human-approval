@@ -13,7 +13,9 @@ use ExactApproval\Demo\DemoDatabase;
 final readonly class PublishAnnouncement implements ActionAdapter
 {
     public function __construct(private DemoDatabase $database, private AnnouncementPublisher $publisher) {}
-    public function id(): string { return 'announcement.publish'; }
+    public const ID = 'announcement.publish';
+
+    public function id(): string { return self::ID; }
     /** The public page's template and stylesheet are part of what the person approves: changing either after review invalidates the approval. */
     public function version(): string
     {

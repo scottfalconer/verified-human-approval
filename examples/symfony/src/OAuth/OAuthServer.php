@@ -15,6 +15,8 @@ final readonly class OAuthServer
     public const SCOPES = ['announcement.read', 'announcement.publish', 'approval.read'];
     private const CODE_SECONDS = 300;
     private const TOKEN_SECONDS = 3600;
+    /** However often it is refreshed, a connection ends after this; the person connects again. */
+    private const CONNECTION_SECONDS = 30 * 86400;
 
     public function __construct(private DemoDatabase $database) {}
 
@@ -29,11 +31,11 @@ final readonly class OAuthServer
     }
 
     /** @param list<string> $scopes */
-    public function issueCode(string $clientId, string $redirectUri, string $userId, string $tenantId, array $scopes, string $challenge): string
+    public function issueCode(string $clientId, string $redirectUri, string $userId, string $tenantId, array $scopes, string $challenge, ?string $clientName = null): string
     {
         $code = self::random();
-        $this->database->pdo->prepare('INSERT INTO demo_oauth_codes (code_hash, client_id, redirect_uri, user_id, tenant_id, scopes, code_challenge, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-            ->execute([hash('sha256', $code), $clientId, $redirectUri, $userId, $tenantId, json_encode($scopes, JSON_THROW_ON_ERROR), $challenge, time() + self::CODE_SECONDS]);
+        $this->database->pdo->prepare('INSERT INTO demo_oauth_codes (code_hash, client_id, redirect_uri, user_id, tenant_id, scopes, code_challenge, expires_at, client_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+            ->execute([hash('sha256', $code), $clientId, $redirectUri, $userId, $tenantId, json_encode($scopes, JSON_THROW_ON_ERROR), $challenge, time() + self::CODE_SECONDS, $clientName]);
 
         return $code;
     }
@@ -57,8 +59,8 @@ final readonly class OAuthServer
         $access = self::random();
         $refresh = self::random();
         $grant = 'oauth-'.bin2hex(random_bytes(8));
-        $this->database->pdo->prepare('INSERT INTO demo_grants (id, user_id, tenant_id, token_hash, active, scopes, expires_at, client_id, refresh_hash) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)')
-            ->execute([$grant, $row['user_id'], $row['tenant_id'], hash('sha256', $access), $row['scopes'], time() + self::TOKEN_SECONDS, $clientId, hash('sha256', $refresh)]);
+        $this->database->pdo->prepare('INSERT INTO demo_grants (id, user_id, tenant_id, token_hash, active, scopes, expires_at, client_id, refresh_hash, client_name, created_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)')
+            ->execute([$grant, $row['user_id'], $row['tenant_id'], hash('sha256', $access), $row['scopes'], time() + self::TOKEN_SECONDS, $clientId, hash('sha256', $refresh), $row['client_name'] ?? null, time()]);
 
         return self::tokens($access, $refresh, json_decode($row['scopes'], true, 4, JSON_THROW_ON_ERROR));
     }
@@ -70,6 +72,9 @@ final readonly class OAuthServer
         $query->execute([hash('sha256', $refreshToken), $clientId]);
         $grant = $query->fetch();
         if ($grant === false) throw new OAuthError('invalid_grant', 'The refresh token is invalid.');
+        if ($grant['created_at'] !== null && (int) $grant['created_at'] + self::CONNECTION_SECONDS < time()) {
+            throw new OAuthError('invalid_grant', 'This connection has ended. Connect again.');
+        }
         $access = self::random();
         $refresh = self::random();
         $update = $this->database->pdo->prepare('UPDATE demo_grants SET token_hash = ?, refresh_hash = ?, expires_at = ? WHERE id = ? AND refresh_hash = ?');

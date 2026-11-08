@@ -28,7 +28,7 @@ final readonly class SodiumEvidenceSigner implements EvidenceSigner
 
     public function sign(string $manifest): string
     {
-        return ChallengeBinding::encode(sodium_crypto_sign_detached("ExactApproval/Receipt/v1\0".$manifest, $this->secretKey));
+        return ChallengeBinding::encode(sodium_crypto_sign_detached(Receipt::message($manifest), $this->secretKey));
     }
 
     public function publicKey(): string

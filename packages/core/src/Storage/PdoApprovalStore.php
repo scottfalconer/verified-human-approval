@@ -32,6 +32,10 @@ final class PdoApprovalStore implements ApprovalStore
         $this->pdo->exec('CREATE TABLE IF NOT EXISTS exact_approval_executions (
             request_id TEXT PRIMARY KEY REFERENCES exact_approval_requests(id), record TEXT NOT NULL
         )');
+        // The application's receipt, signed in the completing transaction.
+        $this->pdo->exec('CREATE TABLE IF NOT EXISTS exact_approval_receipts (
+            request_id TEXT PRIMARY KEY REFERENCES exact_approval_requests(id), key_id TEXT NOT NULL, manifest TEXT NOT NULL, signature TEXT NOT NULL
+        )');
         $this->pdo->exec('CREATE TABLE IF NOT EXISTS exact_approval_ceremonies (
             id TEXT PRIMARY KEY, request_id TEXT NOT NULL REFERENCES exact_approval_requests(id),
             nonce TEXT NOT NULL, challenge TEXT NOT NULL, expires_at TEXT NOT NULL,
@@ -81,14 +85,37 @@ final class PdoApprovalStore implements ApprovalStore
 
     public function get(string $id): ?ApprovalState
     {
-        $statement = $this->pdo->prepare('SELECT r.*, e.record AS execution FROM exact_approval_requests r LEFT JOIN exact_approval_executions e ON e.request_id = r.id WHERE r.id = ?');
+        $statement = $this->pdo->prepare(self::SELECT.' WHERE r.id = ?');
         $statement->execute([$id]);
         $row = $statement->fetch(\PDO::FETCH_ASSOC);
-        if ($row === false) {
-            return null;
-        }
+
+        return $row === false ? null : self::state($row);
+    }
+
+    /**
+     * The newest requests first, for an administrator's audit view. The host filters them by tenant.
+     *
+     * @return list<ApprovalState>
+     */
+    public function recent(int $limit = 200): array
+    {
+        $statement = $this->pdo->prepare(self::SELECT.' ORDER BY r.rowid DESC LIMIT ?');
+        $statement->bindValue(1, max(1, min($limit, 1000)), \PDO::PARAM_INT);
+        $statement->execute();
+
+        return array_map(self::state(...), $statement->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    private const SELECT = 'SELECT r.*, e.record AS execution, c.key_id AS receipt_key_id, c.manifest AS receipt_manifest, c.signature AS receipt_signature
+        FROM exact_approval_requests r LEFT JOIN exact_approval_executions e ON e.request_id = r.id LEFT JOIN exact_approval_receipts c ON c.request_id = r.id';
+
+    /** @param array<string, mixed> $row */
+    private static function state(array $row): ApprovalState
+    {
         $decode = static fn (?string $json): ?array => $json === null ? null : CanonicalJson::map(CanonicalJson::decode($json));
-        return new ApprovalState(new ApprovalRequest($row['id'], $row['proposal'], $row['digest']), $row['status'], $row['reason'], $decode($row['result']), $decode($row['execution']), $decode($row['proof']));
+        $receipt = $row['receipt_manifest'] === null ? null : ['manifest' => $row['receipt_manifest'], 'keyId' => $row['receipt_key_id'], 'signature' => $row['receipt_signature']];
+
+        return new ApprovalState(new ApprovalRequest($row['id'], $row['proposal'], $row['digest']), $row['status'], $row['reason'], $decode($row['result']), $decode($row['execution']), $decode($row['proof']), $receipt);
     }
 
     public function findByKey(Actor $actor, string $idempotencyKey): ?array
@@ -119,6 +146,10 @@ final class PdoApprovalStore implements ApprovalStore
                 throw new \LogicException('Completion requires a durable result and execution record.');
             }
             $this->pdo->prepare('INSERT INTO exact_approval_executions (request_id, record) VALUES (?, ?)')->execute([$state->request->id, CanonicalJson::encode((object) $state->execution)]);
+            if ($state->receipt !== null) {
+                $this->pdo->prepare('INSERT INTO exact_approval_receipts (request_id, key_id, manifest, signature) VALUES (?, ?, ?, ?)')
+                    ->execute([$state->request->id, $state->receipt['keyId'], $state->receipt['manifest'], $state->receipt['signature']]);
+            }
         }
         $this->pdo->prepare('UPDATE exact_approval_requests SET status = ?, reason = ?, result = ?, proof = ? WHERE id = ? AND status = ?')->execute([
             $state->status, $state->reason,
@@ -131,8 +162,8 @@ final class PdoApprovalStore implements ApprovalStore
     public function putCeremony(Ceremony $ceremony): void
     {
         $this->assertTransaction();
-        // A new explicit review attempt supersedes older unfinished challenges for this proposal.
-        $this->pdo->prepare('UPDATE exact_approval_ceremonies SET consumed = 1 WHERE request_id = ?')->execute([$ceremony->requestId]);
+        // Earlier unfinished challenges stay valid until they expire: each is single use and tied to the
+        // browser session that started it, so a second session starting a review cannot cancel the first.
         $this->pdo->prepare('INSERT INTO exact_approval_ceremonies (id, request_id, nonce, challenge, expires_at, options, consumed) VALUES (?, ?, ?, ?, ?, ?, ?)')->execute([
             $ceremony->id, $ceremony->requestId, $ceremony->nonce, $ceremony->challenge, $ceremony->expiresAt, CanonicalJson::encode((object) $ceremony->options), (int) $ceremony->consumed,
         ]);

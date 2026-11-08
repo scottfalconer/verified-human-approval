@@ -135,7 +135,8 @@ def main():
                 computer.locator("#password").fill(accounts["editor"]["password"])
                 computer.get_by_role("button", name="Sign in", exact=True).click()
                 computer.wait_for_url(ORIGIN + "/")
-                computer.goto(ORIGIN + "/account/passkeys")
+                computer.goto(accounts["editor"]["passkey_link"])
+                computer.wait_for_url(ORIGIN + "/account/passkeys")
                 computer.locator("[data-approve]").click()
                 expect(computer.get_by_text("Personal passkey", exact=True)).to_be_visible(timeout=15000)
                 synced = computer_cdp.send("WebAuthn.getCredentials", {"authenticatorId": computer_key})["credentials"]
@@ -155,6 +156,9 @@ def main():
                 phone, phone_cdp, phone_key = device(viewport={"width": 390, "height": 844}, device_scale_factor=3, is_mobile=True, has_touch=True)
                 phone_cdp.send("WebAuthn.addCredential", {"authenticatorId": phone_key, "credential": synced[0]})
                 phone.goto(link)
+                # Opening the link shows a Continue button, so a link previewer cannot use the code up.
+                expect(phone.get_by_role("button", name="Continue")).to_be_visible()
+                phone.get_by_role("button", name="Continue").click()
                 phone.wait_for_url(f"{ORIGIN}/approval/{request_id}#return=handoff")
                 expect(phone.locator(".statement")).to_contain_text("Evacuation order")
                 expect(phone.locator(".rc-frame .rc-body")).to_contain_text("Hill Street route")

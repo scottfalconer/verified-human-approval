@@ -230,44 +230,56 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame(0, $this->mutationCount());
     }
 
-    public function testAdministratorFormValidatesStatementsAndVersionChangesInvalidatePendingRequests(): void
+    public function testRuleChangesTakeTheAdministratorsPasskeyAndInvalidateWaitingRequests(): void
     {
         $id = $this->requestAction();
         $staff = $this->browser('editor');
         $staff->request('GET', self::ORIGIN.'/admin/approval-policy');
         self::assertSame(403, $staff->getResponse()->getStatusCode(), 'County staff cannot change who must verify.');
         $browser = $this->browser('manager');
+        $managerKey = $this->enroll($browser, 'manager');
         $crawler = $browser->request('GET', self::ORIGIN.'/admin/approval-policy');
         self::assertSame(200, $browser->getResponse()->getStatusCode());
-        $form = $crawler->selectButton('Save policy')->form();
+        $form = $crawler->selectButton('Propose this change')->form();
         $form['approval_policy[statement]'] = 'I approve {{unknown}}';
         $browser->submit($form);
-        self::assertSame(200, $browser->getResponse()->getStatusCode());
-        self::assertSame(1, (int) $this->database->policy('announcement.publish')['version']);
-        $crawler = $browser->request('GET', self::ORIGIN.'/admin/approval-policy');
-        $form = $crawler->selectButton('Save policy')->form();
-        $form['approval_policy[statement]'] = 'I approve exactly “{{title}}” revision {{revision}}.';
-        $browser->submit($form);
-        self::assertSame(302, $browser->getResponse()->getStatusCode());
+        self::assertSame(200, $browser->getResponse()->getStatusCode(), 'An unknown placeholder is refused before anyone approves.');
+        self::assertSame(0, (int) $this->database->pdo->query("SELECT COUNT(*) FROM exact_approval_requests WHERE proposal LIKE '%policy.change%'")->fetchColumn());
+
+        // Proposing a change changes nothing.
+        $proposal = $this->proposeRule($browser, ['approval_policy[statement]' => 'I approve exactly “{{title}}” revision {{revision}}.']);
+        self::assertSame(1, (int) $this->database->policy('announcement.publish')['version'], 'Nothing changes on a password session alone.');
+        $review = $browser->request('GET', self::ORIGIN.'/approval/'.$proposal);
+        self::assertStringContainsString('Change who can issue public alerts', $review->filter('h1')->text());
+        self::assertStringContainsString('The statement approvers confirm', $review->filter('.statement')->first()->text());
+        // The administrator approves the exact change with their own passkey.
+        self::assertSame('completed', $this->approveWith($browser, $proposal, $managerKey)['status']);
         self::assertSame(2, (int) $this->database->policy('announcement.publish')['version']);
-        $crawler = $browser->request('GET', self::ORIGIN.'/approval/'.$id);
-        $staff = $this->browser('editor');
+
         $crawler = $staff->request('GET', self::ORIGIN.'/approval/'.$id);
         $csrf = (string) $crawler->filter('[data-passkey-panel]')->attr('data-csrf');
         $rejected = $this->post($staff, '/approval/'.$id.'/options', $csrf, []);
         self::assertSame(409, $staff->getResponse()->getStatusCode());
-        self::assertSame('policy_changed', $rejected['reason']);
+        self::assertSame('policy_changed', $rejected['reason'], 'A request waiting under the old rule can no longer be approved.');
         self::assertSame(0, $this->mutationCount());
 
-        $crawler = $browser->request('GET', self::ORIGIN.'/admin/approval-policy');
-        $form = $crawler->selectButton('Save policy')->form();
-        $form['approval_policy[staff]']->select('direct');
-        $browser->submit($form);
-        self::assertSame(302, $browser->getResponse()->getStatusCode());
-        $newRequest = $this->mcp()->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
+        // Letting staff issue directly is a rule change too: it waits for the administrator's passkey.
+        $direct = $this->proposeRule($browser, ['approval_policy[staff]' => 'direct']);
+        self::assertSame('pending', $this->mcp()->callTool('publish_alert', ['alert_id' => 'riverside-evacuation'])->structuredContent['status'], 'Until approved, staff still verify.');
+        self::assertSame('completed', $this->approveWith($browser, $direct, $managerKey)['status']);
+        $newRequest = $this->mcp()->callTool('publish_alert', ['alert_id' => 'riverside-evacuation', 'request_key' => 'after-the-change']);
         self::assertSame('completed', $newRequest->structuredContent['status']);
         self::assertSame(1, $this->mutationCount());
-        self::assertSame(1, (int) $this->database->pdo->query("SELECT COUNT(*) FROM exact_approval_requests WHERE status='invalidated'")->fetchColumn());
+    }
+
+    public function testAnAgentAndAStaffPasswordCannotChangeTheRule(): void
+    {
+        $agent = $this->mcp('manager');
+        self::assertNotContains('policy.change', array_map(static fn ($tool) => $tool->name, $agent->listTools()->tools));
+        $this->database->pdo->exec("UPDATE demo_users SET is_admin = 0 WHERE id = 'manager'");
+        $browser = $this->browser('manager');
+        $browser->request('GET', self::ORIGIN.'/admin/approval-policy');
+        self::assertSame(403, $browser->getResponse()->getStatusCode());
     }
 
     public function testBinaryReceiptKeysCannotBeInterpretedAsContainerParameters(): void
@@ -309,6 +321,7 @@ final class SymfonyApprovalTest extends TestCase
         $settings['enrollment_attempts_per_minute'] = 2;
         file_put_contents($this->runtime.'/settings.json', json_encode($settings, JSON_THROW_ON_ERROR));
         $browser = $this->browser('editor');
+        $browser->request('GET', $this->accounts['editor']['passkey_link']);
         $crawler = $browser->request('GET', self::ORIGIN.'/account/passkeys');
         $csrf = (string) $crawler->filter('[data-passkey-panel]')->attr('data-csrf');
         $this->post($browser, '/account/passkeys/options', $csrf, []);
@@ -560,8 +573,10 @@ final class SymfonyApprovalTest extends TestCase
         return $browser;
     }
 
-    private function enroll(KernelBrowser $browser): VirtualAuthenticator
+    private function enroll(KernelBrowser $browser, string $user = 'editor'): VirtualAuthenticator
     {
+        $browser->request('GET', $this->accounts[$user]['passkey_link']);
+        self::assertSame(302, $browser->getResponse()->getStatusCode(), 'The one-time passkey link authorizes a first passkey.');
         $crawler = $browser->request('GET', self::ORIGIN.'/account/passkeys');
         self::assertSame(200, $browser->getResponse()->getStatusCode());
         $csrf = (string) $crawler->filter('[data-passkey-panel]')->attr('data-csrf');
@@ -573,6 +588,27 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame('registered', $result['status']);
 
         return $authenticator;
+    }
+
+    /** @param array<string, string> $fields */
+    private function proposeRule(KernelBrowser $browser, array $fields): string
+    {
+        $crawler = $browser->request('GET', self::ORIGIN.'/admin/approval-policy');
+        $form = $crawler->selectButton('Propose this change')->form();
+        foreach ($fields as $name => $value) {
+            str_ends_with($name, '[statement]') ? $form[$name] = $value : $form[$name]->select($value);
+        }
+        $browser->submit($form);
+        self::assertSame(302, $browser->getResponse()->getStatusCode(), (string) $browser->getResponse()->getContent());
+
+        return basename((string) $browser->getResponse()->headers->get('Location'));
+    }
+
+    private function approveWith(KernelBrowser $browser, string $id, VirtualAuthenticator $authenticator): array
+    {
+        [$csrf, $ceremony] = $this->begin($browser, $id);
+
+        return $this->post($browser, '/approval/'.$id.'/complete', $csrf, ['ceremony_id' => $ceremony['ceremony_id'], 'credential' => $authenticator->assertion($ceremony['publicKey'])]);
     }
 
     private function begin(KernelBrowser $browser, string $id): array
