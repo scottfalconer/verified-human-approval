@@ -15,8 +15,9 @@ Run on macOS with PHP 8.3.31. The sections after this one keep the first build's
 | `tests/claude_code_host.py`, with Claude Code 2.1.317 and claude-haiku-5-5 | Passed. The URL-mode elicitation reached the host; after the passkey approval and "accept", the retried call returned "completed", with one committed effect |
 | GitHub Actions: PHP 8.3, PHP 8.4 and the Drupal job | Passed |
 | A Claude Desktop chat, through a probe server using the same card mechanism | The card rendered, opened the review page through `ui/open-link`, and switched to approved after approval on the site |
+| A Claude Desktop chat with this demo through `mcp-remote`, with physical Touch ID | Passed at 16:21 UTC. Claude called `publish_announcement` with the editor's personal token. The card polled `approval_status` every 3 seconds. An iCloud Keychain passkey, user verified, approved the exact page 21 seconds later. The site published once, and the card's polling stopped on the next poll |
 
-Not yet run: the demo's own card in Claude Desktop with a physical Touch ID approval, and any hosted or phone connection.
+Not yet run: any hosted or phone connection.
 
 ## Automated PHP checks
 

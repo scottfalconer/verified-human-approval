@@ -105,7 +105,7 @@ Verified on a Mac with PHP 8.3:
 - the HTTP smoke test;
 - the Chrome passkey flow with a virtual authenticator;
 - Claude Code 2.1.317's native prompt end to end;
-- the approval card flow in a real Claude Desktop chat, shown with a probe server that uses the same card mechanism.
+- the whole flow in a real Claude Desktop chat with Touch ID: the card appeared, the review page showed the final page, an iCloud Keychain passkey approved it, the site published once, and the card picked up the result.
 
 Not yet covered:
 - a hosted connection with OAuth, so a phone can approve over the internet;
