@@ -22,5 +22,8 @@
   "config": {
     "sort-packages": true
   },
-  "homepage": "https://github.com/scottfalconer/verified-human-approval"
+  "homepage": "https://github.com/scottfalconer/verified-human-approval",
+  "bin": [
+    "bin/verify-evidence.php"
+  ]
 }

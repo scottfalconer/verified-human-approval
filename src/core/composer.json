@@ -20,8 +20,5 @@
       "VerifiedHumanApproval\\Core\\": "src/"
     }
   },
-  "homepage": "https://github.com/scottfalconer/verified-human-approval",
-  "bin": [
-    "bin/verify-evidence.php"
-  ]
+  "homepage": "https://github.com/scottfalconer/verified-human-approval"
 }

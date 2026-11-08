@@ -322,6 +322,29 @@ final class ApprovalEvidenceTest extends TestCase
         self::assertStringContainsString('Verification failed', $stderr);
     }
 
+    public function testTheVerifierRunsFromAnInstalledPackageAndThroughComposersBinProxy(): void
+    {
+        $bundle = $this->exportPersisted($this->complete());
+        // An application's vendor directory, laid out as Composer installs it; its autoloader stands in for the real one.
+        $app = sys_get_temp_dir().'/verified-human-approval-consumer-'.bin2hex(random_bytes(6));
+        $installed = $app.'/vendor/verified-human-approval/webauthn/bin/verify-evidence.php';
+        mkdir(\dirname($installed), 0700, true);
+        mkdir($app.'/vendor/bin', 0700);
+        copy(\dirname(__DIR__, 2).'/src/webauthn/bin/verify-evidence.php', $installed);
+        file_put_contents($app.'/vendor/autoload.php', '<?php return require '.var_export(\dirname(__DIR__, 2).'/vendor/autoload.php', true).';');
+        // Composer's proxy: it names the autoloader, then includes the package's script.
+        file_put_contents($app.'/vendor/bin/verify-evidence.php', "<?php\n\$GLOBALS['_composer_autoload_path'] = __DIR__.'/../autoload.php';\ninclude __DIR__.'/../verified-human-approval/webauthn/bin/verify-evidence.php';\n");
+        try {
+            foreach ([$installed, $app.'/vendor/bin/verify-evidence.php'] as $script) {
+                [$exit, $stdout, $stderr] = $this->runVerifier($bundle, script: $script);
+                self::assertSame(0, $exit, $script.': '.$stderr);
+                self::assertTrue(json_decode($stdout, true, flags: \JSON_THROW_ON_ERROR)['credentialApprovedExactProposal']);
+            }
+        } finally {
+            (new \Symfony\Component\Filesystem\Filesystem())->remove($app);
+        }
+    }
+
     public function testAReceiptSignerFailureMeansNothingExecutes(): void
     {
         $unavailable = new class implements EvidenceSigner {
@@ -383,7 +406,7 @@ final class ApprovalEvidenceTest extends TestCase
     }
 
     /** @return array{int, string, string} */
-    private function runVerifier(array $bundle, ?Credential $credential = null): array
+    private function runVerifier(array $bundle, ?Credential $credential = null, ?string $script = null): array
     {
         $credential ??= $this->trustedCredential;
         $directory = sys_get_temp_dir().'/verified-human-approval-evidence-'.bin2hex(random_bytes(8));
@@ -409,7 +432,7 @@ final class ApprovalEvidenceTest extends TestCase
             }
             $process = proc_open([
                 \PHP_BINARY,
-                \dirname(__DIR__, 2).'/src/core/bin/verify-evidence.php',
+                $script ?? \dirname(__DIR__, 2).'/src/webauthn/bin/verify-evidence.php',
                 $directory.'/evidence.json',
                 $directory.'/application.json',
                 $directory.'/credential.json',

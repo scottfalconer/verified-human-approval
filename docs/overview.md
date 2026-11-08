@@ -157,7 +157,7 @@ After completion, a signed-in owner can download `/approval/REQUEST_ID/evidence`
 An independent command verifies evidence using **separately trusted** application and credential files:
 
 ```sh
-php src/core/bin/verify-evidence.php evidence.json trusted-application.json trusted-credential.json
+vendor/bin/verify-evidence.php evidence.json trusted-application.json trusted-credential.json
 ```
 
 The trust file formats are documented in [evidence verification](evidence.md). The verifier reports two separate claims: the credential approved this proposal, and the application signed this execution report. It does not independently witness the database effect or prove what a person understood. Never trust a key merely because it appears inside the evidence being checked.

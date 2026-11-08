@@ -12,16 +12,21 @@ use VerifiedHumanApproval\WebAuthn\Credential;
 use VerifiedHumanApproval\WebAuthn\CredentialRepository;
 use VerifiedHumanApproval\WebAuthn\WebAuthnVerifier;
 
-// Installed through Composer, or run from the monorepo checkout.
-foreach ([dirname(__DIR__, 4).'/autoload.php', dirname(__DIR__, 3).'/vendor/autoload.php'] as $autoload) {
-    if (is_file($autoload)) {
+// Composer's vendor/bin proxy names the autoloader. Run directly, the script finds it next to an installed
+// package (vendor/verified-human-approval/webauthn/bin) or in the monorepo checkout (src/webauthn/bin).
+foreach ([$GLOBALS['_composer_autoload_path'] ?? null, dirname(__DIR__, 3).'/autoload.php', dirname(__DIR__, 3).'/vendor/autoload.php'] as $autoload) {
+    if (is_string($autoload) && is_file($autoload)) {
         require $autoload;
         break;
     }
 }
+if (!class_exists(ReceiptVerifier::class)) {
+    fwrite(\STDERR, "No Composer autoloader found. Install verified-human-approval/webauthn with Composer, then run vendor/bin/verify-evidence.php.\n");
+    exit(2);
+}
 
 if (4 !== $argc) {
-    fwrite(\STDERR, "Usage: php src/core/bin/verify-evidence.php evidence.json trusted-application.json trusted-credential.json\nTrust files must come from an independently trusted registration/key source, not the evidence itself.\n");
+    fwrite(\STDERR, "Usage: vendor/bin/verify-evidence.php evidence.json trusted-application.json trusted-credential.json\nTrust files must come from an independently trusted registration/key source, not the evidence itself.\n");
     exit(2);
 }
 
@@ -38,9 +43,19 @@ try {
 
         return CanonicalJson::map(CanonicalJson::decode($json));
     };
+    // Each trust file names exactly what is trusted; anything missing is an error, not a guess.
+    $fields = static function (array $file, array $names, string $which): array {
+        foreach ($names as $name) {
+            if (!is_string($file[$name] ?? null) || '' === $file[$name]) {
+                throw new RuntimeException(sprintf('The trusted %s file needs "%s".', $which, $name));
+            }
+        }
+
+        return $file;
+    };
     $bundle = $read($argv[1]);
-    $application = $read($argv[2]);
-    $trusted = $read($argv[3]);
+    $application = $fields($read($argv[2]), ['keyId', 'publicKey', 'rpId', 'origin'], 'application');
+    $trusted = $fields($read($argv[3]), ['id', 'userId', 'tenantId', 'sourceJson'], 'credential');
     $verified = (new ReceiptVerifier())->verify($bundle, $application['keyId'], $application['publicKey']);
     $proof = $verified['proof'];
     $human = false;

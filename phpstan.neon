@@ -6,7 +6,7 @@ parameters:
         - src/mcp/src
         - src/symfony-bundle/src
         - demo/src
-        - src/core/bin
+        - src/webauthn/bin
     tmpDir: .phpstan
     ignoreErrors:
         # The demo's arrays are database rows and form data; the packages declare every array's value type.

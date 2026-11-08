@@ -29,7 +29,7 @@ Two trust files are supplied separately. Do not accept trust data supplied solel
 `sourceJson` is a JSON **string** containing the WebAuthn library’s serialized registration record. It contains a public key and registered owner/handle, not the passkey private key. Obtain it through a trusted registration/audit process. Application setup prints the example receipt public key; runtime settings retain it. Never distribute the secret signing key from those settings.
 
 ```sh
-php src/core/bin/verify-evidence.php evidence.json trusted-application.json trusted-credential.json
+vendor/bin/verify-evidence.php evidence.json trusted-application.json trusted-credential.json
 ```
 
 Successful output separately reports `credentialApprovedExactProposal` and `applicationSignedExecutionReport`, plus the original statement. Altered statements, effects, assertions, nonces, execution reports and substituted keys fail verification. An administrator may later update the live policy; that does not rewrite the old signed statement.
