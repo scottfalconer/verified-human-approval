@@ -1,6 +1,6 @@
 # Verified Human Approval: MCP presentation (`exact-approval/mcp`)
 
-How a pending approval reaches a person through MCP. The Symfony bundle and the Drupal module both use this package; it needs only the core package and the official PHP MCP SDK.
+How a pending approval reaches a person through MCP. The Symfony bundle uses this package; it needs only the core package and the official PHP MCP SDK, so other frameworks can too.
 
 Nothing here approves anything. The person approves on the application's own review page with a passkey, and that completion executes the stored proposal. A client's answer to a prompt is never treated as approval.
 

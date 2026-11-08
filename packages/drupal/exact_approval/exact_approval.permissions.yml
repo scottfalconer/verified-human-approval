@@ -1,9 +1,0 @@
-administer exact approval:
-  title: Administer exact approval
-  description: Change protected operations and approval statements. This permission does not bypass approval.
-  restrict access: true
-view exact approval audit:
-  title: View all exact approval evidence
-  description: View and export approval evidence for all users, including deleted content snapshots.
-  restrict access: true
-

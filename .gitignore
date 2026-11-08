@@ -4,12 +4,6 @@
 /examples/symfony/var/
 /.env.local
 /.phpstan/
-/examples/drupal/vendor/
-/examples/drupal/web/
-/examples/drupal/var/
 **/__pycache__/
 *.pyc
-/.venv-drupal-http/
-/examples/drupal/.gitignore
-/examples/drupal/recipes/
 .DS_Store

@@ -86,7 +86,7 @@ What this cannot show:
 
 - This is a tested initial implementation, not a third-party security audit or a claim of being bulletproof.
 - One local transaction does not cover remote MCP/HTTP calls, emails, payments or nontransactional hooks.
-- The Drupal adapter is implemented using Drupal's connection and transaction manager, and is verified with SQLite. PostgreSQL/MySQL deployments are not verified in this build. See `drupal-verification.md` and the module README for its storage and authentication boundaries.
+- Only SQLite is verified. PostgreSQL/MySQL deployments need their own transaction-contract run.
 - The demo's OAuth server and personal tokens are reference implementations. Production deployments connect their own identity provider.
 - Without attestation (the demo uses `none`, which iCloud Keychain and Google Password Manager require), the application cannot prove a passkey lives in hardware. A person who deliberately enrolls an automatable software authenticator can approve without being present. The audit view shows each passkey's reported authenticator and how it was enrolled. Deployments that must prevent this can require attestation, at the cost of synced passkeys.
 - User verification does not attest an exact biometric modality.

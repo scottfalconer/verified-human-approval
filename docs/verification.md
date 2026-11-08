@@ -51,7 +51,7 @@ Run on macOS with PHP 8.3.31. The sections after this one keep the first build's
 | `tests/http_smoke.py` | Passed |
 | `tests/browser_smoke.py`, with real Chrome and a CDP virtual authenticator | Passed. It covers enrollment and approval through the real page scripts, a 404 before approval, a live page identical to the approved preview, and the stale-draft refusal |
 | `tests/claude_code_host.py`, with Claude Code 2.1.317 and claude-haiku-5-5 | Passed. The URL-mode elicitation reached the host; after the passkey approval and "accept", the retried call returned "completed", with one committed effect |
-| GitHub Actions: PHP 8.3, PHP 8.4 and the Drupal job | Passed |
+| GitHub Actions: PHP 8.3, PHP 8.4 and the Drupal job (the Drupal port has since moved out of this repository) | Passed |
 | A Claude Desktop chat, through a probe server using the same card mechanism | The card rendered, opened the review page through `ui/open-link`, and switched to approved after approval on the site |
 | A Claude Desktop chat with this demo through `mcp-remote`, with physical Touch ID | Passed at 16:21 UTC. Claude called `publish_announcement` with the editor's personal token. The card polled `approval_status` every 3 seconds. An iCloud Keychain passkey, user verified, approved the exact page 21 seconds later. The site published once, and the card's polling stopped on the next poll |
 
@@ -122,7 +122,7 @@ The supplied CI workflow targets PHP 8.3 and 8.4. It has not been executed on Gi
 | Mac Touch ID / iPhone Face ID | Not tested. |
 | Claude Code / Claude web / Cowork / ChatGPT.com | Not connected or tested. |
 | Real external model API | Not called. |
-| Drupal integration | Implemented in the subsequent Drupal build; separate installed-site and HTTP results are in [drupal-verification.md](drupal-verification.md). The 132-test counts above remain the original shared/Symfony suite. |
+| Drupal integration | Was implemented in a subsequent build and verified on an installed site; that port now lives outside this repository. The 132-test counts above remain the original shared/Symfony suite. |
 
 `tests/browser_smoke.py` provides a browser acceptance path for a machine where Chromium can run. It creates a temporary fictional account/application, registers through the real native WebAuthn API using a CDP virtual authenticator, attempts publication and tests stale state. Even a successful virtual-authenticator run would not establish physical biometric behavior.
 

@@ -6,7 +6,7 @@ The detailed overview. For the short version and the five-minute quickstart, see
 
 **Let an agent request an application action. Let the application decide, by its administrator's rule, whether the person must verify it. When they must, let them approve its exact effect with a passkey, and execute that stored proposal once, under their current permissions.**
 
-This repository contains a shared PHP approval library, the WebAuthn bridge, the MCP presentation (approval card, URL-mode elicitation and phone code) and a Symfony bundle, with a runnable Symfony reference application: Riverside Council's public alerts site. An early Drupal port of the same core is described at the end.
+This repository contains a shared PHP approval library, the WebAuthn bridge, the MCP presentation (approval card, URL-mode elicitation and phone code) and a Symfony bundle, with a runnable Symfony reference application: Riverside Council's public alerts site.
 
 The rule is the application's, not the protocol's or the agent's. MCP carries the request and shows the person where to approve. The agent can only ask. The application holds the rule, applies it to every entry point, and runs nothing until a valid passkey assertion over the exact proposal arrives.
 
@@ -117,11 +117,10 @@ The scripted mode is tested and clearly labels itself. No paid model call was ma
 
 | Package | Purpose | Framework dependency |
 | --- | --- | --- |
-| `packages/core` | Frozen proposals, policies, current authority, transaction coordination, guarded execution, receipts and evidence verification. | PHP and small supporting libraries; no Symfony kernel or Drupal. |
+| `packages/core` | Frozen proposals, policies, current authority, transaction coordination, guarded execution, receipts and evidence verification. | PHP and small supporting libraries; no Symfony kernel. |
 | `packages/webauthn` | Existing WebAuthn library integration, trusted credential repository, assertion verification and enrollment methods. | Symfony components used by WebAuthn; no application kernel. |
 | `packages/mcp` | The MCP App approval card, the optional URL-mode elicitation and its bound retry. | The official MCP SDK; no framework. |
 | `packages/symfony` | Bundle configuration, action autoconfiguration, trusted review routes, CSRF, response headers, rate limits, the card app, the phone code and the MCP status tool. | Existing Symfony application and Symfony MCP Bundle. |
-| `packages/drupal/exact_approval` | Native permission policies, guarded node storage, saved-revision publish/delete actions, passkey UI, durable evidence and optional existing-endpoint MCP tools. | Drupal 11.4+, shared core and WebAuthn; no Symfony FrameworkBundle. |
 | `examples/symfony` | The alerts site: account/token isolation, per-role policy form, protected publication service, MCP OAuth and runnable endpoint. | Reference application, not a required hosting service. |
 
 These package names are local Composer packages, not published Packagist releases. The repository’s path repositories make `composer install` work immediately. Another application can add a Composer path repository pointing at `packages/*`, then require `exact-approval/symfony-bundle` and `exact-approval/webauthn` version `^0.1`.
@@ -183,23 +182,5 @@ Browser, real-device and hosted-client coverage are reported separately in [veri
 The demo’s OAuth server and personal tokens are reference implementations: a production deployment connects the application’s real identity provider and keeps the origin, and so the passkeys, stable.
 
 For production adoption, replace the demo identity/persistence setup with the host application’s services, review every supported write path, choose a shared limiter/lock backend when deploying across hosts, and review enrollment/recovery/key management. External effects such as email, remote MCP calls and payments do not gain a local transaction’s exactly-once properties.
-
-## An early Drupal port
-
-The module in [packages/drupal/exact_approval](../packages/drupal/exact_approval/README.md) adds administrator rules for content types and native permissions, personal passkey enrollment, exact publication/deletion review, storage-boundary enforcement, and a persistent signed evidence log. An optional submodule adds three tools to the existing Drupal MCP endpoint. It does not install a second Symfony kernel or a separate approval service.
-
-Start with the [Drupal example](../examples/drupal/README.md):
-
-```sh
-cd examples/drupal
-composer install
-php setup.php
-cd web
-php -S localhost:8090 .ht.router.php
-```
-
-Use the generated local demo credentials in `examples/drupal/var/demo.json`. Administrator controls are at `/admin/config/people/exact-approval`; personal keys are at `/user/exact-approval/keys`. See [Drupal verification](drupal-verification.md) for the installed-site, HTTP, concurrency and evidence checks.
-
-The Drupal port shares the core, the WebAuthn bridge and the MCP card and elicitation. Its rules follow Drupal’s own content types and role permissions. It has not had the Symfony side’s latest work: the final-page preview, MCP OAuth and the phone code.
 
 MIT license. See [LICENSE](../LICENSE).

@@ -134,7 +134,6 @@ sequenceDiagram
 | [`packages/mcp`](packages/mcp/README.md) | The MCP App approval card, the opt-in URL-mode elicitation and its bound retry |
 | [`packages/symfony`](packages/symfony/README.md) | The Symfony bundle: review routes, CSRF, rate limits, the card app, the phone code and the status tool |
 | [`examples/symfony`](examples/symfony) | The Riverside Council alerts demo: per-role rules, passkey links, the audit page and MCP OAuth |
-| [`packages/drupal`](packages/drupal/exact_approval/README.md) | An early Drupal port on the same core. The Symfony bundle is the reference |
 
 ## Tests
 

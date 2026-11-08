@@ -1,7 +1,0 @@
-{
-  "directory": "/workspace/scratch/2b0cf0d5c1d0/drupal-approval-clean-xxybkrvb/exact-action-approval",
-  "composer_install_no_dev": true,
-  "fresh_setup": true,
-  "real_http_mcp_smoke": true,
-  "note": "Separate generated minimal Drupal database with no copied runtime or credentials; published source copied before final SettingsForm placeholder polish."
-}
