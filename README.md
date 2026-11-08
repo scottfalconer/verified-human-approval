@@ -163,6 +163,6 @@ Verified on a Mac with PHP 8.3:
 
 Not yet covered: production identity integration.
 
-See the [full overview](docs/overview.md), the [security model](docs/security-model.md) and [evidence verification](docs/evidence.md).
+See the [full overview](docs/overview.md), the [security model](docs/security-model.md), [evidence verification](docs/evidence.md) and the [conformance review](docs/conformance-review.md) of how this uses the SDK, the bundle and the MCP specification.
 
 MIT license. See [LICENSE](LICENSE).
