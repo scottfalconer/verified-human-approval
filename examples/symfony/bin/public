@@ -2,7 +2,8 @@
 # Serves a second copy of the demo on a public HTTPS address through a Cloudflare quick tunnel, for
 # claude.ai and phones. Both run under launchd, so they survive Claude restarts.
 # The tunnel's hostname changes each time it starts, and passkeys are tied to the hostname,
-# so a new hostname gets a fresh public demo. Usage: public start | stop | status
+# so a new hostname gets a fresh public demo. Usage: public start | stop | status | all-clear
+# all-clear takes the live alert down for another take, keeping accounts, passkeys and connections.
 set -eu
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 RUNTIME="$ROOT/var/public-demo"
@@ -44,5 +45,6 @@ case "${1:-status}" in
   start) start ;;
   stop) stop ;;
   status) echo "Tunnel: $(tunnel_url)"; PORT=$PORT "$SERVER" status ;;
-  *) echo "Usage: $0 start | stop | status"; exit 2 ;;
+  all-clear) EXACT_APPROVAL_RUNTIME="$RUNTIME" php "$ROOT/examples/symfony/bin/console" demo:all-clear ;;
+  *) echo "Usage: $0 start | stop | status | all-clear"; exit 2 ;;
 esac

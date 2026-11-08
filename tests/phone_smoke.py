@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import socket
 import sqlite3
 import subprocess
@@ -46,7 +47,7 @@ def main():
         accounts = json.loads(setup.stdout)["accounts"]
         log = open(Path(temporary) / "server.log", "w+")
         server = subprocess.Popen([PHP, "-S", f"127.0.0.1:{port}", "-t", str(ROOT / "examples/symfony/public"), str(ROOT / "examples/symfony/public/index.php")],
-                                  env={**env, "PHP_CLI_SERVER_WORKERS": "4"}, stdout=log, stderr=log)
+                                  env={**env, "PHP_CLI_SERVER_WORKERS": "4"}, stdout=log, stderr=log, start_new_session=True)
 
         def forward(method, path, headers=None, body=None):
             """One request through the stand-in tunnel, the way a tunnel forwards it to the local server."""
@@ -191,7 +192,7 @@ def main():
                 "physical_biometrics_tested": False,
             }, indent=2))
         finally:
-            server.terminate()
+            os.killpg(server.pid, signal.SIGTERM)  # the server and its forked workers
             log.seek(0)
             failures = [line for line in log.read().splitlines() if "PHP Fatal" in line]
             assert not failures, failures

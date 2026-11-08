@@ -59,7 +59,9 @@ This opens a Cloudflare quick tunnel and starts a second copy of the demo behind
 2. In claude.ai, open **Settings → Connectors**, add a custom connector, and paste the printed `https://…/mcp` URL. Claude signs in through the demo's OAuth: sign in as `editor` and allow access.
 3. Ask Claude to issue the alert. In the card, **Review and approve** opens the review in a new tab. **Approve on your phone** shows a QR code instead: scan it with the phone's camera, check the alert, and approve with Face ID. The card shows the result either way.
 
-The phone code works once, for two minutes, and opens only that one review. It is not a sign-in: the phone can't reach anything else on the site, and approving still takes the person's own passkey. Stop the public copy with `examples/symfony/bin/public stop`.
+The phone code works once, for two minutes, and opens only that one review. It is not a sign-in: the phone can't reach anything else on the site, and approving still takes the person's own passkey.
+
+To run it again, `examples/symfony/bin/public all-clear` takes the alert down and keeps the accounts, passkeys and the claude.ai connection. Stop the public copy with `examples/symfony/bin/public stop`.
 
 ## How it works
 
