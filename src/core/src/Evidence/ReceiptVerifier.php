@@ -17,12 +17,12 @@ final class ReceiptVerifier
      *
      * @param array<string, mixed> $bundle
      *
-     * @return array{request: ApprovalRequest, proof: array<string, mixed>|null, execution: array<string, mixed>, applicationSignatureValid: true}
+     * @return array{request: ApprovalRequest, proof: array<string, mixed>|null, execution: array<string, mixed>, applicationSignatureValid: true, receiptSignedAt: Receipt::COMMIT|Receipt::EXPORT}
      */
     public function verify(array $bundle, string $trustedKeyId, string $trustedPublicKey): array
     {
         try {
-            if (($bundle['format'] ?? null) !== 'verified-human-approval/evidence/v1' || !\is_string($bundle['proposal'] ?? null)) {
+            if (($bundle['format'] ?? null) !== EvidenceExporter::FORMAT || !\is_string($bundle['proposal'] ?? null)) {
                 throw new \UnexpectedValueException('Unknown evidence format.');
             }
             $proposal = CanonicalJson::map(CanonicalJson::decode($bundle['proposal']));
@@ -31,8 +31,13 @@ final class ReceiptVerifier
             $receipt = CanonicalJson::map($bundle['receipt']);
             $proof = null === $bundle['proof'] ? null : CanonicalJson::map($bundle['proof']);
             $execution = CanonicalJson::map($bundle['execution']);
+            // When it was signed is part of what was signed: it cannot be changed without breaking the signature.
+            $signedAt = \is_string($receipt['manifest'] ?? null) ? (CanonicalJson::map(CanonicalJson::decode($receipt['manifest']))['signedAt'] ?? null) : null;
+            if (!\in_array($signedAt, [Receipt::COMMIT, Receipt::EXPORT], true)) {
+                throw new \UnexpectedValueException('The receipt does not say when it was signed.');
+            }
             $expected = CanonicalJson::encode([
-                'format' => 'verified-human-approval/receipt/v1', 'keyId' => $trustedKeyId, 'proposalDigest' => $digest,
+                'format' => Receipt::FORMAT, 'keyId' => $trustedKeyId, 'signedAt' => $signedAt, 'proposalDigest' => $digest,
                 'proofDigest' => hash('sha256', CanonicalJson::encode($bundle['proof'])),
                 'executionDigest' => hash('sha256', CanonicalJson::encode($bundle['execution'])),
             ]);
@@ -61,7 +66,7 @@ final class ReceiptVerifier
                 throw new \UnexpectedValueException('The trusted application signature is invalid.');
             }
 
-            return ['request' => $request, 'proof' => $proof, 'execution' => $execution, 'applicationSignatureValid' => true];
+            return ['request' => $request, 'proof' => $proof, 'execution' => $execution, 'applicationSignatureValid' => true, 'receiptSignedAt' => $signedAt];
         } catch (\Throwable $error) {
             throw new ApprovalException('invalid_evidence', 'The evidence does not verify with the supplied trusted application key.', $error);
         }

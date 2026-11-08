@@ -14,6 +14,7 @@ use VerifiedHumanApproval\Core\CanonicalJson;
 use VerifiedHumanApproval\Core\ChallengeBinding;
 use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
 use VerifiedHumanApproval\Core\Evidence\EvidenceSigner;
+use VerifiedHumanApproval\Core\Evidence\Receipt;
 use VerifiedHumanApproval\Core\Evidence\ReceiptVerifier;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
 use VerifiedHumanApproval\Core\ExecutionGuard;
@@ -86,6 +87,7 @@ final class ApprovalEvidenceTest extends TestCase
         $result = json_decode($stdout, true, flags: \JSON_THROW_ON_ERROR);
         self::assertTrue($result['credentialApprovedExactProposal']);
         self::assertTrue($result['applicationSignedExecutionReport']);
+        self::assertSame(Receipt::EXPORT, $result['applicationReportSignedAt'], 'This service signs no receipt at commit, and the report says so.');
         self::assertSame($completed->request->statement(), $result['statement']);
         self::assertStringContainsString('does not independently witness', $result['qualification']);
     }
@@ -152,8 +154,9 @@ final class ApprovalEvidenceTest extends TestCase
         $bundle['proof']->proposalDigest = $digest;
         $bundle['proof']->challenge = ChallengeBinding::encode(ChallengeBinding::challenge($digest, ChallengeBinding::decode($bundle['proof']->nonce)));
         $manifest = CanonicalJson::encode([
-            'format' => 'verified-human-approval/receipt/v1',
+            'format' => Receipt::FORMAT,
             'keyId' => $this->signer->keyId(),
+            'signedAt' => Receipt::EXPORT,
             'proposalDigest' => $digest,
             'proofDigest' => hash('sha256', CanonicalJson::encode($bundle['proof'])),
             'executionDigest' => hash('sha256', CanonicalJson::encode($bundle['execution'])),
@@ -211,7 +214,7 @@ final class ApprovalEvidenceTest extends TestCase
             }
         };
         try {
-            (new EvidenceExporter($unavailable))->export($completed);
+            (new EvidenceExporter($unavailable, signAtExport: true))->export($completed);
             self::fail('The unavailable signer produced a receipt.');
         } catch (\RuntimeException $exception) {
             self::assertSame('Injected signer outage.', $exception->getMessage());
@@ -266,9 +269,9 @@ final class ApprovalEvidenceTest extends TestCase
         $id = $service->complete($this->fixture->reviewer, $ceremony->id, $this->authenticator->assertion($ceremony->options))->request->id;
         $export = fn (): array => (new EvidenceExporter($this->signer))->export($service->get($actor, $id));
 
-        $bundle = $export();
-        self::assertSame('at_commit', $bundle['receipt']->signed);
-        $this->verifyHuman((new ReceiptVerifier())->verify($bundle, $this->signer->keyId(), $this->signer->publicKey()));
+        $verified = (new ReceiptVerifier())->verify($export(), $this->signer->keyId(), $this->signer->publicKey());
+        self::assertSame(Receipt::COMMIT, $verified['receiptSignedAt']);
+        $this->verifyHuman($verified);
 
         // Someone with database access rewrites when it happened. The receipt signed at commit no longer matches.
         $record = CanonicalJson::map(CanonicalJson::decode($this->fixture->pdo->query("SELECT record FROM verified_human_approval_executions WHERE request_id = '$id'")->fetchColumn()));
@@ -276,6 +279,47 @@ final class ApprovalEvidenceTest extends TestCase
         $this->fixture->pdo->prepare('UPDATE verified_human_approval_executions SET record = ? WHERE request_id = ?')->execute([CanonicalJson::encode((object) $record), $id]);
         $this->expectException(ApprovalException::class);
         (new ReceiptVerifier())->verify($export(), $this->signer->keyId(), $this->signer->publicKey());
+    }
+
+    public function testADeletedCommitReceiptIsNeverReplacedByOneSignedAtExport(): void
+    {
+        [$service, $actor] = $this->signingService();
+        $pending = $service->request($actor, 'article.publish', ['id' => 1]);
+        $ceremony = $service->begin($this->fixture->reviewer, $pending->request->id);
+        $id = $service->complete($this->fixture->reviewer, $ceremony->id, $this->authenticator->assertion($ceremony->options))->request->id;
+
+        // Someone with database access edits what the action reported and deletes the receipt that would expose it.
+        $record = CanonicalJson::map(CanonicalJson::decode((string) $this->fixture->pdo->query("SELECT record FROM verified_human_approval_executions WHERE request_id = '$id'")->fetchColumn()));
+        $record['result']->result_revision = 999;
+        $this->fixture->pdo->prepare('UPDATE verified_human_approval_executions SET record = ? WHERE request_id = ?')->execute([CanonicalJson::encode((object) $record), $id]);
+        $this->fixture->pdo->prepare('DELETE FROM verified_human_approval_receipts WHERE request_id = ?')->execute([$id]);
+
+        try {
+            (new EvidenceExporter($this->signer))->export($service->get($actor, $id));
+            self::fail('A new signature vouched for the edited record.');
+        } catch (ApprovalException $error) {
+            self::assertSame('receipt_missing', $error->reason);
+        }
+    }
+
+    public function testWhenAReceiptWasSignedIsPartOfWhatIsSigned(): void
+    {
+        $bundle = $this->exportPersisted($this->complete());
+        self::assertSame(Receipt::EXPORT, (new ReceiptVerifier())->verify($bundle, $this->signer->keyId(), $this->signer->publicKey())['receiptSignedAt']);
+
+        // Claiming an export-time receipt was signed at commit breaks its signature.
+        $manifest = CanonicalJson::decode($bundle['receipt']->manifest);
+        $manifest->signedAt = Receipt::COMMIT;
+        $bundle['receipt']->manifest = CanonicalJson::encode($manifest);
+        try {
+            (new ReceiptVerifier())->verify($bundle, $this->signer->keyId(), $this->signer->publicKey());
+            self::fail('A receipt claimed a signing stage it was not signed with.');
+        } catch (ApprovalException $error) {
+            self::assertSame('invalid_evidence', $error->reason);
+        }
+        [$exit, , $stderr] = $this->runVerifier($bundle);
+        self::assertSame(1, $exit);
+        self::assertStringContainsString('Verification failed', $stderr);
     }
 
     public function testAReceiptSignerFailureMeansNothingExecutes(): void
@@ -320,9 +364,10 @@ final class ApprovalEvidenceTest extends TestCase
         return $this->service->complete($this->fixture->reviewer, $ceremony->id, $this->authenticator->assertion($ceremony->options));
     }
 
+    /** This service signs no receipt at commit, so its evidence is signed at export, and says so. */
     private function exportPersisted(ApprovalState $state): array
     {
-        return (new EvidenceExporter($this->signer))->export($this->service->get($this->fixture->actor, $state->request->id));
+        return (new EvidenceExporter($this->signer, signAtExport: true))->export($this->service->get($this->fixture->actor, $state->request->id));
     }
 
     private function verifyHuman(array $verified): void

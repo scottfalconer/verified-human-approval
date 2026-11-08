@@ -102,7 +102,7 @@ final class SymfonyApprovalTest extends TestCase
         $browser->request('GET', self::ORIGIN.'/approval/'.$id.'/evidence');
         self::assertSame(200, $browser->getResponse()->getStatusCode());
         $evidence = json_decode((string) $browser->getResponse()->getContent(), true, 64, \JSON_THROW_ON_ERROR);
-        self::assertSame('verified-human-approval/evidence/v1', $evidence['format']);
+        self::assertSame('verified-human-approval/evidence/v2', $evidence['format']);
         self::assertStringContainsString('I approve issuing the public alert', $evidence['proposal']);
         self::assertNotEmpty($evidence['receipt']['signature']);
         self::assertSame(1, $this->mutationCount());

@@ -22,6 +22,7 @@ use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ChallengeBinding;
 use VerifiedHumanApproval\Demo\Account\AgentConnections;
+use VerifiedHumanApproval\Demo\Account\PasskeyConfirmation;
 use VerifiedHumanApproval\Demo\Account\PasskeyEnrollment;
 use VerifiedHumanApproval\Demo\DemoDatabase;
 use VerifiedHumanApproval\Demo\Security\Authenticators;
@@ -38,15 +39,13 @@ use VerifiedHumanApproval\WebAuthn\WebAuthnVerifier;
 #[AsController]
 final readonly class AccountController
 {
-    /** How long a passkey confirmation authorizes a sensitive step, such as adding another passkey. */
-    public const CONFIRMATION_SECONDS = 120;
-
     public function __construct(
         private ActorProvider $actors,
         private WebAuthnVerifier $webauthn,
         private PdoCredentialRepository $credentials,
         private AnchoredCredentialRepository $anchored,
         private PasskeyEnrollment $enrollment,
+        private PasskeyConfirmation $confirmation,
         private AgentConnections $connections,
         private DemoDatabase $database,
         private CsrfTokenManagerInterface $csrf,
@@ -137,7 +136,7 @@ final readonly class AccountController
         } catch (ApprovalException $error) {
             return new JsonResponse(['status' => 'rejected', 'message' => $error->getMessage()], 400);
         }
-        $request->getSession()->set('demo.confirmed', ['user' => $actor->userId, 'tenant' => $actor->tenantId, 'credential' => $verified->credentialId, 'at' => time()]);
+        $this->confirmation->remember($request, $actor, $verified->credentialId);
 
         return new JsonResponse(['status' => 'confirmed', 'message' => 'Confirmed with your passkey.']);
     }
@@ -184,7 +183,7 @@ final readonly class AccountController
             return new JsonResponse(['status' => 'rejected', 'message' => $error->getMessage()], 400);
         }
         $request->getSession()->remove('demo.passkey_link');
-        $request->getSession()->remove('demo.confirmed');
+        $this->confirmation->forget($request);
 
         return new JsonResponse(['status' => 'registered', 'message' => 'Your passkey is registered for this account.']);
     }
@@ -211,13 +210,13 @@ final readonly class AccountController
      * What currently lets this person add a passkey: a fresh confirmation with one of their passkeys,
      * or an opened one-time link. Null if neither.
      *
-     * @return array{method: string, authorizedBy: string, link?: string}|null
+     * @return array{method: string, authorizedBy: string, link?: string, credential?: string}|null
      */
     private function authorization(Request $request, Actor $actor): ?array
     {
-        $confirmed = self::recentConfirmation($request, $actor);
+        $confirmed = $this->confirmation->recent($request, $actor);
         if (null !== $confirmed) {
-            return ['method' => 'existing passkey', 'authorizedBy' => 'passkey '.$confirmed['credential']];
+            return ['method' => 'existing passkey', 'authorizedBy' => 'passkey '.$confirmed['credential'], 'credential' => $confirmed['credential']];
         }
         $link = $request->getSession()->get('demo.passkey_link');
         if (\is_array($link) && $link['user'] === $actor->userId && $link['tenant'] === $actor->tenantId && $link['expires'] >= time()) {
@@ -225,18 +224,6 @@ final readonly class AccountController
         }
 
         return null;
-    }
-
-    /** @return array{user: string, tenant: string, credential: string, at: int}|null */
-    public static function recentConfirmation(Request $request, Actor $actor): ?array
-    {
-        $confirmed = $request->getSession()->get('demo.confirmed');
-        if (!\is_array($confirmed) || $confirmed['user'] !== $actor->userId || $confirmed['tenant'] !== $actor->tenantId
-            || !\is_int($confirmed['at']) || $confirmed['at'] + self::CONFIRMATION_SECONDS < time()) {
-            return null;
-        }
-
-        return ['user' => $actor->userId, 'tenant' => $actor->tenantId, 'credential' => $confirmed['credential'], 'at' => $confirmed['at']];
     }
 
     /** @return array{ceremony_id: string, credential: array<string, mixed>} */

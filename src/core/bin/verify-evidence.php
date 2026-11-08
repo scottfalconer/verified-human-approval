@@ -5,6 +5,7 @@ declare(strict_types=1);
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\CanonicalJson;
 use VerifiedHumanApproval\Core\ChallengeBinding;
+use VerifiedHumanApproval\Core\Evidence\Receipt;
 use VerifiedHumanApproval\Core\Evidence\ReceiptVerifier;
 use VerifiedHumanApproval\WebAuthn\Configuration;
 use VerifiedHumanApproval\WebAuthn\Credential;
@@ -77,8 +78,12 @@ try {
         'requestId' => $verified['request']->id,
         'credentialApprovedExactProposal' => $human,
         'applicationSignedExecutionReport' => true,
+        // "commit": signed as the action committed, so an edit made afterwards would not verify. "export":
+        // signed only when the evidence was exported; it cannot show an edit made before that.
+        'applicationReportSignedAt' => $verified['receiptSignedAt'],
         'statement' => $verified['request']->statement(),
-        'qualification' => 'Verifies credential approval and the application report. It does not independently witness the database effect, display, historical revocation state or human understanding.',
+        'qualification' => 'Verifies credential approval and the application report. It does not independently witness the database effect, display, historical revocation state or human understanding.'
+            .(Receipt::EXPORT === $verified['receiptSignedAt'] ? ' The report was signed when it was exported, not when the action committed.' : ''),
     ], \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_THROW_ON_ERROR), "\n";
 } catch (Throwable $error) {
     fwrite(\STDERR, 'Verification failed: '.$error->getMessage()."\n");

@@ -236,7 +236,7 @@ final class ApprovalService
             'approval' => null === $proof ? 'not_required' : 'user_verified',
         ];
         // Signed before commit: if signing fails, nothing executes, so no action goes unrecorded.
-        $receipt = null === $this->receipts ? null : Receipt::sign($this->receipts, $request->digest, $proof, $execution);
+        $receipt = null === $this->receipts ? null : Receipt::sign($this->receipts, $request->digest, $proof, $execution, Receipt::COMMIT);
         $completed = new ApprovalState($request, 'completed', null, $result, $execution, $proof, $receipt);
         $this->store->save($completed);
 

@@ -128,7 +128,7 @@ final class AccountAndAuditTest extends TestCase
         self::assertStringContainsString('Issue the public alert', $row);
         self::assertStringContainsString('through an agent with their personal token', $row);
         self::assertStringContainsString('passkey verification required', $row);
-        self::assertStringContainsString('✓ Receipt signed at commit', $row);
+        self::assertStringContainsString('✓ Receipt signed at commit matches the record', $row);
         self::assertStringContainsString('✓ Passkey signed this exact proposal', $row);
         self::assertStringContainsString('All 5 entries are signed and in an unbroken chain', $page->filter('section')->last()->text());
         $admin->request('GET', self::ORIGIN.'/admin/audit/'.$id.'/evidence');
@@ -145,6 +145,28 @@ final class AccountAndAuditTest extends TestCase
         self::assertStringContainsString('✗ Passkey check: the passkey signature does not match this proposal', $row);
     }
 
+    public function testADeletedReceiptIsReportedNotReplaced(): void
+    {
+        $editor = $this->signedIn('editor');
+        $passkey = $this->enroll($editor, viaLink: true);
+        $id = $this->mcp('editor')->callTool('publish_alert', ['alert_id' => 'riverside-evacuation'])->structuredContent['requestId'];
+        self::assertSame('completed', $this->approve($editor, $id, $passkey)['status']);
+
+        // Someone with database access edits what the action recorded and deletes its receipt.
+        $record = CanonicalJson::map(CanonicalJson::decode((string) $this->database->pdo->query("SELECT record FROM verified_human_approval_executions WHERE request_id = '$id'")->fetchColumn()));
+        $record['recordedAt'] = '2020-01-01T00:00:00.000000Z';
+        $this->database->pdo->prepare('UPDATE verified_human_approval_executions SET record = ? WHERE request_id = ?')->execute([CanonicalJson::encode((object) $record), $id]);
+        $this->database->pdo->prepare('DELETE FROM verified_human_approval_receipts WHERE request_id = ?')->execute([$id]);
+
+        $admin = $this->signedIn('manager');
+        $row = $admin->request('GET', self::ORIGIN.'/admin/audit')->filter('table.audit')->first()->filter('tbody tr')->first()->text();
+        self::assertStringContainsString('✗ Receipt check: there is no receipt signed as the action committed', $row, 'Reading the audit page never signs a replacement.');
+        $admin->request('GET', self::ORIGIN.'/admin/audit/'.$id.'/evidence');
+        self::assertSame(409, $admin->getResponse()->getStatusCode(), 'No evidence is exported for a record whose receipt is gone.');
+        self::assertSame('receipt_missing', json_decode((string) $admin->getResponse()->getContent(), true)['reason']);
+        self::assertSame(0, (int) $this->database->pdo->query('SELECT COUNT(*) FROM verified_human_approval_receipts')->fetchColumn(), 'And nothing signed one since.');
+    }
+
     public function testATakeDownIsRecordedAndTheLogShowsEdits(): void
     {
         $this->database->pdo->exec("UPDATE demo_alerts SET published_revision = revision, published_title = title, published_body = body WHERE id = 'riverside-evacuation'");
@@ -156,6 +178,49 @@ final class AccountAndAuditTest extends TestCase
 
         $this->database->pdo->exec("UPDATE verified_human_approval_audit SET entry = replace(entry, 'riverside-evacuation', 'something-else') WHERE type = 'alert.taken_down'");
         self::assertStringContainsString('The log has been altered', $admin->request('GET', self::ORIGIN.'/admin/audit')->filter('section')->last()->text());
+    }
+
+    public function testRevokingTheConfirmingPasskeyEndsItsConfirmationBeforeOptions(): void
+    {
+        $browser = $this->signedIn('editor');
+        $first = $this->enroll($browser, viaLink: true);
+        $this->confirm($browser, $first);
+        $this->revokeFromAnotherBrowser('editor');
+
+        $this->post($browser, '/account/passkeys/options', $this->panelCsrf($browser), []);
+        self::assertSame(403, $browser->getResponse()->getStatusCode(), 'The confirmation ended with the passkey that gave it.');
+        self::assertSame(0, $this->activePasskeys('editor'));
+    }
+
+    public function testRevokingTheConfirmingPasskeyStopsAnEnrollmentAlreadyUnderWay(): void
+    {
+        $browser = $this->signedIn('editor');
+        $first = $this->enroll($browser, viaLink: true);
+        $this->confirm($browser, $first);
+        $csrf = $this->panelCsrf($browser);
+        $options = $this->post($browser, '/account/passkeys/options', $csrf, []);
+        self::assertSame(200, $browser->getResponse()->getStatusCode());
+        $this->revokeFromAnotherBrowser('editor');
+
+        $replacement = new VirtualAuthenticator(self::ORIGIN);
+        $result = $this->post($browser, '/account/passkeys/complete', $csrf, ['ceremony_id' => $options['ceremony_id'], 'credential' => $replacement->registration($options['publicKey'])]);
+        self::assertSame(400, $browser->getResponse()->getStatusCode());
+        self::assertSame('rejected', $result['status'] ?? null);
+        self::assertSame(0, $this->activePasskeys('editor'), 'No replacement passkey was added.');
+        self::assertFalse($this->approves('editor', $replacement));
+    }
+
+    public function testRevokingTheAdministratorsConfirmingPasskeyStopsALinkBeingIssued(): void
+    {
+        $admin = $this->signedIn('manager');
+        $passkey = $this->enroll($admin, viaLink: true);
+        $this->confirm($admin, $passkey);
+        $form = $admin->request('GET', self::ORIGIN.'/admin/audit')->filter('form[action="/admin/audit/links"]')->form(['user' => 'editor']);
+        $this->revokeFromAnotherBrowser('manager');
+
+        $admin->submit($form);
+        self::assertSame(403, $admin->getResponse()->getStatusCode());
+        self::assertSame(1, (int) $this->database->pdo->query("SELECT COUNT(*) FROM demo_passkey_links WHERE user_id = 'editor'")->fetchColumn(), 'Only the link setup issued.');
     }
 
     public function testIssuingAPasskeyLinkNeedsTheAdministratorsPasskey(): void
@@ -192,6 +257,27 @@ final class AccountAndAuditTest extends TestCase
         self::assertSame('registered', $result['status'] ?? null, json_encode($result));
 
         return $authenticator;
+    }
+
+    /** Revokes this person's active passkeys from a second browser, as after a lost device. */
+    private function revokeFromAnotherBrowser(string $user): void
+    {
+        $other = $this->signedIn($user);
+        $query = $this->database->pdo->prepare('SELECT credential_id FROM verified_human_approval_credentials WHERE user_id = ? AND revoked = 0');
+        $query->execute([$user]);
+        foreach ($query->fetchAll(\PDO::FETCH_COLUMN) as $id) {
+            $page = $other->request('GET', self::ORIGIN.'/account/passkeys');
+            $other->submit($page->filter('form[action="/account/passkeys/'.$id.'/revoke"]')->form());
+        }
+        self::assertSame(0, $this->activePasskeys($user));
+    }
+
+    private function activePasskeys(string $user): int
+    {
+        $query = $this->database->pdo->prepare('SELECT COUNT(*) FROM verified_human_approval_credentials WHERE user_id = ? AND revoked = 0');
+        $query->execute([$user]);
+
+        return (int) $query->fetchColumn();
     }
 
     private function confirm(KernelBrowser $browser, VirtualAuthenticator $passkey): void

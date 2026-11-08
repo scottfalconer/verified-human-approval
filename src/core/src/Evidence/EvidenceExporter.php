@@ -7,10 +7,20 @@ namespace VerifiedHumanApproval\Core\Evidence;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalState;
 
-/** Export only after execution commits; a signer failure cannot call an action again. */
+/**
+ * Export only after execution commits; a signer failure cannot call an action again.
+ *
+ * By default only an action with its receipt signed at commit has evidence. A missing receipt means
+ * the action ran without a receipt signer, or that someone deleted the receipt, perhaps after editing
+ * the record; nothing can tell the two apart, so nothing is signed over it. An application that has
+ * never signed at commit passes $signAtExport, and the receipts it then gets say "export" in what they
+ * sign: they vouch for the record as it was exported, not as it committed.
+ */
 final readonly class EvidenceExporter
 {
-    public function __construct(private EvidenceSigner $signer)
+    public const FORMAT = 'verified-human-approval/evidence/v2';
+
+    public function __construct(private EvidenceSigner $signer, private bool $signAtExport = false)
     {
     }
 
@@ -24,14 +34,15 @@ final readonly class EvidenceExporter
         if ('completed' !== $state->status || null === $state->execution) {
             throw new ApprovalException('not_completed', 'Only a committed action has execution evidence.');
         }
-        // A receipt signed inside the completing transaction is returned as it was signed. Records
-        // completed without a configured signer are signed now, and say so.
-        $receipt = $state->receipt ?? Receipt::sign($this->signer, $state->request->digest, $state->proof, $state->execution);
+        if (null === $state->receipt && !$this->signAtExport) {
+            throw new ApprovalException('receipt_missing', 'This action has no receipt signed as it committed, so its record cannot be vouched for.');
+        }
+        $receipt = $state->receipt ?? Receipt::sign($this->signer, $state->request->digest, $state->proof, $state->execution, Receipt::EXPORT);
 
         return [
-            'format' => 'verified-human-approval/evidence/v1', 'proposal' => $state->request->canonical,
+            'format' => self::FORMAT, 'proposal' => $state->request->canonical,
             'proof' => null === $state->proof ? null : (object) $state->proof, 'execution' => (object) $state->execution,
-            'receipt' => (object) ($receipt + ['signed' => null === $state->receipt ? 'at_export' : 'at_commit']),
+            'receipt' => (object) $receipt,
         ];
     }
 }

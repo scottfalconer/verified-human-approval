@@ -23,10 +23,12 @@ use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\CanonicalJson;
 use VerifiedHumanApproval\Core\ChallengeBinding;
 use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
+use VerifiedHumanApproval\Core\Evidence\Receipt;
 use VerifiedHumanApproval\Core\Evidence\ReceiptVerifier;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
 use VerifiedHumanApproval\Core\Storage\PdoApprovalStore;
 use VerifiedHumanApproval\Demo\Account\AgentConnections;
+use VerifiedHumanApproval\Demo\Account\PasskeyConfirmation;
 use VerifiedHumanApproval\Demo\Account\PasskeyLinks;
 use VerifiedHumanApproval\Demo\DemoDatabase;
 use VerifiedHumanApproval\Demo\Security\Authenticators;
@@ -56,6 +58,7 @@ final readonly class AuditController
         private AuditLog $audit,
         private AgentConnections $connections,
         private PasskeyLinks $links,
+        private PasskeyConfirmation $confirmation,
         private DemoDatabase $database,
         private DemoRequesterLabel $requesters,
         private CsrfTokenManagerInterface $csrf,
@@ -92,7 +95,7 @@ final readonly class AuditController
             'links' => $this->database->passkeyLinks($admin->tenantId), 'users' => $this->database->users($admin->tenantId),
             'log' => $entries, 'log_intact' => $log['intact'], 'log_newest' => $log['newest'],
             'key_id' => $this->signer->keyId(), 'public_key' => $this->signer->publicKey(),
-            'confirmed' => null !== AccountController::recentConfirmation($request, $admin), 'new_link' => $newLink,
+            'confirmed' => null !== $this->confirmation->recent($request, $admin), 'new_link' => $newLink,
             'csrf' => $this->csrf->getToken('verified_human_approval.enrollment')->getValue(),
             'form_csrf' => $this->csrf->getToken('demo.audit')->getValue(),
         ]));
@@ -139,7 +142,8 @@ final readonly class AuditController
     {
         $admin = $this->admin();
         $this->assertCsrf($request);
-        $confirmed = AccountController::recentConfirmation($request, $admin);
+        // A recent confirmation, by a passkey that is still active now.
+        $confirmed = $this->confirmation->recent($request, $admin);
         if (null === $confirmed) {
             throw new AccessDeniedException('Confirm with your passkey before issuing a passkey link.');
         }
@@ -173,12 +177,19 @@ final readonly class AuditController
         if ('completed' !== $state->status) {
             return $row;
         }
+        // The receipt signed as the action committed must be there, and still match the record. A missing one
+        // is never replaced: it may have been deleted to hide an edit.
         try {
-            $bundle = $this->exporter->export($state);
-            (new ReceiptVerifier())->verify($bundle, $this->signer->keyId(), $this->signer->publicKey());
-            $row['receipt'] = ['valid' => true, 'signed' => $bundle['receipt']->signed];
+            $verified = (new ReceiptVerifier())->verify($this->exporter->export($state), $this->signer->keyId(), $this->signer->publicKey());
+            $row['receipt'] = Receipt::COMMIT === $verified['receiptSignedAt']
+                ? ['valid' => true, 'problem' => null]
+                : ['valid' => false, 'problem' => 'it was not signed as the action committed'];
+        } catch (ApprovalException $error) {
+            $row['receipt'] = ['valid' => false, 'problem' => 'receipt_missing' === $error->reason
+                ? 'there is no receipt signed as the action committed; the record may have been edited and its receipt deleted'
+                : 'the record no longer matches its receipt signed as the action committed'];
         } catch (\Throwable) {
-            $row['receipt'] = ['valid' => false, 'signed' => null === $state->receipt ? 'at_export' : 'at_commit'];
+            $row['receipt'] = ['valid' => false, 'problem' => 'the receipt could not be checked'];
         }
         if (null !== $state->proof) {
             $credentialId = (string) $state->proof['credentialId'];
