@@ -51,6 +51,7 @@ verified_human_approval:
     store: VerifiedHumanApproval\Core\Storage\PdoApprovalStore
     verifier: VerifiedHumanApproval\WebAuthn\WebAuthnVerifier
     receipt_signer: VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner   # signs each execution's receipt in the same transaction
+    requester_label: App\Approval\AgentConnectionLabel                         # optional: names the agent connection on the review page
     attempts_per_minute: 30
 ```
 
@@ -82,7 +83,16 @@ mcp:
                 ttl: 900                                # longer than your approval lifetime, so a late retry still reads the outcome
 ```
 
-Put the review routes (`/approval/…`) behind your normal session firewall, and keep a separate stateless firewall for `/mcp`, authenticated per person with a token from your OAuth server or a personal token. An agent's token must never count as a signed-in person. The demo's [kernel](demo/src/DemoKernel.php) shows the two firewalls.
+Put the review routes (`/approval/…`) behind your normal session firewall, and keep a separate stateless firewall for `/mcp`, authenticated per person with a token from your OAuth server or a personal token. An agent's token must never count as a signed-in person. The review pages open without a sign-in, so a one-time phone code can open one review on a phone; the bundle's controller then requires the signed-in person or that scoped session, and its request matcher lets exactly those routes through:
+
+```yaml
+# config/packages/security.yaml
+security:
+    access_control:
+        - { request_matcher: verified_human_approval.review_request_matcher, roles: PUBLIC_ACCESS }
+```
+
+Publish the review page's script and stylesheet with `php bin/console assets:install` (Symfony Flex does it after `composer install`). The demo's [kernel](demo/src/DemoKernel.php) shows the two firewalls and the rest of the wiring.
 
 ## Use it
 

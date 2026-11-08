@@ -17,6 +17,7 @@ start() {
   mkdir -p "$ROOT/var"
   # The demo kernel runs without debug, so compiled container and template caches are rebuilt on each start; code changes take effect.
   rm -rf "$RUNTIME/cache"
+  VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" "$PHP" "$ROOT/demo/bin/console" assets:install "$ROOT/demo/public" --symlink --relative >/dev/null
   launchctl submit -l "$LABEL" -o "$LOG" -e "$LOG" -- /usr/bin/env PHP_CLI_SERVER_WORKERS=4 VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" "$PHP" -S localhost:$PORT -t "$ROOT/demo/public" "$ROOT/demo/public/index.php"
   i=0
   while [ $i -lt 40 ]; do running && break; sleep 0.25; i=$((i + 1)); done

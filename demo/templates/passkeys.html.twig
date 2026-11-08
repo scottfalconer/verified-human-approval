@@ -11,7 +11,7 @@
   <form method="post" action="{{ path('demo_passkey_revoke', {id: passkey.id}) }}" class="inline"><input type="hidden" name="_token" value="{{ form_csrf }}"><button class="secondary small">Revoke</button></form></li>
 {% endfor %}</ul>{% else %}<p>No passkey is registered for this account.</p>{% endif %}
 {% if authorized %}
-  <div data-passkey-panel data-mode="registration" data-csrf="{{ csrf }}" data-options-url="{{ path('verified_human_approval_enrollment_options') }}" data-complete-url="{{ path('verified_human_approval_enrollment_complete') }}">
+  <div data-passkey-panel data-mode="registration" data-csrf="{{ csrf }}" data-options-url="{{ path('demo_enrollment_options') }}" data-complete-url="{{ path('demo_enrollment_complete') }}">
     <p class="muted">{{ authorized.method == 'passkey link' ? 'Your one-time link lets you add a passkey now.' : 'Confirmed with your passkey: you can add another now.' }}</p>
     <div class="actions"><button type="button" class="primary" data-approve>Register a passkey</button></div><p data-message aria-live="polite"></p>
   </div>

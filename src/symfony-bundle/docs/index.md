@@ -56,7 +56,7 @@ verified_human_approval:
     receipt_signer: VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner
 ```
 
-With `receipt_signer` set, a later edit to an approval's record no longer matches its receipt, and if signing fails nothing executes. To show who made a request on the approval sheet, implement `VerifiedHumanApproval\Bundle\RequesterLabel` and alias it. For example, it can name the agent connection, such as "Claude (claude.ai), an agent you connected to your account".
+With `receipt_signer` set, a later edit to an approval's record no longer matches its receipt, and if signing fails nothing executes. To show who made a request on the approval sheet, implement `VerifiedHumanApproval\Bundle\RequesterLabel` and set `requester_label` to its service id (a service aliased to the interface is used when the key is unset). For example, it can name the agent connection, such as "Claude (claude.ai), an agent you connected to your account". `clock` defaults to the framework's `clock` service, so a clock you swap in for tests reaches the approvals too.
 
 Import the review routes:
 
@@ -90,7 +90,36 @@ mcp:
                 ttl: 900                                # longer than your approval lifetime, so a retry after a slow approval still reads the outcome
 ```
 
-Keep your existing MCP route import (`resource: '.', type: mcp`). Handshake-era clients such as Claude Desktop and claude.ai keep a session, and the card polls it while the model calls tools, so turn the MCP bundle's session lock on. The request-state TTL should outlive your approval lifetime: an expired state makes the retry fail with a protocol error, which the model recovers from by calling `approval_status` with the request id named in the prompt. Register action adapters as autoconfigured services; the bundle collects implementations of `VerifiedHumanApproval\Core\ActionAdapter` into its registry.
+Keep your existing MCP route import (`resource: '.', type: mcp`). Handshake-era clients such as Claude Desktop and claude.ai keep a session, and the card polls it while the model calls tools, so turn the MCP bundle's session lock on. The request-state TTL should outlive your approval lifetime: an expired state makes the retry fail with a protocol error, which the model recovers from by calling `approval_status` with the request id named in the prompt. Register action adapters as autoconfigured services; the bundle collects implementations of `VerifiedHumanApproval\Core\ActionAdapter` into its registry (or tag them `verified_human_approval.action`).
+
+Publish the review page's script and stylesheet from the bundle's `public/` directory. Symfony Flex runs this after every `composer install`; without Flex, run it yourself:
+
+```bash
+php bin/console assets:install
+```
+
+### Services
+
+The bundle defines its services explicitly under `verified_human_approval.` ids, and aliases the classes you inject to them, so autowiring keeps working:
+
+| Inject | Service id | What it is |
+| --- | --- | --- |
+| `VerifiedHumanApproval\Core\ApprovalService` | `verified_human_approval.approval_service` | Requests, reviews, completes and cancels approvals |
+| `VerifiedHumanApproval\Mcp\ApprovalFlow` | `verified_human_approval.flow` | Presents a protected tool's result: the card, the link and the optional URL prompt |
+| `VerifiedHumanApproval\Core\ExecutionGuard` | `verified_human_approval.execution_guard` | Call `assertExecuting()` in every code path that performs a protected mutation |
+| `VerifiedHumanApproval\Bundle\ActorProvider` | `verified_human_approval.actor_provider` | Your actor provider, under its alias |
+| `VerifiedHumanApproval\Bundle\ApprovalPresenter` | `verified_human_approval.presenter` | The result shape for MCP and the browser |
+| — | `verified_human_approval.review_request_matcher` | Matches the review routes, for `access_control` |
+| — | `verified_human_approval.status_tool`, `.handoff_tool`, `.card_app` | The MCP elements, tagged `mcp.tool` and `mcp.app` |
+
+The review routes need `framework.csrf_protection` on, and they carry the route default `_verified_human_approval_headers`, which sets a strict content security policy, `frame-ancestors 'none'`, `no-store` and `no-referrer`. Set the same default on your own sensitive pages, such as passkey enrollment and administration:
+
+```yaml
+account_passkeys:
+    path: /account/passkeys
+    controller: App\Controller\PasskeyController::index
+    defaults: { _verified_human_approval_headers: true }
+```
 
 The bundled review controller uses a trusted interactive account session and CSRF protection. Put its routes behind the application's normal session firewall. Keep a separate stateless firewall for personally authenticated MCP requests. An agent bearer token must not qualify as an interactive browser account or enroll approval credentials. The reference application's `DemoKernel` shows this separation using standard Symfony Security firewalls and a form login.
 
@@ -189,7 +218,7 @@ The demo administrator form uses Symfony Form and Validator. For each role it se
 
 Saving does not change anything by itself. It proposes a `policy.change` action, which the administrator approves with their own passkey like any other, and its policy is fixed in code. Approving it increments the policy version. A role set to issue directly lets **new** authorized requests from that role execute without proof. It cannot make an older pending proposal eligible under its previous policy. Your own `PolicyProvider` receives the requesting `Actor`, so the rule can depend on whatever your application knows about the person.
 
-Twig review templates live under `src/symfony-bundle/templates`, and the shared browser asset uses `navigator.credentials.create()` / `navigator.credentials.get()`. The controller emits no-store, frame restrictions and a CSP. Applications can override the templates through normal Twig bundle overrides, while preserving the full frozen action and required statement.
+The review templates live in the bundle's `templates/` directory, and its browser script, published by `assets:install`, uses `navigator.credentials.create()` / `navigator.credentials.get()`. Override them the usual way, in `templates/bundles/VerifiedHumanApprovalBundle/`, keeping the full frozen action and the required statement: `base.html.twig` has `header`, `site_name` and `footer` blocks for your layout, and `review.html.twig` has `preview`, to show the effect as its audience will see it, and `return`, the way back to the agent. A refusal on the JSON routes, such as a stale CSRF token or a ceremony from another page, is a JSON answer with a `reason` the page shows.
 
 The default browser approval budget is 30 attempts per user per minute across proposal IDs. It uses Symfony RateLimiter, the application cache and a Symfony Lock backed by `FlockStore`. Override `rate_limiter` with your existing `RateLimiterFactoryInterface` service when using shared infrastructure. Multi-host deployments need coordinated persistence and limiter storage/locks; the local reference application does not supply that deployment.
 
@@ -231,4 +260,13 @@ When `public_origin` is HTTPS, the card also offers **Approve on your phone**. I
 
 The tool applies the same read check as `approval_status` and a per-person budget. "App only" visibility is a convention hosts follow, not a server boundary, so treat the tool as callable by any client holding the person's token.
 
-Your firewall must let `/approval/handoff/{token}` and the review routes through without a sign-in. The controller then requires either the signed-in person or that scoped session; see the demo's `access_control`. Codes are kept in `cache.app`, so several web servers need a shared cache pool.
+Your firewall must let the phone link and the review routes through without a sign-in. The bundle's request matcher names exactly those routes, so this one line does it, and never widens to routes of your own:
+
+```yaml
+security:
+    access_control:
+        - { request_matcher: verified_human_approval.review_request_matcher, roles: PUBLIC_ACCESS }
+        # ... your other rules
+```
+
+The controller then requires either the signed-in person or that scoped session. Codes are kept in `cache.app`, so several web servers need a shared cache pool.

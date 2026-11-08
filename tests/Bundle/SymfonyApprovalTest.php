@@ -177,15 +177,37 @@ final class SymfonyApprovalTest extends TestCase
         $id = $this->requestAction();
         $browser = $this->browser('editor');
         $authenticator = $this->enroll($browser);
-        $this->post($browser, '/approval/'.$id.'/options', '', []);
+        $stale = $this->post($browser, '/approval/'.$id.'/options', '', []);
         self::assertSame(403, $browser->getResponse()->getStatusCode());
+        self::assertSame('csrf_invalid', $stale['reason'] ?? null, 'The page script gets a JSON refusal it can show, not an HTML error page.');
         [$csrf, $ceremony] = $this->begin($browser, $id);
-        $this->post($browser, '/approval/'.$id.'/complete', $csrf, [
+        $replaced = $this->post($browser, '/approval/'.$id.'/complete', $csrf, [
             'ceremony_id' => $ceremony['ceremony_id'], 'credential' => $authenticator->assertion($ceremony['publicKey']),
             'replacement_content' => 'Please publish this instead',
         ]);
         self::assertSame(400, $browser->getResponse()->getStatusCode());
+        self::assertSame('invalid_request', $replaced['reason'] ?? null);
+        $foreign = $this->post($browser, '/approval/'.$id.'/complete', $csrf, ['ceremony_id' => 'cer_from_another_page', 'credential' => $authenticator->assertion($ceremony['publicKey'])]);
+        self::assertSame(403, $browser->getResponse()->getStatusCode());
+        self::assertSame('ceremony_mismatch', $foreign['reason'] ?? null);
         self::assertSame(0, $this->mutationCount());
+    }
+
+    public function testSecurityHeadersFollowTheRoutesThatAskForThemNotARouteNamePrefix(): void
+    {
+        $browser = $this->browser('manager');
+        foreach (['/', '/account/passkeys', '/admin/audit', '/admin/approval-policy'] as $path) {
+            $browser->request('GET', self::ORIGIN.$path);
+            self::assertSame(200, $browser->getResponse()->getStatusCode(), $path);
+            self::assertStringContainsString("frame-ancestors 'none'", (string) $browser->getResponse()->headers->get('Content-Security-Policy'), $path.' opts in to the review pages’ headers.');
+            self::assertStringContainsString('no-store', (string) $browser->getResponse()->headers->get('Cache-Control'), $path);
+        }
+        $browser->request('GET', self::ORIGIN.'/alerts');
+        self::assertNull($browser->getResponse()->headers->get('Content-Security-Policy'), 'The public alerts page keeps its own caching and framing.');
+        $review = $browser->request('GET', self::ORIGIN.'/approval/'.$this->requestAction());
+        self::assertSame(404, $browser->getResponse()->getStatusCode(), 'Another person’s request stays unavailable.');
+        self::assertStringNotContainsString('approval/assets', (string) $browser->getResponse()->getContent());
+        unset($review);
     }
 
     public function testBrowserPublicationUsesSameGuardAndPolicyFormsCannotBeChangedByReadOnlyUsers(): void

@@ -15,7 +15,7 @@ use Symfony\Component\Clock\NativeClock;
 final class DemoSetup
 {
     /** The runtime layout this code expects; an older runtime has to be reset. */
-    public const SCHEMA = 2;
+    public const SCHEMA = 3;
     private const LINK_SECONDS = 7 * 86400;
 
     /** Returns credentials once. No plaintext account password or token is stored. */

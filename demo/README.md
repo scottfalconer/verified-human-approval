@@ -70,7 +70,7 @@ To run it again, `demo/bin/public all-clear` takes the alert down and keeps the 
 
 | Path | What it shows |
 | --- | --- |
-| [`src/DemoKernel.php`](src/DemoKernel.php) | The bundle's configuration, and the two firewalls: a session firewall for people and a stateless one for `/mcp` |
+| [`src/DemoKernel.php`](src/DemoKernel.php) | The bundle's configuration, the two firewalls (a session firewall for people, a stateless one for `/mcp`), the review routes' request matcher, and the account and admin pages opting in to the review pages' security headers |
 | [`src/Mcp/DemoTools.php`](src/Mcp/DemoTools.php) | The MCP tools: `read_alert`, the protected `publish_alert`, and the scope checks around them |
 | [`src/Action/PublishAnnouncement.php`](src/Action/PublishAnnouncement.php) | The action adapter: what exactly is frozen, its version, preconditions and postconditions |
 | [`src/Action/AnnouncementPublisher.php`](src/Action/AnnouncementPublisher.php) | The guarded mutation: it refuses to run outside a validated execution |

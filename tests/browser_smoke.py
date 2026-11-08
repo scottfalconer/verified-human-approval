@@ -34,6 +34,8 @@ def main():
             env=env, capture_output=True, text=True, check=True,
         )
         credentials = json.loads(setup.stdout)["accounts"]
+        # The review page loads the bundle's script from demo/public/bundles/, as after assets:install in any Symfony app.
+        subprocess.run([PHP, str(ROOT / "demo/bin/console"), "assets:install", str(ROOT / "demo/public"), "--symlink", "--relative"], env=env, capture_output=True, check=True)
         env.update({"VERIFIED_HUMAN_APPROVAL_MCP_URL": origin + "/mcp", "VERIFIED_HUMAN_APPROVAL_TOKEN": credentials["editor"]["personal_token"]})
         log = open(Path(temporary) / "server.log", "w+")
         server = subprocess.Popen([PHP, "-S", f"localhost:{port}", "-t", str(ROOT / "demo/public"), str(ROOT / "demo/public/index.php")], env=env, stdout=log, stderr=log)

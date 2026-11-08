@@ -2,6 +2,14 @@
 
 declare(strict_types=1);
 
+// The PHP development server sends every request here. Let it serve the assets assets:install published.
+if (\PHP_SAPI === 'cli-server') {
+    $path = (string) parse_url($_SERVER['REQUEST_URI'] ?? '/', \PHP_URL_PATH);
+    if (str_starts_with($path, '/bundles/') && !str_contains($path, '..') && is_file(__DIR__.$path)) {
+        return false;
+    }
+}
+
 require \dirname(__DIR__, 2).'/vendor/autoload.php';
 
 use VerifiedHumanApproval\Demo\DemoKernel;

@@ -15,7 +15,6 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\Security\Core\Exception\AccessDeniedException;
 use Symfony\Component\Security\Csrf\CsrfToken;
@@ -24,6 +23,10 @@ use Symfony\Component\RateLimiter\RateLimiterFactoryInterface;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Twig\Environment;
 
+/**
+ * The review page and its JSON actions. A stranger is sent to sign in; once someone is reviewing,
+ * every refusal on a JSON route is a JSON answer the page's script can show.
+ */
 final readonly class ApprovalController
 {
     public function __construct(
@@ -64,7 +67,7 @@ final readonly class ApprovalController
 
     public function options(Request $request, string $id): JsonResponse
     {
-        $this->assertCsrf($request, $id);
+        if (($refused = $this->refuseWithoutToken($request, $id)) !== null) return $refused;
         if (($limited = $this->limit($this->reviewer($request, $id))) !== null) return $limited;
 
         return $this->respond(function () use ($request, $id): array {
@@ -78,16 +81,16 @@ final readonly class ApprovalController
 
     public function complete(Request $request, string $id): JsonResponse
     {
-        $this->assertCsrf($request, $id);
+        if (($refused = $this->refuseWithoutToken($request, $id)) !== null) return $refused;
         if (($limited = $this->limit($this->reviewer($request, $id))) !== null) return $limited;
         $body = $this->body($request);
-        if (array_diff(array_keys($body), ['ceremony_id', 'credential']) !== []
+        if ($body === null || array_diff(array_keys($body), ['ceremony_id', 'credential']) !== []
             || !\is_string($body['ceremony_id'] ?? null) || !\is_array($body['credential'] ?? null)) {
-            throw new BadRequestHttpException('Completion accepts only a ceremony identifier and WebAuthn response.');
+            return self::refusal('invalid_request', 'Completion accepts only a ceremony identifier and WebAuthn response.', 400);
         }
         $expected = $request->getSession()->get('verified_human_approval.ceremony.'.$id);
         if (!\is_string($expected) || !hash_equals($expected, $body['ceremony_id'])) {
-            throw new AccessDeniedException('Start a fresh approval from this request’s review page.');
+            return self::refusal('ceremony_mismatch', 'Start a fresh approval from this request’s review page.', 403);
         }
 
         return $this->respond(function () use ($request, $id, $body): array {
@@ -101,26 +104,16 @@ final readonly class ApprovalController
 
     public function cancel(Request $request, string $id): JsonResponse
     {
-        $this->assertCsrf($request, $id);
+        if (($refused = $this->refuseWithoutToken($request, $id)) !== null) return $refused;
         // Cancelling needs the signed-in person. A phone code opens one review to approve with a passkey;
         // whoever scans it must not be able to call the request off.
         try {
             $person = $this->actors->interactive();
         } catch (AccessDeniedException) {
-            return new JsonResponse(['status' => 'rejected', 'reason' => 'sign_in_required', 'message' => 'Cancel this request from your signed-in browser.'], 403);
+            return self::refusal('sign_in_required', 'Cancel this request from your signed-in browser.', 403);
         }
 
         return $this->respond(fn () => $this->presenter->data($this->approvals->cancel($person, $id)));
-    }
-
-    public function script(): Response
-    {
-        return new Response(file_get_contents(\dirname(__DIR__, 2).'/assets/approval.js'), headers: ['Content-Type' => 'text/javascript; charset=utf-8']);
-    }
-
-    public function styles(): Response
-    {
-        return new Response(file_get_contents(\dirname(__DIR__, 2).'/assets/approval.css'), headers: ['Content-Type' => 'text/css; charset=utf-8']);
     }
 
     /**
@@ -160,29 +153,33 @@ final readonly class ApprovalController
         return $this->handoff?->personFor($request, $id) ?? $this->actors->interactive();
     }
 
-    private function assertCsrf(Request $request, string $id): void
+    /**
+     * Someone must be reviewing, or they are sent to sign in, and the page's CSRF token must match.
+     * A stale token is a JSON refusal, not an HTML error page the script could not read.
+     */
+    private function refuseWithoutToken(Request $request, string $id): ?JsonResponse
     {
         $this->reviewer($request, $id);
-        if (!$this->csrf->isTokenValid(new CsrfToken('verified_human_approval.'.$id, (string) $request->headers->get('X-CSRF-Token', '')))) {
-            throw new AccessDeniedException('Invalid or missing CSRF token.');
+        if ($this->csrf->isTokenValid(new CsrfToken('verified_human_approval.'.$id, (string) $request->headers->get('X-CSRF-Token', '')))) {
+            return null;
         }
+
+        return self::refusal('csrf_invalid', 'This page expired. Reload it, then approve again.', 403);
     }
 
-    private function body(Request $request): array
+    /** @return null|array<string, mixed> the JSON object sent, or null when it is not one */
+    private function body(Request $request): ?array
     {
         if (\strlen($request->getContent()) > 65_536) {
-            throw new BadRequestHttpException('Request is too large.');
+            return null;
         }
         try {
             $body = json_decode($request->getContent(), true, 32, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
-            throw new BadRequestHttpException('Invalid JSON request.');
-        }
-        if (!\is_array($body) || array_is_list($body)) {
-            throw new BadRequestHttpException('Expected a JSON object.');
+            return null;
         }
 
-        return $body;
+        return \is_array($body) && !array_is_list($body) ? $body : null;
     }
 
     private function respond(callable $operation): JsonResponse
@@ -190,8 +187,13 @@ final readonly class ApprovalController
         try {
             return new JsonResponse($operation());
         } catch (ApprovalException $error) {
-            return new JsonResponse(['status' => 'rejected', 'reason' => $error->reason, 'message' => $error->getMessage()], 409);
+            return self::refusal($error->reason, $error->getMessage(), 409);
         }
+    }
+
+    private static function refusal(string $reason, string $message, int $status): JsonResponse
+    {
+        return new JsonResponse(['status' => 'rejected', 'reason' => $reason, 'message' => $message], $status);
     }
 
     private function limit(Actor $actor): ?JsonResponse

@@ -3,14 +3,16 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}Verified Human Approval{% endblock %}</title>
-    <link rel="stylesheet" href="{{ path('verified_human_approval_styles') }}">
+    <title>{% block title %}Approval{% endblock %}</title>
+    {# Published by assets:install from the bundle's public/ directory. #}
+    <link rel="stylesheet" href="{{ asset('bundles/verifiedhumanapproval/approval.css') }}">
     {% block stylesheets %}{% endblock %}
-    <script type="module" src="{{ path('verified_human_approval_script') }}"></script>
+    <script type="module" src="{{ asset('bundles/verifiedhumanapproval/approval.js') }}"></script>
 </head>
 <body>
-<header><a href="/">Verified Human Approval</a><span>Symfony reference application</span></header>
+{# Override this template, or its blocks, to put the review pages in your own layout. #}
+{% block header %}<header><a href="/">{% block site_name %}Approval{% endblock %}</a></header>{% endblock %}
 <main>{% block body %}{% endblock %}</main>
-<footer>Your application checks current permissions and the stored proposal before it executes.</footer>
+{% block footer %}<footer>The application checks current permissions and the stored proposal before it executes.</footer>{% endblock %}
 </body>
 </html>

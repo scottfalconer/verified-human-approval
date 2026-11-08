@@ -4,7 +4,11 @@ declare(strict_types=1);
 
 require \dirname(__DIR__, 2).'/vendor/autoload.php';
 
+use VerifiedHumanApproval\Demo\DemoKernel;
 use VerifiedHumanApproval\Demo\DemoSetup;
+use Symfony\Bundle\FrameworkBundle\Console\Application;
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Output\NullOutput;
 use Symfony\Component\Filesystem\Filesystem;
 
 $directory = getenv('VERIFIED_HUMAN_APPROVAL_RUNTIME') ?: \dirname(__DIR__, 2).'/var/demo';
@@ -18,6 +22,12 @@ try {
         (new Filesystem())->remove($directory);
     }
     $created = DemoSetup::initialize($directory, $origin);
+    // The review pages load the bundle's script and stylesheet from demo/public/bundles/, like any Symfony app after assets:install.
+    $console = new Application(new DemoKernel($directory));
+    $console->setAutoExit(false);
+    if ($console->run(new ArrayInput(['command' => 'assets:install', 'target' => \dirname(__DIR__).'/public', '--symlink' => true, '--relative' => true]), new NullOutput()) !== 0) {
+        throw new RuntimeException('Publishing the bundle assets failed: run php demo/bin/console assets:install demo/public');
+    }
     // A private header file lets mcp-remote send the editor's personal token without putting it in process arguments.
     $headers = $directory.'/claude-headers.txt';
     file_put_contents($headers, 'Authorization: Bearer '.$created['accounts']['editor']['personal_token']."\n");

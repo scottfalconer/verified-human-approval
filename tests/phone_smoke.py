@@ -45,6 +45,8 @@ def main():
             env=env, capture_output=True, text=True, check=True,
         )
         accounts = json.loads(setup.stdout)["accounts"]
+        # The review page loads the bundle's script from demo/public/bundles/, as after assets:install in any Symfony app.
+        subprocess.run([PHP, str(ROOT / "demo/bin/console"), "assets:install", str(ROOT / "demo/public"), "--symlink", "--relative"], env=env, capture_output=True, check=True)
         log = open(Path(temporary) / "server.log", "w+")
         server = subprocess.Popen([PHP, "-S", f"127.0.0.1:{port}", "-t", str(ROOT / "demo/public"), str(ROOT / "demo/public/index.php")],
                                   env={**env, "PHP_CLI_SERVER_WORKERS": "4"}, stdout=log, stderr=log, start_new_session=True)

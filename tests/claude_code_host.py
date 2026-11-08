@@ -69,6 +69,8 @@ def main() -> None:
         origin = f"http://localhost:{port}"
         env = {**os.environ, "VERIFIED_HUMAN_APPROVAL_RUNTIME": str(work / "runtime"), "VERIFIED_HUMAN_APPROVAL_ORIGIN": origin}
         setup = subprocess.run([PHP, "-r", 'require $argv[1]; echo json_encode(VerifiedHumanApproval\\Demo\\DemoSetup::initialize(getenv("VERIFIED_HUMAN_APPROVAL_RUNTIME"), getenv("VERIFIED_HUMAN_APPROVAL_ORIGIN")), JSON_THROW_ON_ERROR);', str(ROOT / "vendor/autoload.php")], env=env, capture_output=True, text=True, check=True)
+        # The review page loads the bundle's script from demo/public/bundles/, as after assets:install in any Symfony app.
+        subprocess.run([PHP, str(ROOT / "demo/bin/console"), "assets:install", str(ROOT / "demo/public"), "--symlink", "--relative"], env=env, capture_output=True, check=True)
         editor = json.loads(setup.stdout)["accounts"]["editor"]
         config = work / "mcp.json"
         config.write_text(json.dumps({"mcpServers": {"verified-human-approval": {"type": "http", "url": origin + "/mcp", "headers": {"Authorization": "Bearer " + editor["personal_token"]}}}}))

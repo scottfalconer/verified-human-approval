@@ -1,5 +1,5 @@
 {% extends '@VerifiedHumanApproval/base.html.twig' %}
-{% block title %}Review this action · Verified Human Approval{% endblock %}
+{% block title %}Review this action{% endblock %}
 {% block body %}
 {# The decision comes first: what is asked, the exact statement and one passkey button, with no scrolling. #}
 <section class="card approval-sheet" data-status="{{ state.status }}">
@@ -19,11 +19,14 @@
     {% elseif state.status == 'completed' %}
     <div class="done">
         <p class="notice">Approved with your passkey. This request is completed.</p>
+        {# The way back to the agent. The approval card adds #return=claude-desktop, claude-mobile or claude-web to the link. #}
+        {% block return %}
         <div class="actions" data-return hidden>
             <a class="button" href="claude://" data-return-app hidden>Back to Claude</a>
             <button type="button" data-return-tab hidden>Back to your Claude tab</button>
         </div>
         <p class="muted" data-return-hint>You can close this tab and return to Claude.</p>
+        {% endblock %}
     </div>
     {% else %}
     <p class="notice error">This request is {{ state.status }}{% if state.reason %} ({{ state.reason }}){% endif %}. Nothing changed.</p>

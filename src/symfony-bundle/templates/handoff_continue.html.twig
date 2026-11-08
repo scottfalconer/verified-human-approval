@@ -1,4 +1,4 @@
 {% extends '@VerifiedHumanApproval/base.html.twig' %}
-{% block title %}Open the approval · Verified Human Approval{% endblock %}
+{% block title %}Open the approval{% endblock %}
 {% block body %}<section class="card approval-sheet"><h1>Open the approval on this phone</h1><p>This one-time code opens a single request for you to review. Approving still takes your passkey.</p>
 <form method="post"><input type="hidden" name="_token" value="{{ csrf }}"><div class="actions"><button class="primary" type="submit">Continue</button></div></form></section>{% endblock %}

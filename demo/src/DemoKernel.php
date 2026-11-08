@@ -27,7 +27,7 @@ use VerifiedHumanApproval\Bundle\VerifiedHumanApprovalBundle;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool;
-use VerifiedHumanApproval\Bundle\RequesterLabel;
+use VerifiedHumanApproval\Bundle\SecurityHeadersSubscriber;
 use VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository;
 use VerifiedHumanApproval\WebAuthn\Configuration;
 use VerifiedHumanApproval\WebAuthn\CredentialRepository;
@@ -108,7 +108,6 @@ final class DemoKernel extends Kernel
             'password_hashers' => [DemoUser::class => ['algorithm' => 'auto']],
             'providers' => ['demo' => ['id' => DemoUserProvider::class]],
             'firewalls' => [
-                'assets' => ['pattern' => '^/approval/assets/', 'security' => false],
                 'mcp' => [
                     'pattern' => '^/mcp(?:$|/)', 'stateless' => true, 'provider' => 'demo',
                     'custom_authenticators' => [PersonalTokenAuthenticator::class],
@@ -116,19 +115,18 @@ final class DemoKernel extends Kernel
                 ],
                 'main' => [
                     'provider' => 'demo',
-                    'form_login' => ['login_path' => 'verified_human_approval_login', 'check_path' => 'verified_human_approval_login', 'enable_csrf' => true, 'default_target_path' => '/'],
+                    'form_login' => ['login_path' => 'demo_login', 'check_path' => 'demo_login', 'enable_csrf' => true, 'default_target_path' => '/'],
                     'login_throttling' => ['max_attempts' => 5, 'interval' => '1 minute', 'lock_factory' => 'verified_human_approval.limiter.lock_factory', 'storage_service' => 'verified_human_approval.limiter.storage'],
-                    'logout' => ['path' => 'verified_human_approval_logout', 'target' => 'verified_human_approval_login', 'enable_csrf' => true],
+                    'logout' => ['path' => 'demo_logout', 'target' => 'demo_login', 'enable_csrf' => true],
                 ],
             ],
             'access_control' => [
                 ['path' => '^/login$', 'roles' => 'PUBLIC_ACCESS'],
-                ['path' => '^/approval/assets/', 'roles' => 'PUBLIC_ACCESS'],
                 ['path' => '^/(alerts$|site/)', 'roles' => 'PUBLIC_ACCESS'],
                 ['path' => '^/(\.well-known/|oauth/(register|token)$)', 'roles' => 'PUBLIC_ACCESS'],
-                // A one-time phone link opens a review without signing in; the controller still requires
-                // the signed-in person or a session scoped to that one request.
-                ['path' => '^/approval/(handoff/[^/]+|[^/]+(/(status|options|complete|cancel))?)$', 'roles' => 'PUBLIC_ACCESS'],
+                // The bundle's review pages open without a sign-in, for a one-time phone link; its controller
+                // still requires the signed-in person or a session scoped to that one request.
+                ['request_matcher' => 'verified_human_approval.review_request_matcher', 'roles' => 'PUBLIC_ACCESS'],
                 ['path' => '^/mcp(?:$|/)', 'roles' => 'ROLE_USER'],
                 ['path' => '^/', 'roles' => 'ROLE_USER'],
             ],
@@ -150,6 +148,8 @@ final class DemoKernel extends Kernel
             'public_origin' => $this->settings['origin'], 'actor_provider' => DemoActorProvider::class,
             'policy_provider' => DemoPolicyProvider::class, 'authorizer' => DemoAuthorizer::class,
             'store' => PdoApprovalStore::class, 'verifier' => WebAuthnVerifier::class,
+            // Names the agent connection on the review page, so an agent's request never looks like the person's own.
+            'requester_label' => DemoRequesterLabel::class,
             // Each receipt is signed as the action commits, so a later edit to the record shows.
             'receipt_signer' => SodiumEvidenceSigner::class,
             'attempts_per_minute' => $this->settings['approval_attempts_per_minute'] ?? 30,
@@ -166,7 +166,6 @@ final class DemoKernel extends Kernel
         $services->set(AuditLog::class)->args([service(\PDO::class), service(SodiumEvidenceSigner::class), $this->settings['receipt_public_key'], service('verified_human_approval.clock')]);
         $services->set(AnchoredCredentialRepository::class);
         $services->alias(CredentialRepository::class, AnchoredCredentialRepository::class);
-        $services->alias(RequesterLabel::class, DemoRequesterLabel::class);
         $services->set(Configuration::class)->args([$this->settings['rp_id'], $this->settings['origin']]);
         $services->set(WebAuthnVerifier::class);
         $services->set(SodiumEvidenceSigner::class, SodiumEvidenceSigner::class)->factory([SodiumEvidenceSigner::class, 'fromEncoded'])->args([$this->settings['receipt_key_id'], $this->settings['receipt_secret_key']]);
@@ -190,25 +189,27 @@ final class DemoKernel extends Kernel
     {
         $routes->import('.', 'mcp');
         $routes->import('@VerifiedHumanApprovalBundle/config/routes.php');
-        $routes->add('verified_human_approval_home', '/')->controller([DemoController::class, 'home'])->methods(['GET']);
-        $routes->add('verified_human_approval_login', '/login')->controller([AccountController::class, 'login'])->methods(['GET', 'POST']);
-        $routes->add('verified_human_approval_logout', '/logout')->methods(['POST']);
-        $routes->add('verified_human_approval_passkeys', '/account/passkeys')->controller([AccountController::class, 'passkeys'])->methods(['GET']);
-        $routes->add('verified_human_approval_enrollment_options', '/account/passkeys/options')->controller([AccountController::class, 'enrollmentOptions'])->methods(['POST']);
-        $routes->add('verified_human_approval_enrollment_complete', '/account/passkeys/complete')->controller([AccountController::class, 'enrollmentComplete'])->methods(['POST']);
-        $routes->add('demo_passkey_link', '/account/passkeys/link/{token}')->controller([AccountController::class, 'passkeyLink'])->methods(['GET']);
-        $routes->add('demo_confirm_options', '/account/passkeys/confirm/options')->controller([AccountController::class, 'confirmOptions'])->methods(['POST']);
-        $routes->add('demo_confirm_complete', '/account/passkeys/confirm/complete')->controller([AccountController::class, 'confirmComplete'])->methods(['POST']);
-        $routes->add('demo_passkey_revoke', '/account/passkeys/{id}/revoke')->controller([AccountController::class, 'revokePasskey'])->methods(['POST']);
-        $routes->add('demo_connection_revoke', '/account/connections/{id}/revoke')->controller([AccountController::class, 'revokeConnection'])->methods(['POST']);
-        $routes->add('demo_audit', '/admin/audit')->controller([AuditController::class, 'audit'])->methods(['GET']);
-        $routes->add('demo_audit_evidence', '/admin/audit/{id}/evidence')->controller([AuditController::class, 'evidence'])->methods(['GET']);
-        $routes->add('demo_audit_passkey_revoke', '/admin/audit/passkeys/{id}/revoke')->controller([AuditController::class, 'revokePasskey'])->methods(['POST']);
-        $routes->add('demo_audit_connection_revoke', '/admin/audit/connections/{id}/revoke')->controller([AuditController::class, 'revokeConnection'])->methods(['POST']);
-        $routes->add('demo_audit_link', '/admin/audit/links')->controller([AuditController::class, 'issueLink'])->methods(['POST']);
-        $routes->add('verified_human_approval_policy', '/admin/approval-policy')->controller([DemoController::class, 'policy'])->methods(['GET', 'POST']);
-        $routes->add('verified_human_approval_request_publication', '/announcements/{id}/publish')->controller([DemoController::class, 'requestPublication'])->methods(['POST']);
-        $routes->add('verified_human_approval_edit_draft', '/announcements/{id}/draft')->controller([DemoController::class, 'editDraft'])->methods(['POST']);
+        // The account, passkey and administration pages get the same headers as the bundle's review pages.
+        $private = [SecurityHeadersSubscriber::ROUTE_DEFAULT => true];
+        $routes->add('demo_home', '/')->controller([DemoController::class, 'home'])->methods(['GET'])->defaults($private);
+        $routes->add('demo_login', '/login')->controller([AccountController::class, 'login'])->methods(['GET', 'POST'])->defaults($private);
+        $routes->add('demo_logout', '/logout')->methods(['POST'])->defaults($private);
+        $routes->add('demo_passkeys', '/account/passkeys')->controller([AccountController::class, 'passkeys'])->methods(['GET'])->defaults($private);
+        $routes->add('demo_enrollment_options', '/account/passkeys/options')->controller([AccountController::class, 'enrollmentOptions'])->methods(['POST'])->defaults($private);
+        $routes->add('demo_enrollment_complete', '/account/passkeys/complete')->controller([AccountController::class, 'enrollmentComplete'])->methods(['POST'])->defaults($private);
+        $routes->add('demo_passkey_link', '/account/passkeys/link/{token}')->controller([AccountController::class, 'passkeyLink'])->methods(['GET'])->defaults($private);
+        $routes->add('demo_confirm_options', '/account/passkeys/confirm/options')->controller([AccountController::class, 'confirmOptions'])->methods(['POST'])->defaults($private);
+        $routes->add('demo_confirm_complete', '/account/passkeys/confirm/complete')->controller([AccountController::class, 'confirmComplete'])->methods(['POST'])->defaults($private);
+        $routes->add('demo_passkey_revoke', '/account/passkeys/{id}/revoke')->controller([AccountController::class, 'revokePasskey'])->methods(['POST'])->defaults($private);
+        $routes->add('demo_connection_revoke', '/account/connections/{id}/revoke')->controller([AccountController::class, 'revokeConnection'])->methods(['POST'])->defaults($private);
+        $routes->add('demo_audit', '/admin/audit')->controller([AuditController::class, 'audit'])->methods(['GET'])->defaults($private);
+        $routes->add('demo_audit_evidence', '/admin/audit/{id}/evidence')->controller([AuditController::class, 'evidence'])->methods(['GET'])->defaults($private);
+        $routes->add('demo_audit_passkey_revoke', '/admin/audit/passkeys/{id}/revoke')->controller([AuditController::class, 'revokePasskey'])->methods(['POST'])->defaults($private);
+        $routes->add('demo_audit_connection_revoke', '/admin/audit/connections/{id}/revoke')->controller([AuditController::class, 'revokeConnection'])->methods(['POST'])->defaults($private);
+        $routes->add('demo_audit_link', '/admin/audit/links')->controller([AuditController::class, 'issueLink'])->methods(['POST'])->defaults($private);
+        $routes->add('demo_policy', '/admin/approval-policy')->controller([DemoController::class, 'policy'])->methods(['GET', 'POST'])->defaults($private);
+        $routes->add('demo_request_publication', '/announcements/{id}/publish')->controller([DemoController::class, 'requestPublication'])->methods(['POST'])->defaults($private);
+        $routes->add('demo_edit_draft', '/announcements/{id}/draft')->controller([DemoController::class, 'editDraft'])->methods(['POST'])->defaults($private);
         $routes->add('oauth_protected_resource', '/.well-known/oauth-protected-resource')->controller([OAuthController::class, 'protectedResource'])->methods(['GET']);
         $routes->add('oauth_protected_resource_mcp', '/.well-known/oauth-protected-resource/mcp')->controller([OAuthController::class, 'protectedResource'])->methods(['GET']);
         $routes->add('oauth_metadata', '/.well-known/oauth-authorization-server')->controller([OAuthController::class, 'authorizationServer'])->methods(['GET']);
@@ -217,6 +218,6 @@ final class DemoKernel extends Kernel
         $routes->add('oauth_token', '/oauth/token')->controller([OAuthController::class, 'token'])->methods(['POST']);
         $routes->add('riverside_alerts', '/alerts')->controller([PublicController::class, 'alerts'])->methods(['GET']);
         $routes->add('riverside_styles', '/site/riverside.css')->controller([PublicController::class, 'styles'])->methods(['GET']);
-        $routes->add('verified_human_approval_evidence', '/approval/{id}/evidence')->controller([EvidenceController::class, 'export'])->methods(['GET']);
+        $routes->add('demo_evidence', '/approval/{id}/evidence')->controller([EvidenceController::class, 'export'])->methods(['GET'])->defaults($private);
     }
 }
