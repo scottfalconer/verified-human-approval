@@ -1,0 +1,13 @@
+{% extends '@ExactApproval/base.html.twig' %}
+{% block title %}Your passkeys · Exact approval{% endblock %}
+{% block body %}
+<p class="eyebrow">Your application account</p><h1>Passkeys for action approval</h1>
+<p>Register your device here, then use it to approve an exact action. Each action requires a fresh verification.</p>
+<div class="card">
+{% if credentials %}<h2>Registered passkeys</h2><ul>{% for credential in credentials %}<li>{{ credential.label }}{% if credential.revoked %} (revoked){% endif %}</li>{% endfor %}</ul>{% else %}<p>No passkey is registered for this account.</p>{% endif %}
+<div data-passkey-panel data-mode="registration" data-csrf="{{ csrf }}" data-options-url="{{ path('exact_approval_enrollment_options') }}" data-complete-url="{{ path('exact_approval_enrollment_complete') }}">
+    <button type="button" data-approve>Register a passkey</button><p data-message aria-live="polite"></p>
+</div>
+</div>
+<p class="muted">Your browser may offer a fingerprint, face, device PIN or another user-verification method. This application requires user verification.</p>
+{% endblock %}

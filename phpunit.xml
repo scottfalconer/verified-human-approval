@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit bootstrap="vendor/autoload.php" colors="true" cacheDirectory=".phpunit.cache" failOnWarning="true" failOnRisky="true">
+  <testsuites><testsuite name="core"><directory>tests/Core</directory></testsuite><testsuite name="webauthn"><directory>tests/WebAuthn</directory></testsuite><testsuite name="symfony"><directory>tests/Symfony</directory></testsuite><testsuite name="evidence"><directory>tests/Evidence</directory></testsuite></testsuites>
+</phpunit>

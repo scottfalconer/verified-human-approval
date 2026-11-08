@@ -1,0 +1,9 @@
+name: Exact approval acceptance fixtures
+type: module
+description: Failure injection for the isolated exact approval acceptance site. Never enable on production.
+package: Testing
+core_version_requirement: ^11
+hidden: true
+dependencies:
+  - exact_approval:exact_approval
+

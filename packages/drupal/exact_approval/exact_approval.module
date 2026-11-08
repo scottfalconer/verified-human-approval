@@ -1,0 +1,38 @@
+<?php
+
+declare(strict_types=1);
+
+use Drupal\exact_approval\Guard\ApprovalNodeStorage;
+use Drupal\node\NodeStorage;
+
+/** Implements hook_form_alter(). */
+function exact_approval_form_alter(array &$form, \Drupal\Core\Form\FormStateInterface $form_state, string $form_id): void {
+  \Drupal\exact_approval\Form\NodeFormAlter::alter($form, $form_state);
+}
+
+/** Implements hook_entity_type_alter(). */
+function exact_approval_entity_type_alter(array &$entity_types): void {
+  if (isset($entity_types['node'])) {
+    $storage = $entity_types['node']->getStorageClass();
+    if ($storage !== NodeStorage::class && $storage !== ApprovalNodeStorage::class) {
+      throw new \LogicException('Exact approval cannot silently replace a custom node storage handler. Integrate its guarded storage behavior before enabling the module.');
+    }
+    $entity_types['node']->setHandlerClass('storage', ApprovalNodeStorage::class);
+  }
+}
+
+/** Implements hook_theme(). */
+function exact_approval_theme(): array {
+  return [
+    'exact_approval_review' => [
+      'variables' => ['state' => NULL, 'prepared' => NULL, 'request_id' => '', 'account_name' => '', 'statement' => '', 'expires' => '', 'digest' => '', 'target_json' => '', 'effect_json' => '', 'preconditions_json' => '', 'csrf' => '', 'options_url' => '', 'complete_url' => '', 'cancel_url' => '', 'evidence_url' => '', 'keys_url' => '', 'result_json' => '', 'status_url' => ''],
+    ],
+    'exact_approval_keys' => [
+      'variables' => ['credentials' => [], 'csrf' => '', 'options_url' => '', 'complete_url' => ''],
+    ],
+    'exact_approval_audit' => [
+      'variables' => ['records' => [], 'all_users' => FALSE],
+    ],
+  ];
+}
+

@@ -1,0 +1,11 @@
+name: Exact approval
+type: module
+description: Require a registered passkey to approve an exact publish or delete action, and retain its verification evidence.
+package: Security
+core_version_requirement: ^11.4
+configure: exact_approval.settings
+dependencies:
+  - drupal:node
+  - drupal:user
+  - drupal:system
+

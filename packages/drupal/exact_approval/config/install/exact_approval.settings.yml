@@ -1,0 +1,8 @@
+rules: []
+statements:
+  publish: 'I approve publishing "{{title}}" on {{site}} with the exact content and workflow change shown below.'
+  delete: 'I approve permanently deleting "{{title}}" on {{site}}, including its revisions and translations shown below.'
+lifetime: 600
+origin: ''
+rp_id: ''
+

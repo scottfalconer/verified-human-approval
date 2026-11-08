@@ -1,0 +1,107 @@
+{
+    "suite": "exact-approval/real-drupal-acceptance/v1",
+    "drupal": "11.4.12",
+    "database": "sqlite",
+    "run": "ea_20598493",
+    "tests": 19,
+    "assertions": 138,
+    "failures": 0,
+    "authenticator": "Synthetic ES256 signatures checked by the production WebAuthn verifier; no physical biometrics tested.",
+    "outcomes": [
+        {
+            "name": "Native permissions remain mandatory before approval",
+            "status": "passed",
+            "assertions": 5
+        },
+        {
+            "name": "Hidden fields cannot leak through approval review or evidence",
+            "status": "passed",
+            "assertions": 6
+        },
+        {
+            "name": "An authorized account still needs its own registered key",
+            "status": "passed",
+            "assertions": 5
+        },
+        {
+            "name": "Real ES256 approval publishes exactly the stored Drupal draft",
+            "status": "passed",
+            "assertions": 12
+        },
+        {
+            "name": "Direct and bulk entity mutation cannot bypass required approval",
+            "status": "passed",
+            "assertions": 15
+        },
+        {
+            "name": "Another Drupal UID or passkey cannot approve the request",
+            "status": "passed",
+            "assertions": 4
+        },
+        {
+            "name": "User verification and exact challenge are mandatory",
+            "status": "passed",
+            "assertions": 7
+        },
+        {
+            "name": "Changed saved content invalidates pending approval",
+            "status": "passed",
+            "assertions": 3
+        },
+        {
+            "name": "A replacement revision invalidates pending approval",
+            "status": "passed",
+            "assertions": 3
+        },
+        {
+            "name": "Changed administrator policy invalidates pending approval",
+            "status": "passed",
+            "assertions": 3
+        },
+        {
+            "name": "Revoked native permissions are rechecked at execution",
+            "status": "passed",
+            "assertions": 2
+        },
+        {
+            "name": "Removed role membership is rechecked in the same user session",
+            "status": "passed",
+            "assertions": 4
+        },
+        {
+            "name": "Drupal moderation transition permission governs publication",
+            "status": "passed",
+            "assertions": 8
+        },
+        {
+            "name": "Publish failure rolls back node, hook effect, key counter, and evidence",
+            "status": "passed",
+            "assertions": 11
+        },
+        {
+            "name": "Late hook content alteration fails exact persisted postconditions",
+            "status": "passed",
+            "assertions": 11
+        },
+        {
+            "name": "Delete failure rolls back node, hook effect, key counter, and evidence",
+            "status": "passed",
+            "assertions": 11
+        },
+        {
+            "name": "Concurrent completions in two Drupal processes commit one publication",
+            "status": "passed",
+            "assertions": 9
+        },
+        {
+            "name": "Approved deletion retains independently verifiable evidence",
+            "status": "passed",
+            "assertions": 16
+        },
+        {
+            "name": "Revoked passkey cannot approve a newly requested operation",
+            "status": "passed",
+            "assertions": 3
+        }
+    ]
+}

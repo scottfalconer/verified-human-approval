@@ -1,0 +1,10 @@
+{% extends '@ExactApproval/base.html.twig' %}
+{% block title %}Approval policy · Exact approval{% endblock %}
+{% block body %}
+<p class="eyebrow">Administrator</p><h1>Protect announcement publication</h1>
+<p>Require a person to approve the exact content before it becomes published. Saving a change invalidates pending requests using the previous policy.</p>
+{% if saved %}<p class="notice">Policy saved.</p>{% endif %}
+<section class="card">{{ form_start(form) }}{{ form_widget(form) }}<p class="muted">Available placeholders: {% verbatim %}{{title}}, {{revision}}, {{application}}, {{environment}}{% endverbatim %}.</p><button>Save policy</button>{{ form_end(form) }}</section>
+<section class="card"><h2>Statement preview</h2><p class="statement">{{ preview }}</p></section>
+<p class="muted">Turning protection off allows new authorized requests to execute without a passkey. Existing pending requests cannot reuse their previous approval.</p>
+{% endblock %}

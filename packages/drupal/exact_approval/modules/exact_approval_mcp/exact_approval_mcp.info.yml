@@ -1,0 +1,9 @@
+name: Exact approval MCP tools
+type: module
+description: Add exact publish/delete approval requests to the existing Drupal MCP endpoint.
+package: Security
+core_version_requirement: ^11.4
+dependencies:
+  - exact_approval:exact_approval
+  - mcp_server:mcp_server
+

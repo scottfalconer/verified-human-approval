@@ -1,0 +1,15 @@
+{
+  "name": "drupal/exact_approval",
+  "description": "Require a user's passkey approval for exact Drupal publish and delete operations",
+  "version": "0.1.0",
+  "type": "drupal-module",
+  "license": "GPL-2.0-or-later",
+  "require": {
+    "php": "^8.3",
+    "drupal/core": "^11.4",
+    "exact-approval/core": "^0.1",
+    "exact-approval/webauthn": "^0.1",
+    "ext-sodium": "*"
+  },
+  "autoload": {"psr-4": {"Drupal\\exact_approval\\": "src/"}}
+}

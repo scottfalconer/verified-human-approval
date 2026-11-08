@@ -1,0 +1,29 @@
+<div class="exact-approval">
+  <p>{{ 'These keys belong to your Drupal account and can approve protected actions you are already permitted to perform.'|t }}</p>
+  {% if credentials %}
+    <table>
+      <thead><tr><th>{{ 'Key'|t }}</th><th>{{ 'Status'|t }}</th><th>{{ 'Registration'|t }}</th><th>{{ 'Operations'|t }}</th></tr></thead>
+      <tbody>
+      {% for credential in credentials %}
+        <tr>
+          <td>{{ credential.label }}</td>
+          <td>{{ credential.revoked ? 'Revoked'|t : 'Active'|t }}</td>
+          <td><details><summary>{{ 'Credential identifier'|t }}</summary><code>{{ credential.id }}</code></details></td>
+          <td>{% if credential.revoke_url %}<a href="{{ credential.revoke_url }}">{{ 'Revoke'|t }}</a>{% else %}—{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>{{ 'No approval key is registered yet.'|t }}</p>
+  {% endif %}
+  <section class="exact-approval__section" data-passkey-panel data-mode="registration" data-csrf="{{ csrf }}"
+           data-options-url="{{ options_url }}" data-complete-url="{{ complete_url }}">
+    <h2>{{ 'Register a personal passkey'|t }}</h2>
+    <p>{{ 'Use your computer, phone or security key. Your device can ask for a biometric, PIN or passcode. The private key remains with your authenticator.'|t }}</p>
+    <button class="button button--primary" type="button" data-approve>{{ 'Register approval key'|t }}</button>
+    <p class="exact-approval__message" data-message role="status" aria-live="polite"></p>
+    <noscript><p>{{ 'JavaScript is required to register a passkey.'|t }}</p></noscript>
+  </section>
+  <p>{{ 'Revocation prevents new approvals. Drupal keeps the public registration record so historical approval signatures remain verifiable.'|t }}</p>
+</div>

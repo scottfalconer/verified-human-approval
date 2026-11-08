@@ -1,0 +1,61 @@
+services:
+  exact_approval.rules:
+    class: Drupal\exact_approval\Policy\PolicyRules
+    arguments: ['@config.factory']
+  exact_approval.policy:
+    class: Drupal\exact_approval\Policy\DrupalPolicyProvider
+    arguments: ['@exact_approval.rules']
+  exact_approval.actor_provider:
+    class: Drupal\exact_approval\Security\ActorProvider
+    arguments: ['@current_user', '@entity_type.manager', '@config.factory', '@request_stack', '@authentication_collector']
+  exact_approval.delegation_authorizer:
+    class: Drupal\exact_approval\Security\RejectUnknownDelegation
+  exact_approval.execution_guard:
+    class: ExactApproval\Core\ExecutionGuard
+  exact_approval.node_snapshot:
+    class: Drupal\exact_approval\Action\NodeSnapshot
+  exact_approval.node_access:
+    class: Drupal\exact_approval\Action\NodeAccess
+    arguments: ['@exact_approval.actor_provider', '@entity_type.manager', '@exact_approval.rules', '@?content_moderation.moderation_information', '@?content_moderation.state_transition_validation']
+  exact_approval.mutation_guard:
+    class: Drupal\exact_approval\Guard\MutationGuard
+    arguments: ['@exact_approval.execution_guard', '@exact_approval.actor_provider', '@exact_approval.rules', '@exact_approval.node_snapshot', '@entity_type.manager', '@?content_moderation.moderation_information']
+  exact_approval.publish_action:
+    class: Drupal\exact_approval\Action\NodePublishAction
+    arguments: ['@entity_type.manager', '@database', '@exact_approval.actor_provider', '@exact_approval.node_snapshot', '@exact_approval.node_access', '@exact_approval.mutation_guard']
+  exact_approval.delete_action:
+    class: Drupal\exact_approval\Action\NodeDeleteAction
+    arguments: ['@entity_type.manager', '@database', '@exact_approval.actor_provider', '@exact_approval.node_snapshot', '@exact_approval.node_access', '@exact_approval.mutation_guard']
+  exact_approval.actions:
+    class: ExactApproval\Core\ActionRegistry
+    arguments: [['@exact_approval.publish_action', '@exact_approval.delete_action']]
+  exact_approval.authorizer:
+    class: Drupal\exact_approval\Security\DrupalAuthorizer
+    arguments: ['@exact_approval.publish_action', '@exact_approval.delete_action', '@exact_approval.delegation_authorizer']
+  exact_approval.credentials:
+    class: Drupal\exact_approval\Storage\DrupalCredentialRepository
+    arguments: ['@database']
+  exact_approval.webauthn_configuration:
+    class: ExactApproval\WebAuthn\Configuration
+    factory: ['Drupal\exact_approval\Bridge\BridgeFactory', webAuthnConfiguration]
+    arguments: ['@config.factory']
+  exact_approval.user_handles:
+    class: ExactApproval\WebAuthn\HashedUserHandleProvider
+  exact_approval.webauthn:
+    class: ExactApproval\WebAuthn\WebAuthnVerifier
+    arguments: ['@exact_approval.webauthn_configuration', '@exact_approval.credentials', '@exact_approval.user_handles']
+  exact_approval.signer:
+    class: ExactApproval\Core\Evidence\SodiumEvidenceSigner
+    factory: ['Drupal\exact_approval\Bridge\BridgeFactory', signer]
+  exact_approval.store:
+    class: Drupal\exact_approval\Storage\DrupalApprovalStore
+    arguments: ['@database', '@exact_approval.credentials', '@exact_approval.signer', '@config.factory', '@entity_type.manager']
+  exact_approval.clock:
+    class: Drupal\exact_approval\Bridge\SystemClock
+  exact_approval.approvals:
+    class: ExactApproval\Core\ApprovalService
+    arguments: ['@exact_approval.actions', '@exact_approval.policy', '@exact_approval.authorizer', '@exact_approval.store', '@exact_approval.webauthn', '@exact_approval.clock', '@exact_approval.execution_guard']
+  exact_approval.evidence:
+    class: Drupal\exact_approval\Evidence\EvidenceService
+    arguments: ['@exact_approval.approvals', '@exact_approval.store', '@exact_approval.actor_provider', '@exact_approval.signer', '@config.factory']
+

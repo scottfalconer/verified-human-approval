@@ -1,0 +1,20 @@
+{% extends '@ExactApproval/base.html.twig' %}
+{% block title %}Campaigns · Exact approval{% endblock %}
+{% block body %}
+<p class="eyebrow">{{ actor.userId }} · Campaign Demo</p><h1>Publish with exact approval</h1>
+<p><a href="{{ path('exact_approval_passkeys') }}">Your passkeys</a>{% if is_granted('ROLE_ADMIN') %} · <a href="{{ path('exact_approval_policy') }}">Administrator settings</a>{% endif %}</p>
+{% for item in announcements %}
+<section class="card"><h2>{{ item.title }}</h2><p class="content-preview">{{ item.body }}</p>
+<dl><dt>Draft revision</dt><dd>{{ item.revision }}</dd><dt>Published revision</dt><dd>{{ item.published_revision ?? 'Not published' }}</dd><dt>Committed changes</dt><dd>{{ item.mutation_count }}</dd></dl>
+{% if item.published_revision %}<details><summary>Currently published content</summary><h3>{{ item.published_title }}</h3><p class="content-preview">{{ item.published_body }}</p></details>{% endif %}
+{% if is_granted('ROLE_PUBLISHER') %}
+<form action="{{ path('exact_approval_request_publication', {id: item.id}) }}" method="post"><input type="hidden" name="_token" value="{{ csrf_token('publish.' ~ item.id) }}"><div class="actions"><button>Request publication</button></div></form>
+<details><summary>Edit the draft</summary><form method="post" action="{{ path('exact_approval_edit_draft', {id: item.id}) }}">
+    <input type="hidden" name="_token" value="{{ csrf_token('draft.' ~ item.id) }}"><label>Title<input name="title" value="{{ item.title }}" maxlength="200" required></label><label>Body<textarea name="body" maxlength="20000">{{ item.body }}</textarea></label><button class="secondary">Save a new draft revision</button>
+</form></details>
+{% endif %}
+</section>
+{% endfor %}
+<p class="muted">The same publication guard applies when an MCP client requests this action.</p>
+<form action="{{ path('exact_approval_logout') }}" method="post"><input type="hidden" name="_csrf_token" value="{{ csrf_token('logout') }}"><button class="secondary">Sign out</button></form>
+{% endblock %}

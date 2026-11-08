@@ -1,0 +1,9 @@
+name: Exact approval MCP acceptance fixture
+type: module
+description: Test-only ordinary MCP tools that call native node storage without the approval API.
+package: Testing
+hidden: true
+core_version_requirement: ^11.4
+dependencies:
+  - exact_approval:exact_approval_mcp
+

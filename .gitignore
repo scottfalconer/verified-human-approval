@@ -1,0 +1,12 @@
+/vendor/
+/.phpunit.cache/
+/var/
+/examples/symfony/var/
+/.env.local
+/.phpstan/
+/examples/drupal/vendor/
+/examples/drupal/web/
+/examples/drupal/var/
+**/__pycache__/
+*.pyc
+/.venv-drupal-http/

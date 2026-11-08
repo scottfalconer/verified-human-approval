@@ -1,0 +1,13 @@
+{% extends '@ExactApproval/base.html.twig' %}
+{% block title %}Sign in · Exact approval{% endblock %}
+{% block body %}
+<p class="eyebrow">Application account</p><h1>Sign in to review actions</h1>
+<p>Use the human account credentials created during local setup. Your agent’s personal token cannot sign in here.</p>
+{% if error %}<p class="notice error">Sign-in failed. Check your account credentials.</p>{% endif %}
+<form method="post" action="{{ path('exact_approval_login') }}" class="card">
+    <label for="username">Account</label><input id="username" name="_username" autocomplete="username" value="{{ last_username }}" required>
+    <label for="password">Password</label><input id="password" type="password" name="_password" autocomplete="current-password" required>
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token('authenticate') }}">
+    <div class="actions"><button>Sign in</button></div>
+</form>
+{% endblock %}

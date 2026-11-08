@@ -1,0 +1,45 @@
+{# Every proposal value is escaped. Content is not rendered through a text format. #}
+<div class="exact-approval">
+  <p>{{ prepared.display.consequence|default('Review the exact action below before approving it with your registered passkey.'|t) }}</p>
+  <dl class="exact-approval__meta">
+    <dt>{{ 'Status'|t }}</dt><dd>{{ state.status }}</dd>
+    <dt>{{ 'Action'|t }}</dt><dd>{{ prepared.actionId }}</dd>
+    <dt>{{ 'Account'|t }}</dt><dd>{{ account_name }}</dd>
+    <dt>{{ 'Expires'|t }}</dt><dd>{{ expires }}</dd>
+    <dt>{{ 'Request'|t }}</dt><dd><code>{{ request_id }}</code></dd>
+  </dl>
+  <section class="exact-approval__section">
+    <h2>{{ 'Exact proposed action'|t }}</h2>
+    {% if prepared.display.title %}<h3>{{ prepared.display.title }}</h3>{% endif %}
+    <h3>{{ 'Target'|t }}</h3><pre>{{ target_json }}</pre>
+    <h3>{{ 'Effect'|t }}</h3><pre>{{ effect_json }}</pre>
+    <details>
+      <summary>{{ 'Bound preconditions and proposal digest'|t }}</summary>
+      <pre>{{ preconditions_json }}</pre>
+      <p>{{ 'SHA-256'|t }}: <code>{{ digest }}</code></p>
+    </details>
+  </section>
+  <section class="exact-approval__section">
+    <h2>{{ 'Required approval statement'|t }}</h2>
+    <p class="exact-approval__statement">{{ statement }}</p>
+    {% if state.status == 'pending' %}
+      <div data-passkey-panel data-mode="approval" data-csrf="{{ csrf }}"
+           data-options-url="{{ options_url }}" data-complete-url="{{ complete_url }}" data-cancel-url="{{ cancel_url }}">
+        <label class="exact-approval__checkbox"><input type="checkbox" data-reviewed />{{ 'I have reviewed this exact action and approval statement.'|t }}</label>
+        <p>{{ 'Approve with a passkey registered to this Drupal account. Changed content, policy or permissions prevent execution.'|t }}</p>
+        <div class="exact-approval__actions">
+          <button class="button button--primary" type="button" data-approve disabled>{{ 'Approve and execute'|t }}</button>
+          <button class="button" type="button" data-cancel>{{ 'Cancel this request'|t }}</button>
+        </div>
+        <p class="exact-approval__message" data-message role="status" aria-live="polite"></p>
+        <noscript><p>{{ 'JavaScript is required to use your device’s passkey.'|t }}</p></noscript>
+        <p><a href="{{ keys_url }}">{{ 'Manage my approval keys'|t }}</a></p>
+      </div>
+    {% else %}
+      <p>{{ 'This request is @status.'|t({'@status': state.status}) }}{% if state.reason %} {{ state.reason }}{% endif %}</p>
+      {% if result_json %}<h3>{{ 'Recorded result'|t }}</h3><pre>{{ result_json }}</pre>{% endif %}
+      {% if evidence_url %}<p><a href="{{ evidence_url }}">{{ 'Download signed evidence'|t }}</a></p>{% endif %}
+    {% endif %}
+  </section>
+  <p class="exact-approval__hint">{{ 'Your device verifies the holder of the registered key using its available method, such as a biometric or device PIN. Drupal records the signature and this exact proposal; it does not receive biometric data or your private key.'|t }}</p>
+</div>

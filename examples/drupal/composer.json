@@ -1,0 +1,77 @@
+{
+  "name": "exact-approval/drupal-demo",
+  "description": "Disposable Drupal integration and acceptance site for exact-action approval",
+  "type": "project",
+  "license": "GPL-2.0-or-later",
+  "repositories": [
+    {
+      "type": "path",
+      "url": "../../packages/core",
+      "options": {
+        "symlink": true
+      }
+    },
+    {
+      "type": "path",
+      "url": "../../packages/webauthn",
+      "options": {
+        "symlink": true
+      }
+    },
+    {
+      "type": "path",
+      "url": "../../packages/drupal/exact_approval",
+      "options": {
+        "symlink": true
+      }
+    },
+    {
+      "type": "composer",
+      "url": "https://packages.drupal.org/8"
+    }
+  ],
+  "require": {
+    "php": "^8.3",
+    "composer/installers": "^2.3",
+    "drupal/core-composer-scaffold": "~11.4.0",
+    "drupal/core-recommended": "~11.4.0",
+    "drupal/exact_approval": "^0.1",
+    "drupal/mcp_server": "^2.0@beta",
+    "drush/drush": "^13.7"
+  },
+  "config": {
+    "allow-plugins": {
+      "composer/installers": true,
+      "drupal/core-composer-scaffold": true,
+      "php-http/discovery": false,
+      "symfony/runtime": true
+    },
+    "sort-packages": true,
+    "platform": {
+      "php": "8.3.0"
+    }
+  },
+  "extra": {
+    "drupal-scaffold": {
+      "locations": {
+        "web-root": "web/"
+      }
+    },
+    "installer-paths": {
+      "web/core": [
+        "type:drupal-core"
+      ],
+      "web/modules/custom/{$name}": [
+        "drupal/exact_approval"
+      ],
+      "web/modules/contrib/{$name}": [
+        "type:drupal-module"
+      ],
+      "web/themes/contrib/{$name}": [
+        "type:drupal-theme"
+      ]
+    }
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true
+}

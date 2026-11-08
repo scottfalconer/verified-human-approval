@@ -1,0 +1,9 @@
+parameters:
+    level: 5
+    paths:
+        - packages/core/src
+        - packages/webauthn/src
+        - packages/symfony/src
+        - examples/symfony/src
+        - bin
+    tmpDir: .phpstan

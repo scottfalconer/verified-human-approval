@@ -1,0 +1,21 @@
+{
+  "name": "exact-approval/symfony-bundle",
+  "description": "Symfony Security, browser review and MCP integration for exact action approval.",
+  "type": "symfony-bundle",
+  "version": "0.1.0",
+  "license": "MIT",
+  "require": {
+    "php": "^8.3",
+    "exact-approval/core": "^0.1",
+    "mcp/sdk": "^0.9",
+    "symfony/mcp-bundle": "^1.0@beta",
+    "symfony/framework-bundle": "^7.4 || ^8.0",
+    "symfony/security-bundle": "^7.4 || ^8.0",
+    "symfony/twig-bundle": "^7.4 || ^8.0",
+    "symfony/security-csrf": "^7.4 || ^8.0",
+    "symfony/rate-limiter": "^7.4 || ^8.0",
+    "symfony/lock": "^7.4 || ^8.0",
+    "symfony/clock": "^7.4 || ^8.0"
+  },
+  "autoload": {"psr-4": {"ExactApproval\\Symfony\\": "src/"}}
+}

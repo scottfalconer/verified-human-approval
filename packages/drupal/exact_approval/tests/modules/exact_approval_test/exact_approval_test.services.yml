@@ -1,0 +1,6 @@
+services:
+  exact_approval_test.mcp_routes:
+    class: Drupal\exact_approval_test\Routing\McpTestRouteSubscriber
+    tags:
+      - { name: event_subscriber }
+

@@ -1,0 +1,20 @@
+{
+  "name": "exact-approval/webauthn",
+  "description": "WebAuthn user-verification bridge for exact application action approval.",
+  "type": "library",
+  "license": "MIT",
+  "require": {
+    "php": "^8.3",
+    "ext-json": "*",
+    "ext-openssl": "*",
+    "exact-approval/core": "^0.1@dev",
+    "web-auth/webauthn-lib": "^5.3"
+  },
+  "suggest": {
+    "ext-pdo": "Use the included transaction-compatible credential repository.",
+    "ext-pdo_sqlite": "Run the SQLite reference implementation."
+  },
+  "autoload": {"psr-4": {"ExactApproval\\WebAuthn\\": "src/"}},
+  "version": "0.1.0",
+  "config": {"sort-packages": true}
+}

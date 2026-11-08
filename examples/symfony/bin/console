@@ -1,0 +1,13 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+require \dirname(__DIR__, 3).'/vendor/autoload.php';
+
+use ExactApproval\Demo\DemoKernel;
+use Symfony\Bundle\FrameworkBundle\Console\Application;
+
+$runtime = getenv('EXACT_APPROVAL_RUNTIME') ?: \dirname(__DIR__, 3).'/var/demo';
+$application = new Application(new DemoKernel($runtime));
+$application->run();

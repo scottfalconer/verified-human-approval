@@ -1,0 +1,178 @@
+exact_approval.settings:
+  path: '/admin/config/people/exact-approval'
+  defaults:
+    _form: '\Drupal\exact_approval\Form\SettingsForm'
+    _title: 'Exact approval'
+  requirements:
+    _permission: 'administer exact approval'
+  options:
+    _admin_route: true
+    _auth: ['cookie']
+    no_cache: true
+
+exact_approval.keys:
+  path: '/user/exact-approval/keys'
+  defaults:
+    _controller: '\Drupal\exact_approval\Controller\CredentialController::keys'
+    _title: 'My approval keys'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+  options:
+    _auth: ['cookie']
+    no_cache: true
+exact_approval.enroll_options:
+  path: '/user/exact-approval/keys/options'
+  defaults:
+    _controller: '\Drupal\exact_approval\Controller\CredentialController::enrollmentOptions'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+  methods: [POST]
+  options:
+    _auth: ['cookie']
+    no_cache: true
+exact_approval.enroll_complete:
+  path: '/user/exact-approval/keys/complete'
+  defaults:
+    _controller: '\Drupal\exact_approval\Controller\CredentialController::enrollmentComplete'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+  methods: [POST]
+  options:
+    _auth: ['cookie']
+    no_cache: true
+exact_approval.key_revoke:
+  path: '/user/exact-approval/keys/{credential}/revoke'
+  defaults:
+    _form: '\Drupal\exact_approval\Form\RevokeCredentialForm'
+    _title: 'Revoke approval key'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+  options:
+    _auth: ['cookie']
+    no_cache: true
+
+exact_approval.node_action:
+  path: '/node/{node}/exact-approval/{operation}'
+  defaults:
+    _form: '\Drupal\exact_approval\Form\NodeActionForm'
+    _title: 'Prepare exact approval'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    operation: 'publish|delete'
+  options:
+    parameters:
+      node:
+        type: entity:node
+    _auth: ['cookie']
+    no_cache: true
+
+exact_approval.review:
+  path: '/exact-approval/{id}'
+  defaults:
+    _controller: '\Drupal\exact_approval\Controller\ApprovalController::review'
+    _title: 'Review exact action'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+    id: 'apr_[a-f0-9]+'
+  options:
+    _auth: ['cookie']
+    no_cache: true
+exact_approval.status:
+  path: '/exact-approval/{id}/status'
+  defaults:
+    _controller: '\Drupal\exact_approval\Controller\ApprovalController::status'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+  options:
+    _auth: ['cookie']
+    no_cache: true
+exact_approval.options:
+  path: '/exact-approval/{id}/options'
+  defaults:
+    _controller: '\Drupal\exact_approval\Controller\ApprovalController::options'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+  methods: [POST]
+  options:
+    _auth: ['cookie']
+    no_cache: true
+exact_approval.complete:
+  path: '/exact-approval/{id}/complete'
+  defaults:
+    _controller: '\Drupal\exact_approval\Controller\ApprovalController::complete'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+  methods: [POST]
+  options:
+    _auth: ['cookie']
+    no_cache: true
+exact_approval.cancel:
+  path: '/exact-approval/{id}/cancel'
+  defaults:
+    _controller: '\Drupal\exact_approval\Controller\ApprovalController::cancel'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+  methods: [POST]
+  options:
+    _auth: ['cookie']
+    no_cache: true
+
+exact_approval.audit:
+  path: '/user/exact-approval/history'
+  defaults:
+    _controller: '\Drupal\exact_approval\Controller\AuditController::listing'
+    _title: 'Approval history'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+  options:
+    _auth: ['cookie']
+    no_cache: true
+exact_approval.audit_detail:
+  path: '/exact-approval/{id}/audit'
+  defaults:
+    _controller: '\Drupal\exact_approval\Controller\AuditController::detail'
+    _title: 'Signed approval evidence'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+  options:
+    _auth: ['cookie']
+    no_cache: true
+exact_approval.registered_keys:
+  path: '/admin/config/people/exact-approval/keys'
+  defaults:
+    _controller: '\Drupal\exact_approval\Controller\AuditController::registeredKeys'
+    _title: 'Registered approval keys'
+  requirements:
+    _permission: 'administer exact approval'
+  options:
+    _admin_route: true
+    _auth: ['cookie']
+    no_cache: true
+exact_approval.evidence:
+  path: '/exact-approval/{id}/evidence'
+  defaults:
+    _controller: '\Drupal\exact_approval\Controller\EvidenceController::export'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+  options:
+    _auth: ['cookie']
+    no_cache: true
+exact_approval.evidence_credential:
+  path: '/exact-approval/{id}/credential'
+  defaults:
+    _controller: '\Drupal\exact_approval\Controller\EvidenceController::exportCredential'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+  options:
+    _auth: ['cookie']
+    no_cache: true
+exact_approval.evidence_trust:
+  path: '/exact-approval/{id}/trust'
+  defaults:
+    _controller: '\Drupal\exact_approval\Controller\EvidenceController::exportTrust'
+  requirements:
+    _user_is_logged_in: 'TRUE'
+  options:
+    _auth: ['cookie']
+    no_cache: true
+

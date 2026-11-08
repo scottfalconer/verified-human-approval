@@ -1,0 +1,40 @@
+{% extends '@ExactApproval/base.html.twig' %}
+{% block title %}Review this action · Exact approval{% endblock %}
+{% block body %}
+<p class="eyebrow">Review on the application</p>
+<h1>{{ prepared.display.title|default('Review this exact action') }}</h1>
+<p>{{ prepared.display.consequence|default('This application will execute only the stored action shown here.') }}</p>
+<div class="card">
+    <dl>
+        <dt>Application</dt><dd>{{ prepared.target.application|default('This application') }}</dd>
+        <dt>Environment</dt><dd>{{ prepared.target.environment|default('Not specified') }}</dd>
+        <dt>Resource</dt><dd>{{ prepared.target.resource|default(prepared.actionId) }}</dd>
+        <dt>Status</dt><dd>{{ state.status }}</dd>
+        <dt>Expires</dt><dd>{{ state.request.expiresAt|date('Y-m-d H:i:s T') }}</dd>
+    </dl>
+</div>
+<section class="card">
+    <h2>Exact proposed content</h2>
+    {% if prepared.effect.title is defined %}<h3>{{ prepared.effect.title }}</h3>{% endif %}
+    {% if prepared.effect.body is defined %}<div class="content-preview">{{ prepared.effect.body }}</div>{% endif %}
+    <details><summary>All bound effects and preconditions</summary><pre>{{ {'effect': prepared.effect, 'preconditions': prepared.preconditions}|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre></details>
+</section>
+<section class="card">
+    <h2>Required statement</h2>
+    <p class="statement">{{ state.request.statement }}</p>
+    {% if state.status == 'pending' %}
+    <div data-passkey-panel data-mode="approval" data-csrf="{{ csrf }}"
+         data-options-url="{{ path('exact_approval_options', {id: state.request.id}) }}"
+         data-complete-url="{{ path('exact_approval_complete', {id: state.request.id}) }}"
+         data-cancel-url="{{ path('exact_approval_cancel', {id: state.request.id}) }}">
+        <p class="muted">Approve with your device’s passkey. A changed proposal, revoked permission or expired request will prevent execution.</p>
+        <div class="actions"><button type="button" data-approve>Approve and execute</button><button type="button" class="secondary" data-cancel>Cancel request</button></div>
+        <p data-message aria-live="polite"></p>
+    </div>
+    {% else %}
+        <p class="notice">This request is {{ state.status }}.{% if state.reason %} {{ state.reason }}{% endif %}</p>
+        {% if state.result %}<pre>{{ state.result|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre>{% endif %}
+    {% endif %}
+</section>
+<p class="muted">Request <code>{{ state.request.id }}</code> · <a href="{{ path('exact_approval_status', {id: state.request.id}) }}">Check status</a></p>
+{% endblock %}

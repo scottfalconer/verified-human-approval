@@ -1,0 +1,16 @@
+:root {color-scheme: light; font: 16px/1.55 system-ui, sans-serif; color: #172b38; background: #f5f7f8;}
+* {box-sizing: border-box;} body {margin: 0;} header, main, footer {max-width: 920px; margin: auto; padding: 1.4rem;}
+header {display: flex; gap: 1rem; justify-content: space-between; border-bottom: 1px solid #dce4e8;}
+header a {font-weight: 750; text-decoration: none;} header span, footer {font-size: .85rem; color: #5b6c77;}
+main {min-height: 65vh;} h1 {font-size: 2.1rem; line-height: 1.2; margin-top: 1rem;} h2 {font-size: 1.2rem;}
+.eyebrow {text-transform: uppercase; font-size: .75rem; letter-spacing: .12em; font-weight: 700; color: #28625c;}
+.card {padding: 1.5rem; background: white; border: 1px solid #dce4e8; border-radius: 12px; margin: 1.2rem 0;}
+.statement {white-space: pre-wrap; font-size: 1.15rem; border-left: 4px solid #287b68; padding-left: 1rem;}
+.content-preview {white-space: pre-wrap;} .notice {padding: 1rem; border-radius: 8px; background: #e8f2ee;}
+.error {color: #8f2727; background: #fbebeb;} .muted {color: #5b6c77;} .actions {display: flex; gap: .7rem; align-items: center; flex-wrap: wrap; margin-top: 1.5rem;}
+button, .button {border: 1px solid #176452; border-radius: 7px; padding: .7rem 1.1rem; color: white; background: #176452; font: inherit; font-weight: 650; cursor: pointer; display: inline-block; text-decoration: none;}
+button.secondary {background: white; color: #172b38; border-color: #b8c7ce;} button:disabled {opacity: .5; cursor: default;} a {color: #176452;}
+label {display: block; font-weight: 600; margin: 1rem 0 .35rem;} input:not([type=checkbox]), textarea, select {font: inherit; padding: .65rem; border: 1px solid #b8c7ce; border-radius: 6px; width: 100%; max-width: 650px;}
+textarea {min-height: 8rem;} dl {display: grid; grid-template-columns: 150px 1fr; gap: .5rem 1rem;} dt {font-weight: 650;} dd {margin: 0; overflow-wrap: anywhere;}
+pre {overflow: auto; padding: 1rem; background: #f3f6f8; border-radius: 6px; font-size: .8rem;} code {overflow-wrap: anywhere;} table {border-collapse: collapse; width: 100%;} th, td {text-align: left; padding: .7rem; border-bottom: 1px solid #dce4e8;}
+[data-message] {white-space: pre-line;} @media (max-width: 600px) {header {display: block;} header span {display: block;} dl {grid-template-columns: 1fr;} dd {margin-bottom: .5rem;}}

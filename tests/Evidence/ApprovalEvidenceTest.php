@@ -1,0 +1,331 @@
+<?php
+
+declare(strict_types=1);
+
+namespace ExactApproval\Tests\Evidence;
+
+use ExactApproval\Core\ActionRegistry;
+use ExactApproval\Core\ApprovalException;
+use ExactApproval\Core\ApprovalService;
+use ExactApproval\Core\ApprovalState;
+use ExactApproval\Core\CanonicalJson;
+use ExactApproval\Core\ChallengeBinding;
+use ExactApproval\Core\Evidence\EvidenceExporter;
+use ExactApproval\Core\Evidence\EvidenceSigner;
+use ExactApproval\Core\Evidence\ReceiptVerifier;
+use ExactApproval\Core\Evidence\SodiumEvidenceSigner;
+use ExactApproval\Core\ExecutionGuard;
+use ExactApproval\Tests\Support\CoreFixture;
+use ExactApproval\Tests\Support\FixtureAction;
+use ExactApproval\Tests\Support\VirtualAuthenticator;
+use ExactApproval\WebAuthn\Configuration;
+use ExactApproval\WebAuthn\Credential;
+use ExactApproval\WebAuthn\PdoCredentialRepository;
+use ExactApproval\WebAuthn\WebAuthnVerifier;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\TestCase;
+
+/** Runs the actual approval core, SQLite mutation, WebAuthn validator and receipt signatures together. */
+final class ApprovalEvidenceTest extends TestCase
+{
+    private CoreFixture $fixture;
+    private ApprovalService $service;
+    private FixtureAction $action;
+    private PdoCredentialRepository $credentials;
+    private WebAuthnVerifier $verifier;
+    private VirtualAuthenticator $authenticator;
+    private Credential $trustedCredential;
+    private SodiumEvidenceSigner $signer;
+
+    protected function setUp(): void
+    {
+        $this->fixture = new CoreFixture();
+        $this->credentials = new PdoCredentialRepository($this->fixture->pdo);
+        $this->credentials->initialize();
+        $this->verifier = new WebAuthnVerifier(new Configuration('approval.test', 'https://approval.test'), $this->credentials);
+        $this->authenticator = new VirtualAuthenticator();
+        $options = $this->verifier->registrationOptions($this->fixture->reviewer, random_bytes(32), 'Alice');
+        $this->trustedCredential = $this->verifier->register($this->fixture->reviewer, $options, $this->authenticator->registration($options));
+        $guard = new ExecutionGuard();
+        $this->action = new FixtureAction($this->fixture->pdo, $guard);
+        $this->service = new ApprovalService(
+            new ActionRegistry([$this->action]),
+            $this->fixture->policies,
+            $this->fixture->authorizer,
+            $this->fixture->store,
+            $this->verifier,
+            $this->fixture->clock,
+            $guard,
+        );
+        $keypair = sodium_crypto_sign_keypair();
+        $this->signer = new SodiumEvidenceSigner('test-application-key', sodium_crypto_sign_secretkey($keypair));
+    }
+
+    public function testRealApprovalCommitsOnceAndBothIndependentSignatureChecksPass(): void
+    {
+        $pending = $this->service->request($this->fixture->actor, 'article.publish', ['id' => 1]);
+        self::assertSame('pending', $pending->status);
+        self::assertSame(0, $this->fixture->effectCount());
+        $ceremony = $this->service->begin($this->fixture->reviewer, $pending->request->id);
+        $assertion = $this->authenticator->assertion($ceremony->options);
+        $completed = $this->service->complete($this->fixture->reviewer, $ceremony->id, $assertion);
+        self::assertSame('completed', $completed->status);
+        self::assertSame(1, $this->fixture->effectCount());
+        self::assertSame(17, $completed->result['source_revision']);
+        self::assertSame(18, $completed->result['result_revision']);
+        $repeat = $this->service->complete($this->fixture->reviewer, $ceremony->id, $assertion);
+        self::assertSame(CanonicalJson::encode((object) $completed->result), CanonicalJson::encode((object) $repeat->result));
+        self::assertSame(1, $this->fixture->effectCount());
+        // Re-read the persisted evidence to exercise nested JSON object preservation.
+        $bundle = $this->exportPersisted($completed);
+        $verified = (new ReceiptVerifier())->verify($bundle, $this->signer->keyId(), $this->signer->publicKey());
+        self::assertTrue($verified['applicationSignatureValid']);
+        $this->verifyHuman($verified);
+        [$exit, $stdout, $stderr] = $this->runVerifier($bundle);
+        self::assertSame(0, $exit, $stderr);
+        $result = json_decode($stdout, true, flags: JSON_THROW_ON_ERROR);
+        self::assertTrue($result['credentialApprovedExactProposal']);
+        self::assertTrue($result['applicationSignedExecutionReport']);
+        self::assertSame($completed->request->statement(), $result['statement']);
+        self::assertStringContainsString('does not independently witness', $result['qualification']);
+    }
+
+    #[DataProvider('tamperingCases')]
+    public function testTamperedEvidenceCannotBeVerified(string $field): void
+    {
+        $bundle = $this->exportPersisted($this->complete());
+        switch ($field) {
+            case 'statement':
+                $proposal = CanonicalJson::decode($bundle['proposal']);
+                $proposal->statement .= '!';
+                $bundle['proposal'] = CanonicalJson::encode($proposal);
+                break;
+            case 'effect':
+                $proposal = CanonicalJson::decode($bundle['proposal']);
+                $proposal->action->effect->body .= '!';
+                $bundle['proposal'] = CanonicalJson::encode($proposal);
+                break;
+            case 'execution':
+                $bundle['execution']->result->result_revision = 999;
+                break;
+            case 'assertion':
+                $bundle['proof']->assertion->response->signature = ChallengeBinding::encode(random_bytes(72));
+                break;
+            case 'nonce':
+                $bundle['proof']->nonce = ChallengeBinding::encode(random_bytes(32));
+                break;
+            case 'key-id':
+                $bundle['receipt']->keyId = 'attacker';
+                break;
+            case 'signature':
+                $bundle['receipt']->signature = ChallengeBinding::encode(random_bytes(64));
+                break;
+        }
+        try {
+            (new ReceiptVerifier())->verify($bundle, $this->signer->keyId(), $this->signer->publicKey());
+            self::fail('Altered evidence was accepted.');
+        } catch (ApprovalException $exception) {
+            self::assertSame('invalid_evidence', $exception->reason);
+        }
+        [$exit, $stdout, $stderr] = $this->runVerifier($bundle);
+        self::assertSame(1, $exit);
+        self::assertSame('', $stdout);
+        self::assertStringContainsString('Verification failed', $stderr);
+        self::assertSame(1, $this->fixture->effectCount());
+    }
+
+    public static function tamperingCases(): iterable
+    {
+        foreach (['statement', 'effect', 'execution', 'assertion', 'nonce', 'key-id', 'signature'] as $case) {
+            yield $case => [$case];
+        }
+    }
+
+    public function testAnApplicationSignatureCannotSubstituteForTheHumanCredentialSignature(): void
+    {
+        $bundle = $this->exportPersisted($this->complete());
+        $proposal = CanonicalJson::decode($bundle['proposal']);
+        $proposal->statement .= ' This extra requirement was never reviewed.';
+        $bundle['proposal'] = CanonicalJson::encode($proposal);
+        $digest = hash('sha256', $bundle['proposal']);
+        $bundle['execution']->proposalDigest = $digest;
+        $bundle['proof']->proposalDigest = $digest;
+        $bundle['proof']->challenge = ChallengeBinding::encode(ChallengeBinding::challenge($digest, ChallengeBinding::decode($bundle['proof']->nonce)));
+        $manifest = CanonicalJson::encode([
+            'format' => 'exact-approval/receipt/v1',
+            'keyId' => $this->signer->keyId(),
+            'proposalDigest' => $digest,
+            'proofDigest' => hash('sha256', CanonicalJson::encode($bundle['proof'])),
+            'executionDigest' => hash('sha256', CanonicalJson::encode($bundle['execution'])),
+        ]);
+        $bundle['receipt']->manifest = $manifest;
+        $bundle['receipt']->signature = $this->signer->sign($manifest);
+        // Even a newly valid application report cannot make the old user signature approve this altered statement.
+        $application = (new ReceiptVerifier())->verify($bundle, $this->signer->keyId(), $this->signer->publicKey());
+        self::assertTrue($application['applicationSignatureValid']);
+        try {
+            $this->verifyHuman($application);
+            self::fail('The application signature replaced the human-credential proof.');
+        } catch (ApprovalException $exception) {
+            self::assertSame('invalid_approval', $exception->reason);
+        }
+        [$exit, , $stderr] = $this->runVerifier($bundle);
+        self::assertSame(1, $exit);
+        self::assertStringContainsString('Verification failed', $stderr);
+    }
+
+    public function testAnUntrustedApplicationKeyIsRejectedEvenIfIncludedInTheBundle(): void
+    {
+        $bundle = $this->exportPersisted($this->complete());
+        $attacker = new SodiumEvidenceSigner('test-application-key', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
+        $bundle['publicKey'] = $attacker->publicKey();
+        $bundle['receipt']->signature = $attacker->sign($bundle['receipt']->manifest);
+        $this->expectException(ApprovalException::class);
+        (new ReceiptVerifier())->verify($bundle, $this->signer->keyId(), $this->signer->publicKey());
+    }
+
+    public function testWrongTrustedCredentialFailsTheIndependentCli(): void
+    {
+        $bundle = $this->exportPersisted($this->complete());
+        $other = new VirtualAuthenticator();
+        $options = $this->verifier->registrationOptions($this->fixture->reviewer, random_bytes(32), 'Other key');
+        $otherCredential = $this->verifier->register($this->fixture->reviewer, $options, $other->registration($options));
+        [$exit, $stdout, $stderr] = $this->runVerifier($bundle, $otherCredential);
+        self::assertSame(1, $exit);
+        self::assertSame('', $stdout);
+        self::assertStringContainsString('supplied trusted credential', $stderr);
+    }
+
+    public function testSignerOutageAndSigningRetryNeverReexecuteTheCommittedAction(): void
+    {
+        $completed = $this->complete();
+        $unavailable = new class implements EvidenceSigner {
+            public function keyId(): string { return 'temporarily-unavailable'; }
+            public function sign(string $manifest): string { throw new \RuntimeException('Injected signer outage.'); }
+        };
+        try {
+            (new EvidenceExporter($unavailable))->export($completed);
+            self::fail('The unavailable signer produced a receipt.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('Injected signer outage.', $exception->getMessage());
+        }
+        $persisted = $this->service->get($this->fixture->actor, $completed->request->id);
+        self::assertSame('completed', $persisted->status);
+        self::assertSame(1, $this->fixture->effectCount());
+        self::assertSame(1, $this->action->executeCalls);
+        $retry = $this->exportPersisted($persisted);
+        $this->verifyHuman((new ReceiptVerifier())->verify($retry, $this->signer->keyId(), $this->signer->publicKey()));
+        self::assertSame(1, $this->action->executeCalls);
+        self::assertSame(1, $this->fixture->effectCount());
+    }
+
+    public function testLivePolicyChangesDoNotRewriteHistoricalApprovalLanguage(): void
+    {
+        $completed = $this->complete();
+        $statement = $completed->request->statement();
+        $this->fixture->pdo->exec("UPDATE test_policies SET version = '999', statement = 'Different live policy' WHERE action_id = 'article.publish'");
+        $bundle = $this->exportPersisted($completed);
+        [$exit, $stdout, $stderr] = $this->runVerifier($bundle);
+        self::assertSame(0, $exit, $stderr);
+        self::assertSame($statement, json_decode($stdout, true, flags: JSON_THROW_ON_ERROR)['statement']);
+    }
+
+    public function testUnexpectedPostSaveMutationRollsBackRealCredentialCounterAndBusinessState(): void
+    {
+        $pending = $this->service->request($this->fixture->actor, 'article.publish', ['id' => 1]);
+        $ceremony = $this->service->begin($this->fixture->reviewer, $pending->request->id);
+        $this->action->alterAfterWrite = true;
+        try {
+            $this->service->complete($this->fixture->reviewer, $ceremony->id, $this->authenticator->assertion($ceremony->options));
+            self::fail('Unexpected post-save content was committed.');
+        } catch (ApprovalException $exception) {
+            self::assertSame('execution_failed', $exception->reason);
+        }
+        self::assertSame(0, $this->fixture->effectCount());
+        self::assertSame(0, (int) $this->fixture->pdo->query('SELECT COUNT(*) FROM exact_approval_executions')->fetchColumn());
+        self::assertSame($this->trustedCredential->sourceJson, $this->credentials->find($this->trustedCredential->id)->sourceJson);
+        self::assertTrue($this->fixture->store->getCeremony($ceremony->id)->consumed);
+        $this->action->alterAfterWrite = false;
+        $new = $this->service->begin($this->fixture->reviewer, $pending->request->id);
+        self::assertSame('completed', $this->service->complete($this->fixture->reviewer, $new->id, $this->authenticator->assertion($new->options))->status);
+        self::assertSame(1, $this->fixture->effectCount());
+    }
+
+    private function complete(): ApprovalState
+    {
+        $pending = $this->service->request($this->fixture->actor, 'article.publish', ['id' => 1]);
+        $ceremony = $this->service->begin($this->fixture->reviewer, $pending->request->id);
+
+        return $this->service->complete($this->fixture->reviewer, $ceremony->id, $this->authenticator->assertion($ceremony->options));
+    }
+
+    private function exportPersisted(ApprovalState $state): array
+    {
+        return (new EvidenceExporter($this->signer))->export($this->service->get($this->fixture->actor, $state->request->id));
+    }
+
+    private function verifyHuman(array $verified): void
+    {
+        $proof = $verified['proof'];
+        $approval = $this->verifier->verifyEvidenceAssertion(
+            $verified['request']->actor(),
+            ChallengeBinding::decode($proof['challenge']),
+            CanonicalJson::map($proof['assertion']),
+            $this->trustedCredential,
+        );
+        self::assertSame($this->trustedCredential->id, $approval->credentialId);
+    }
+
+    /** @return array{int, string, string} */
+    private function runVerifier(array $bundle, ?Credential $credential = null): array
+    {
+        $credential ??= $this->trustedCredential;
+        $directory = sys_get_temp_dir().'/exact-approval-evidence-'.bin2hex(random_bytes(8));
+        mkdir($directory, 0700);
+        $files = [
+            'evidence.json' => $bundle,
+            'application.json' => [
+                'keyId' => $this->signer->keyId(),
+                'publicKey' => $this->signer->publicKey(),
+                'rpId' => 'approval.test',
+                'origin' => 'https://approval.test',
+            ],
+            'credential.json' => [
+                'id' => $credential->id,
+                'userId' => $credential->userId,
+                'tenantId' => $credential->tenantId,
+                'sourceJson' => $credential->sourceJson,
+            ],
+        ];
+        try {
+            foreach ($files as $name => $contents) {
+                file_put_contents($directory.'/'.$name, CanonicalJson::encode((object) $contents));
+            }
+            $process = proc_open([
+                PHP_BINARY,
+                dirname(__DIR__, 2).'/bin/verify-evidence.php',
+                $directory.'/evidence.json',
+                $directory.'/application.json',
+                $directory.'/credential.json',
+            ], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+            if (!is_resource($process)) {
+                throw new \RuntimeException('Could not launch the independent verifier process.');
+            }
+            fclose($pipes[0]);
+            $stdout = stream_get_contents($pipes[1]);
+            $stderr = stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            $exit = proc_close($process);
+
+            return [$exit, $stdout, $stderr];
+        } finally {
+            foreach (array_keys($files) as $name) {
+                if (is_file($directory.'/'.$name)) {
+                    unlink($directory.'/'.$name);
+                }
+            }
+            rmdir($directory);
+        }
+    }
+}
