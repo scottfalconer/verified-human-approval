@@ -1,180 +1,114 @@
-# Exact Approval for Symfony, Drupal and MCP
+# Exact Approval
 
-**Let an agent request an application action. Let the person approve its exact effect. Execute that stored proposal once, under the person’s current permissions.**
+**An AI agent can ask to publish. Only your passkey can make it happen, and you approve the exact page that goes live.**
 
-This repository contains a shared PHP approval library, a Symfony bundle, and a working Drupal module. Both integrations use the same immutable proposal, WebAuthn verification and execution core. The Drupal module consumes that core and the WebAuthn bridge without loading Symfony FrameworkBundle.
+An agent, such as Claude, prepares a change through MCP. The Symfony application freezes that exact proposal and shows it to you in Claude as an approval card or a native prompt. You review the final page on the application's own site and approve with a passkey, such as Touch ID. The application then re-checks your permissions and publishes that stored proposal once. A client saying "accept" never counts as approval, and nothing the agent sends later can change what you approved.
 
-The supported execution boundary is a **local database transaction**. The business mutation, approval consumption, passkey counter update and execution record share that transaction. Both reference applications are verified on SQLite. The Drupal adapter uses Drupal's own connection and transaction manager; other database backends still need deployment-specific verification.
+Built with the official PHP MCP SDK (`mcp/sdk`), the Symfony MCP bundle and Symfony AI, on the MCP standard as it is: MCP Apps for the card and URL-mode elicitation for the native prompt.
 
-## Drupal publish and delete approval
+## Run it in five minutes
 
-The module in [packages/drupal/exact_approval](packages/drupal/exact_approval/README.md) adds administrator rules for content types and native permissions, personal passkey enrollment, exact publication/deletion review, storage-boundary enforcement, and a persistent signed evidence log. An optional submodule adds three tools to the existing Drupal MCP endpoint. It does not install a second Symfony kernel or a separate approval service.
+You need PHP 8.3+ with the `pdo_sqlite`, `sodium` and `openssl` extensions, Composer, and Chrome or Safari. To see the Claude side, you also need Claude Desktop or Claude Code.
 
-Start with the [Drupal example](examples/drupal/README.md):
-
-```sh
-cd examples/drupal
-composer install
-php setup.php
-cd web
-php -S localhost:8090 .ht.router.php
-```
-
-Use the generated local demo credentials in `examples/drupal/var/demo.json`. Administrator controls are at `/admin/config/people/exact-approval`; personal keys are at `/user/exact-approval/keys`. See [Drupal verification](docs/drupal-verification.md) for the installed-site, HTTP, concurrency and evidence checks.
-
-## Try the application
-
-Requirements: PHP 8.3+, Composer, and `pdo_sqlite`, `openssl`, `sodium`, `mbstring`, `dom` and the normal PHP JSON/XML extensions. PHP 8.4.24 is the runtime verified in this build. The lockfile pins the tested dependency set, including Symfony 7.4, the official MCP SDK 0.9.0, Symfony MCP Bundle 1.0.0-BETA1 and WebAuthn Library 5.3.12.
-
-```sh
+```bash
+git clone https://github.com/scottfalconer/exact-action-approval.git
+cd exact-action-approval
 composer install
 php examples/symfony/bin/setup.php
-php -S localhost:8080 -t examples/symfony/public examples/symfony/public/index.php
+PHP_CLI_SERVER_WORKERS=4 php -S localhost:8080 -t examples/symfony/public examples/symfony/public/index.php
 ```
 
-Setup generates three fictional accounts and separate personal agent tokens. It prints passwords and tokens once; save them privately. The application stores password/token hashes. Setup refuses to overwrite an existing installation. Its database, signing key, sessions and cache stay under ignored `var/demo/`.
+Setup prints fresh passwords and personal agent tokens once, plus the exact commands for connecting Claude. The server runs several workers because Claude keeps a connection open while you approve in the browser. Then:
 
-Open `http://localhost:8080` and sign in as `editor` using the generated password. Use **Passkeys** to enroll through your browser and operating system. On a suitable Mac this can invoke Touch ID; other devices may use their own passkey provider or PIN. This build has tested cryptographic assertions, not a physical Touch ID or Face ID ceremony.
+1. **Add a passkey.** Open http://localhost:8080, sign in as `editor`, and open **Your passkeys**. On a Mac, Touch ID works.
+2. **Connect Claude** as the editor, using the commands setup printed:
+   - **Claude Desktop:** add the printed `exact-approval` entry under `mcpServers` in `claude_desktop_config.json`, then restart Claude. It uses `mcp-remote`, and keeps the token in a private file.
+   - **Claude Code:** run the printed `claude mcp add --transport http …` command.
+3. **Ask Claude:** "Publish the flood-update announcement on the Riverside Council site."
+4. **Approve.** Claude Desktop shows an approval card, and Claude Code shows an "Open link" prompt. Either one opens the review page, which shows the exact public page that will go live. Approve with your passkey, and the card updates to show it's done.
+5. **Check the result** at http://localhost:8080/news/flood-update. The live page is the one you approved.
 
-The human account password belongs in the browser account flow. Give the agent only its individual personal token. The MCP firewall does not accept the browser session; the browser approval, enrollment and policy routes do not authenticate an agent bearer token.
+To start over for another run, use `php examples/symfony/bin/setup.php --reset`.
 
-Use `http://localhost`, not an arbitrary HTTP hostname or `127.0.0.1`, for this reference WebAuthn configuration. For a different deployment, set `EXACT_APPROVAL_ORIGIN` to a stable HTTPS origin **before** setup; use `EXACT_APPROVAL_RUNTIME` to select another private runtime directory. Changing the relying-party domain can require fresh passkey enrollment.
+## How it works
 
-## Request an action through real MCP
-
-In another terminal, provide the `editor` account’s personal token without putting it into source files:
-
-```sh
-read -r -s -p 'Personal agent token: ' EXACT_APPROVAL_TOKEN
-export EXACT_APPROVAL_TOKEN
-php examples/clients/mcp.php list
-php examples/clients/mcp.php read flood-update
-php examples/clients/mcp.php publish flood-update my-first-request
+```mermaid
+sequenceDiagram
+    participant C as Claude (MCP client)
+    participant S as Symfony app (MCP server)
+    participant P as You (browser and passkey)
+    C->>S: tools/call publish_announcement
+    S-->>C: pending, with the review link, an MCP App card and, for Claude Code, a URL-mode elicitation
+    P->>S: open the review page and see the exact final page
+    P->>S: approve with your passkey, which signs a challenge bound to the proposal's digest
+    S->>S: re-check permissions and preconditions, publish once, record a signed receipt
+    C->>S: approval_status (the card polls it)
+    S-->>C: completed: published
 ```
 
-This client uses the official SDK and HTTP transport. The server is the Symfony MCP Bundle at `/mcp`. It exposes:
+- **The proposal is frozen.** It holds the exact content, the page layout's version, who asked, the policy and an expiry, all stored as canonical JSON with a SHA-256 digest.
+- **The person sees the real page.** The review page renders the site's own template from the frozen proposal, not from the current draft.
+- **The site acts, not the client.** Completing the passkey ceremony runs the stored proposal in one database transaction, together with consuming the approval and recording the receipt.
+- **Each client gets the way it can show.**
+  - Claude Desktop and claude.ai get an MCP App card (`io.modelcontextprotocol/ui`). It opens the page through `ui/open-link` and shows only what the site recorded.
+  - Claude Code gets a URL-mode elicitation on MCP 2026-07-28. Its retry is bound to the same caller, tool and arguments.
+  - Every client gets a plain link.
 
-| Tool | Behavior |
+## What it refuses
+
+| Attempt | Result |
 | --- | --- |
-| `read_announcement` | Read the current account’s announcement and publication state. |
-| `publish_announcement` | Prepare the exact publication, preserving source revision, content, target and policy. Return a review URL while approval is required. |
-| `approval_status` | Read an owned request’s authoritative outcome using a connection with explicit result-read scope. |
+| The draft is edited after you reviewed it | Not published: the proposal no longer matches |
+| The page layout changes after review | Not published: the layout is part of what you approved |
+| A signed approval is replayed for another request | Rejected: the signature covers one proposal's digest |
+| A client answers "accept" without your passkey | Still pending: accept only means the page was opened |
+| The same approval is repeated | The same receipt, and the page changed once |
+| Another account, or a read-only agent token | No access to the request, and no rights from a passkey |
 
-The pending result resembles:
+## What Symfony AI and the PHP MCP SDK made possible
 
-```json
-{
-  "requestId": "apr_…",
-  "status": "pending",
-  "reason": null,
-  "result": null,
-  "review_url": "http://localhost:8080/approval/apr_…"
-}
-```
+- **The PHP MCP SDK 0.9** serves both protocol eras from one server. That covers the 2025-11-25 handshake and the 2026-07-28 multi round-trip, with signed request state, URL-mode elicitation and the MCP Apps extension.
+- **The Symfony MCP bundle's `#[AsMcpApp]`** serves the approval card, and its `#[McpTool]` tools receive the SDK's `RequestContext`.
+- **Symfony AI's Agent and McpToolbox** drive the same tools in a scripted example: `php examples/clients/agent.php --scripted`.
+- **`web-auth/webauthn-lib`** verifies passkeys with user verification required.
 
-Open that URL, review the actual title, body, destination, revision and required statement, then approve with a passkey. The application’s completion endpoint executes the **stored proposal**. The agent never receives a reusable approval token and never resubmits replacement content.
+## Packages
 
-```sh
-php examples/clients/mcp.php status YOUR_REQUEST_ID
-```
-
-Reusing `my-first-request` with identical arguments returns the original request or result. Changing arguments under that key conflicts. A new intended action needs a new key. Without a key, a retry of the same request through the same connection returns its pending proposal instead of creating another. Once that proposal is completed, cancelled, expired or invalid, a new request prepares a fresh one. Protected execution is at most once per proposal either way.
-
-### Show a refusal
-
-Create another publication request. Open its review page, then edit the draft in a second application tab before approving. The pending request becomes invalid when approval is attempted, and publication is blocked. A new review is needed even when the source revision changes but visible content is identical.
-
-Also try the `reader` account’s token. Its user and delegation lack publication permission. A passkey never supplies missing rights.
-
-### Administrator controls
-
-The `editor` demo account is also a human administrator. At `/admin/approval-policy`, change the exact required statement, preview its registered placeholders, and save a versioned policy. Every changed policy invalidates pending requests from the old policy. Unknown placeholders are rejected; templates are plain text and do not execute Twig or expressions.
-
-The **Require approval** switch has an explicit meaning: when an administrator disables it, new authorized requests can execute without passkey approval. Their execution records say `not_required`; they are not represented as signed human approvals. Old protected proposals cannot use the change to bypass their original approval flow. Agent credentials cannot change this setting.
-
-## Symfony AI example
-
-The example uses Symfony AI’s actual `Agent`, `McpToolbox` and the official MCP client:
-
-```sh
-# Deterministic integration check: scripted model responses, real HTTP MCP calls.
-php examples/clients/agent.php --scripted
-
-# Optional real model; set your own API key and model explicitly.
-export OPENAI_API_KEY='YOUR_KEY'
-export EXACT_APPROVAL_MODEL='YOUR_SUPPORTED_MODEL'
-php examples/clients/agent.php 'Please publish the flood-update announcement.'
-```
-
-The scripted mode is tested and clearly labels itself. No paid model call was made for this build. A model can request the action and return its review link; the approval decision remains in the application. `EXACT_APPROVAL_MCP_URL` changes the endpoint for either client.
-
-## Packages and adoption
-
-| Package | Purpose | Framework dependency |
-| --- | --- | --- |
-| `packages/core` | Frozen proposals, policies, current authority, transaction coordination, guarded execution, receipts and evidence verification. | PHP and small supporting libraries; no Symfony kernel or Drupal. |
-| `packages/webauthn` | Existing WebAuthn library integration, trusted credential repository, assertion verification and enrollment methods. | Symfony components used by WebAuthn; no application kernel. |
-| `packages/mcp` | The MCP App approval card, the optional URL-mode elicitation and its bound retry, shared by Symfony and Drupal. | The official MCP SDK; no framework. |
-| `packages/symfony` | Bundle configuration, action autoconfiguration, trusted review routes, CSRF, response headers, rate limits and MCP status tool. | Existing Symfony application and Symfony MCP Bundle. |
-| `packages/drupal/exact_approval` | Native permission policies, guarded node storage, saved-revision publish/delete actions, passkey UI, durable evidence and optional existing-endpoint MCP tools. | Drupal 11.4+, shared core and WebAuthn; no Symfony FrameworkBundle. |
-| `examples/symfony` | Account/token isolation, application tables, policy form, protected publication service and runnable endpoint. | Reference application, not a required hosting service. |
-
-These package names are local Composer packages, not published Packagist releases. The repository’s path repositories make `composer install` work immediately. Another application can add a Composer path repository pointing at `packages/*`, then require `exact-approval/symfony-bundle` and `exact-approval/webauthn` version `^0.1`.
-
-An application adopting the component supplies four things:
-
-1. A registered `ActionAdapter`: prepare the exact effect, declare its version and preconditions, apply it and verify final postconditions.
-2. Current identity and permission adapters. Authenticated actors come from application security, never tool arguments. The stored initiating delegation is rechecked at completion.
-3. Transactional persistence shared by application data, authority, credentials and approval records.
-4. Its trusted credential enrollment and browser account flow.
-
-Every supported entry point for the protected mutation must call a service that enforces `ExecutionGuard::assertExecuting()`. The example’s MCP and web publication routes use the same `AnnouncementPublisher`. A decorator cannot automatically protect arbitrary application writes or raw SQL.
-
-See [Symfony integration](packages/symfony/README.md), [WebAuthn integration](packages/webauthn/README.md), [extension contracts](docs/integration-contract.md), [security boundary](docs/security-model.md) and [verification results](docs/verification.md).
-
-## Exactness and execution
-
-The frozen proposal binds the action and implementation version, user, tenant and initiating delegation, target, effect, expected source state, dependencies declared by the adapter, exact resolved statement, policy, locale, ID and expiry. Canonical JSON bytes are persisted; later reads do not reconstruct old approvals from current content.
-
-Canonicalization preserves empty objects versus arrays, null versus absence, and exact string bytes. Object member ordering is normalized. Decimals and integers beyond JSON’s exact interoperable integer range must be encoded as strings. Arbitrary PHP objects and floating point values are rejected.
-
-The WebAuthn challenge commits to a fresh random nonce and the proposal digest. The upstream validator checks credential ownership, signature, configured RP and origin, and required user verification. The final transaction reloads authority and policy, checks source preconditions, applies the approved effect, checks postconditions, consumes the approval and writes the execution record. Nested mutable values cannot change the frozen expectation during callbacks.
-
-The SQLite adapter obtains a write reservation before reading relevant state. All relevant application writers need to preserve the versioning/transaction contract. Competing completions return the existing result; competing proposals for the same source revision cannot both pass a version-changing action. A known failed transaction retires its ceremony. A retry requires a fresh ceremony. An ambiguous outcome is read back before another attempt can be considered.
-
-No queue, additional daemon, new MCP protocol or proprietary destination-tool envelope is required. Protected actions are normal MCP tools; pending approval is a normal business result, not a spurious authentication error. Every pending result carries the review URL and a view for the MCP App approval card, which opens that page and shows only the recorded outcome. An application can also turn on a URL-mode elicitation (MCP 2026-07-28) for the clients it has tested; its retry is bound to the same caller, tool and arguments, and never approves anything. See [MCP presentation](packages/mcp/README.md).
-
-## Evidence
-
-After completion, a signed-in owner can download `/approval/REQUEST_ID/evidence`. Signing happens after the action’s durable execution record is committed; signing failure does not rerun the action. The original proposal, assertion, nonce and execution report remain available for a later signing attempt.
-
-An independent command verifies evidence using **separately trusted** application and credential files:
-
-```sh
-php bin/verify-evidence.php evidence.json trusted-application.json trusted-credential.json
-```
-
-The trust file formats are documented in [evidence verification](docs/evidence.md). The verifier reports two separate claims: the credential approved this proposal, and the application signed this execution report. It does not independently witness the database effect or prove what a person understood. Never trust a key merely because it appears inside the evidence being checked.
+| Package | What it does |
+| --- | --- |
+| [`packages/core`](packages/core) | Frozen proposals, policies, current authority, guarded single execution, receipts and evidence verification |
+| [`packages/webauthn`](packages/webauthn/README.md) | Passkey enrollment and assertion verification bound to the proposal |
+| [`packages/mcp`](packages/mcp/README.md) | The MCP App approval card, the opt-in URL-mode elicitation and its bound retry |
+| [`packages/symfony`](packages/symfony/README.md) | The Symfony bundle: review routes, CSRF, rate limits, the card app and the status tool |
+| [`examples/symfony`](examples/symfony) | The Riverside Council demo used above |
+| [`packages/drupal`](packages/drupal/exact_approval/README.md) | An early Drupal module on the same core |
 
 ## Tests
 
-```sh
-composer test
-composer analyse
-PHP_BIN=php python3 tests/http_smoke.py
-
-# Optional browser acceptance test; requires Python Playwright and Chromium.
-PHP_BIN=php python3 tests/browser_smoke.py
+```bash
+composer test        # PHPUnit: core, WebAuthn, Symfony, MCP and evidence
+composer analyse     # PHPStan
+PHP_BIN=php python3 tests/http_smoke.py   # the real app and the official SDK over HTTP
 ```
 
-The PHP suite includes process-level concurrency, real WebAuthn signature and registration validation, real Symfony Security/CSRF/MCP handling, transaction rollback and a separate evidence-verification process. The HTTP smoke test starts the actual application and uses the actual SDK over TCP. Test authenticators and a scripted model are explicitly confined to tests; there is no production “approve anyway” verifier.
+Optional checks that drive real clients:
 
-Browser, real-device and hosted-client coverage are reported separately in [verification results](docs/verification.md). This release does not claim live Claude, Cowork, ChatGPT.com, Touch ID or Face ID verification.
+- **`tests/browser_smoke.py`** runs real Chrome against the real page scripts, with a virtual passkey. It needs Python Playwright, and `CHROMIUM_BIN` set to Chrome or Chromium.
+- **`tests/claude_code_host.py`** runs the real Claude Code engine, the way the Claude desktop app does. It checks that the native prompt reaches the host, and that after approval the retried call returns the recorded result. It makes one small model call.
 
-## What comes next
+## Status
 
-The Drupal adapter is implemented and verified on a real Drupal 11.4.12 site. The MCP App approval card and the optional URL-mode elicitation are implemented for both Symfony and Drupal and tested with protocol-level requests shaped like Claude Code's. They have not yet been shown in a real Claude or ChatGPT window. The next integration work is physical-device acceptance and hosted agent-client authentication: choose a stable origin, connect the application's real identity provider, reuse or enroll a real approval passkey, and record a full personal-user flow. The Symfony example's personal development token and the Drupal test fixture's personal Basic authentication are development connections, not completed OAuth authorization servers.
+Verified on a Mac with PHP 8.3:
+- the PHPUnit suite and PHPStan;
+- the HTTP smoke test;
+- the Chrome passkey flow with a virtual authenticator;
+- Claude Code 2.1.317's native prompt end to end;
+- the approval card flow in a real Claude Desktop chat, shown with a probe server that uses the same card mechanism.
 
-For production adoption, replace the demo identity/persistence setup with the host application’s services, review every supported write path, choose a shared limiter/lock backend when deploying across hosts, and review enrollment/recovery/key management. External effects such as email, remote MCP calls and payments do not gain a local transaction’s exactly-once properties.
+Not yet covered:
+- a hosted connection with OAuth, so a phone can approve over the internet;
+- production identity integration.
+
+See the [full overview](docs/overview.md), the [security model](docs/security-model.md) and [evidence verification](docs/evidence.md).
 
 MIT license. See [LICENSE](LICENSE).

@@ -25,7 +25,7 @@ try {
     $mcp = rtrim($origin, '/').'/mcp';
     fwrite(STDOUT, "Local demo initialized. Save these credentials privately; passwords/tokens are shown only once.\n");
     fwrite(STDOUT, json_encode($created, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n\n");
-    fwrite(STDOUT, "Start the site:\n  php -S localhost:8080 -t examples/symfony/public examples/symfony/public/index.php\n\n");
+    fwrite(STDOUT, "Start the site:\n  PHP_CLI_SERVER_WORKERS=4 php -S localhost:8080 -t examples/symfony/public examples/symfony/public/index.php\n\n");
     fwrite(STDOUT, "Connect Claude Code as the editor:\n  claude mcp add --transport http exact-approval $mcp --header \"Authorization: Bearer ".$created['accounts']['editor']['personal_token']."\"\n\n");
     fwrite(STDOUT, "Connect Claude Desktop as the editor: add this under \"mcpServers\" in claude_desktop_config.json, then restart Claude:\n");
     fwrite(STDOUT, '  "exact-approval": {"command": "npx", "args": ["-y", "mcp-remote", "'.$mcp.'", "--allow-http", "--header-file", "'.$headers.'"]}'."\n");
