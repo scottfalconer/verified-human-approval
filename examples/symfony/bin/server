@@ -1,19 +1,21 @@
 #!/bin/sh
-# Runs the demo site at http://localhost:8080 under launchd on macOS, so it keeps running when
-# Claude or the terminal that started it quits. Usage: server start | stop | restart | status
+# Runs the demo site under launchd on macOS, so it keeps running when Claude or the terminal that
+# started it quits. Usage: server start | stop | restart | status
+# PORT (default 8080) and EXACT_APPROVAL_RUNTIME (default var/demo) select another copy, such as the public one.
 set -eu
-LABEL=dev.verified-human-approval.demo
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 PHP=${PHP_BIN:-$(command -v php)}
-LOG="$ROOT/var/demo-server.log"
-PORT=8080
+PORT=${PORT:-8080}
+RUNTIME=${EXACT_APPROVAL_RUNTIME:-$ROOT/var/demo}
+LABEL=dev.verified-human-approval.demo.$PORT
+LOG="$ROOT/var/demo-server-$PORT.log"
 
 running() { lsof -nP -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1; }
 
 start() {
   if running; then echo "Already serving http://localhost:$PORT"; return 0; fi
   mkdir -p "$ROOT/var"
-  launchctl submit -l "$LABEL" -o "$LOG" -e "$LOG" -- /usr/bin/env PHP_CLI_SERVER_WORKERS=4 "$PHP" -S localhost:$PORT -t "$ROOT/examples/symfony/public" "$ROOT/examples/symfony/public/index.php"
+  launchctl submit -l "$LABEL" -o "$LOG" -e "$LOG" -- /usr/bin/env PHP_CLI_SERVER_WORKERS=4 EXACT_APPROVAL_RUNTIME="$RUNTIME" "$PHP" -S localhost:$PORT -t "$ROOT/examples/symfony/public" "$ROOT/examples/symfony/public/index.php"
   i=0
   while [ $i -lt 40 ]; do running && break; sleep 0.25; i=$((i + 1)); done
   if running; then echo "Serving http://localhost:$PORT (log: $LOG)"; else echo "It did not start; see $LOG"; exit 1; fi
@@ -21,6 +23,7 @@ start() {
 
 stop() {
   launchctl remove "$LABEL" 2>/dev/null || true
+  [ "$PORT" = 8080 ] && launchctl remove dev.verified-human-approval.demo 2>/dev/null || true
   # Also stops a server started by hand, including worker processes left behind.
   pkill -f "php -S localhost:$PORT" 2>/dev/null || true
   i=0

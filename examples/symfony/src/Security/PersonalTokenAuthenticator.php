@@ -20,7 +20,7 @@ use Symfony\Component\Security\Http\EntryPoint\AuthenticationEntryPointInterface
 /** Local development credential. This is not an OAuth authorization server. */
 final class PersonalTokenAuthenticator extends AbstractAuthenticator implements AuthenticationEntryPointInterface
 {
-    public function __construct(private readonly DemoDatabase $database) {}
+    public function __construct(private readonly DemoDatabase $database, private readonly string $origin = 'http://localhost:8080') {}
 
     public function supports(Request $request): bool { return $request->headers->has('Authorization'); }
 
@@ -30,7 +30,8 @@ final class PersonalTokenAuthenticator extends AbstractAuthenticator implements 
         if (!preg_match('/^Bearer ([A-Za-z0-9_-]{32,256})$/D', $header, $matches)) throw new CustomUserMessageAuthenticationException('Invalid personal token.');
         $grant = $this->database->tokenGrant($matches[1]);
         $row = $grant === null ? null : $this->database->user($grant['user_id']);
-        if ($grant === null || !(bool) $grant['active'] || $row === null || !(bool) $row['enabled'] || $grant['tenant_id'] !== $row['tenant_id']) {
+        $expired = ($grant['expires_at'] ?? null) !== null && (int) $grant['expires_at'] < time();
+        if ($grant === null || !(bool) $grant['active'] || $expired || $row === null || !(bool) $row['enabled'] || $grant['tenant_id'] !== $row['tenant_id']) {
             throw new CustomUserMessageAuthenticationException('Invalid personal token.');
         }
 
@@ -41,6 +42,7 @@ final class PersonalTokenAuthenticator extends AbstractAuthenticator implements 
     public function onAuthenticationFailure(Request $request, AuthenticationException $exception): Response { return $this->start($request, $exception); }
     public function start(Request $request, ?AuthenticationException $authException = null): Response
     {
-        return new JsonResponse(['error' => 'authentication_required'], 401, ['WWW-Authenticate' => 'Bearer realm="exact-approval-demo"']);
+        // RFC 9728: point MCP clients at the protected resource metadata, so they can find the authorization server.
+        return new JsonResponse(['error' => 'authentication_required'], 401, ['WWW-Authenticate' => 'Bearer resource_metadata="'.$this->origin.'/.well-known/oauth-protected-resource"']);
     }
 }

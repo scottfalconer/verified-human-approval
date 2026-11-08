@@ -12,6 +12,7 @@ use ExactApproval\Demo\Action\DemoPolicyProvider;
 use ExactApproval\Demo\Controller\AccountController;
 use ExactApproval\Demo\Controller\DemoController;
 use ExactApproval\Demo\Controller\EvidenceController;
+use ExactApproval\Demo\Controller\OAuthController;
 use ExactApproval\Demo\Controller\PublicController;
 use ExactApproval\Demo\Mcp\DemoTools;
 use ExactApproval\Demo\Security\DemoActorProvider;
@@ -72,6 +73,9 @@ final class DemoKernel extends Kernel
             'http_method_override' => false,
             'handle_all_throwables' => true,
             'trusted_hosts' => ['^'.preg_quote($this->settings['rp_id'], '/').'$'],
+            // The public copy runs behind a local tunnel; only localhost may forward the original scheme and host.
+            'trusted_proxies' => '127.0.0.1,::1',
+            'trusted_headers' => ['x-forwarded-for', 'x-forwarded-proto', 'x-forwarded-host'],
             'session' => [
                 'handler_id' => null, 'save_path' => $this->runtimeDirectory.'/sessions',
                 'cookie_secure' => 'auto', 'cookie_httponly' => true, 'cookie_samesite' => 'lax',
@@ -103,6 +107,7 @@ final class DemoKernel extends Kernel
                 ['path' => '^/login$', 'roles' => 'PUBLIC_ACCESS'],
                 ['path' => '^/approval/assets/', 'roles' => 'PUBLIC_ACCESS'],
                 ['path' => '^/(alerts$|site/)', 'roles' => 'PUBLIC_ACCESS'],
+                ['path' => '^/(\.well-known/|oauth/(register|token)$)', 'roles' => 'PUBLIC_ACCESS'],
                 ['path' => '^/mcp(?:$|/)', 'roles' => 'ROLE_USER'],
                 ['path' => '^/', 'roles' => 'ROLE_USER'],
             ],
@@ -135,12 +140,14 @@ final class DemoKernel extends Kernel
         $services->set(WebAuthnVerifier::class);
         $services->set(SodiumEvidenceSigner::class, SodiumEvidenceSigner::class)->factory([SodiumEvidenceSigner::class, 'fromEncoded'])->args([$this->settings['receipt_key_id'], $this->settings['receipt_secret_key']]);
         $services->set(EvidenceExporter::class)->args([service(SodiumEvidenceSigner::class)]);
-        foreach ([DemoController::class, AccountController::class, EvidenceController::class, PublicController::class] as $controller) $services->set($controller)->public()->tag('controller.service_arguments');
+        foreach ([DemoController::class, AccountController::class, EvidenceController::class, PublicController::class, OAuthController::class] as $controller) $services->set($controller)->public()->tag('controller.service_arguments');
         $services->set('demo.enrollment_limiter', RateLimiterFactory::class)->args([
             ['id' => 'demo-passkey-enrollment', 'policy' => 'fixed_window', 'limit' => $this->settings['enrollment_attempts_per_minute'] ?? 10, 'interval' => '1 minute'],
             service('exact_approval.limiter.storage'), service('exact_approval.limiter.lock_factory'),
         ]);
         $services->get(AccountController::class)->arg('$limiter', service('demo.enrollment_limiter'));
+        $services->get(OAuthController::class)->arg('$origin', rtrim($this->settings['origin'], '/'));
+        $services->get(PersonalTokenAuthenticator::class)->arg('$origin', rtrim($this->settings['origin'], '/'));
     }
 
     protected function configureRoutes(RoutingConfigurator $routes): void
@@ -156,6 +163,12 @@ final class DemoKernel extends Kernel
         $routes->add('exact_approval_policy', '/admin/approval-policy')->controller([DemoController::class, 'policy'])->methods(['GET', 'POST']);
         $routes->add('exact_approval_request_publication', '/announcements/{id}/publish')->controller([DemoController::class, 'requestPublication'])->methods(['POST']);
         $routes->add('exact_approval_edit_draft', '/announcements/{id}/draft')->controller([DemoController::class, 'editDraft'])->methods(['POST']);
+        $routes->add('oauth_protected_resource', '/.well-known/oauth-protected-resource')->controller([OAuthController::class, 'protectedResource'])->methods(['GET']);
+        $routes->add('oauth_protected_resource_mcp', '/.well-known/oauth-protected-resource/mcp')->controller([OAuthController::class, 'protectedResource'])->methods(['GET']);
+        $routes->add('oauth_metadata', '/.well-known/oauth-authorization-server')->controller([OAuthController::class, 'authorizationServer'])->methods(['GET']);
+        $routes->add('oauth_register', '/oauth/register')->controller([OAuthController::class, 'register'])->methods(['POST']);
+        $routes->add('oauth_authorize', '/oauth/authorize')->controller([OAuthController::class, 'authorize'])->methods(['GET', 'POST']);
+        $routes->add('oauth_token', '/oauth/token')->controller([OAuthController::class, 'token'])->methods(['POST']);
         $routes->add('riverside_alerts', '/alerts')->controller([PublicController::class, 'alerts'])->methods(['GET']);
         $routes->add('riverside_styles', '/site/riverside.css')->controller([PublicController::class, 'styles'])->methods(['GET']);
         $routes->add('exact_approval_evidence', '/approval/{id}/evidence')->controller([EvidenceController::class, 'export'])->methods(['GET']);

@@ -27,7 +27,16 @@ CREATE TABLE IF NOT EXISTS demo_users (
 );
 CREATE TABLE IF NOT EXISTS demo_grants (
     id TEXT PRIMARY KEY, user_id TEXT NOT NULL, tenant_id TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE,
-    active INTEGER NOT NULL DEFAULT 1, scopes TEXT NOT NULL
+    active INTEGER NOT NULL DEFAULT 1, scopes TEXT NOT NULL,
+    expires_at INTEGER, client_id TEXT, refresh_hash TEXT UNIQUE
+);
+-- OAuth for remote MCP clients: registered public clients and single-use PKCE authorization codes.
+CREATE TABLE IF NOT EXISTS demo_oauth_clients (
+    client_id TEXT PRIMARY KEY, client_name TEXT NOT NULL, redirect_uris TEXT NOT NULL, created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS demo_oauth_codes (
+    code_hash TEXT PRIMARY KEY, client_id TEXT NOT NULL, redirect_uri TEXT NOT NULL, user_id TEXT NOT NULL, tenant_id TEXT NOT NULL,
+    scopes TEXT NOT NULL, code_challenge TEXT NOT NULL, expires_at INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS demo_announcements (
     id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, revision INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,
