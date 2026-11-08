@@ -1,0 +1,9 @@
+services:
+  exact_approval_mcp.url_prompt:
+    class: ExactApproval\Mcp\UrlPrompt
+    factory: ['Drupal\exact_approval_mcp\Mcp\ApprovalTools', 'urlPrompt']
+    arguments: ['@config.factory']
+  # Named by class: the MCP SDK resolves discovered tool handlers from the container by class name.
+  Drupal\exact_approval_mcp\Mcp\ApprovalTools:
+    class: Drupal\exact_approval_mcp\Mcp\ApprovalTools
+    arguments: ['@exact_approval.approvals', '@exact_approval.actor_provider', '@config.factory', '@exact_approval_mcp.url_prompt']

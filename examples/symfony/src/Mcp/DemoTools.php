@@ -6,24 +6,29 @@ namespace ExactApproval\Demo\Mcp;
 
 use ExactApproval\Core\ApprovalException;
 use ExactApproval\Core\ApprovalService;
+use ExactApproval\Core\ApprovalState;
 use ExactApproval\Demo\DemoDatabase;
+use ExactApproval\Mcp\ApprovalCard;
+use ExactApproval\Mcp\ApprovalFlow;
 use ExactApproval\Symfony\ActorProvider;
-use ExactApproval\Symfony\ApprovalPresenter;
 use Mcp\Capability\Attribute\McpTool;
 use Mcp\Schema\Content\TextContent;
 use Mcp\Schema\Result\CallToolResult;
+use Mcp\Schema\Result\InputRequiredResult;
 use Mcp\Schema\ToolAnnotations;
+use Mcp\Server\RequestContext;
 
 final readonly class DemoTools
 {
-    public function __construct(private ApprovalService $approvals, private ActorProvider $actors, private ApprovalPresenter $presenter, private DemoDatabase $database) {}
+    public function __construct(private ApprovalService $approvals, private ActorProvider $actors, private DemoDatabase $database, private ApprovalFlow $flow) {}
 
     #[McpTool(
         name: 'publish_announcement',
         description: 'Request publication of one existing announcement revision as the currently authenticated user. Returns a browser approval URL when protected. It does not publish before application approval. Reuse request_key for retries, then call approval_status.',
         annotations: new ToolAnnotations(readOnlyHint: false, destructiveHint: true, idempotentHint: false),
+        meta: ApprovalCard::TOOL_META,
     )]
-    public function publish(string $announcement_id, ?string $request_key = null): CallToolResult
+    public function publish(RequestContext $context, string $announcement_id, ?string $request_key = null): CallToolResult|InputRequiredResult
     {
         try {
             $actor = $this->actors->current();
@@ -34,7 +39,10 @@ final readonly class DemoTools
                     throw new ApprovalException('result_read_denied', 'This personal connection is not allowed to receive approval results.');
                 }
             }
-            return $this->presenter->toolResult($this->approvals->request($actor, 'announcement.publish', ['announcement_id' => $announcement_id], $request_key));
+            return $this->flow->respond(
+                $context, $actor, 'publish_announcement', ['announcement_id' => $announcement_id, 'request_key' => $request_key],
+                fn (): ApprovalState => $this->approvals->request($actor, 'announcement.publish', ['announcement_id' => $announcement_id], $request_key),
+            );
         } catch (ApprovalException $error) {
             $data = ['status' => 'rejected', 'reason' => $error->reason, 'message' => $error->getMessage()];
 

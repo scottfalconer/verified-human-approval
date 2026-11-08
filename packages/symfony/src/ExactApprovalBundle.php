@@ -9,6 +9,10 @@ use ExactApproval\Core\ActionRegistry;
 use ExactApproval\Core\ApprovalService;
 use ExactApproval\Core\ExecutionGuard;
 use ExactApproval\Symfony\Controller\ApprovalController;
+use ExactApproval\Mcp\ApprovalFlow;
+use ExactApproval\Mcp\ResultPresenter;
+use ExactApproval\Mcp\UrlPrompt;
+use ExactApproval\Symfony\Mcp\ApprovalCardApp;
 use ExactApproval\Symfony\Mcp\ApprovalStatusTool;
 use Symfony\Component\Clock\NativeClock;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
@@ -39,6 +43,17 @@ final class ExactApprovalBundle extends AbstractBundle
             ->scalarNode('clock')->defaultValue('exact_approval.clock')->end()
             ->integerNode('attempts_per_minute')->min(2)->max(1000)->defaultValue(30)->end()
             ->scalarNode('rate_limiter')->defaultValue('exact_approval.limiter')->end()
+            ->arrayNode('url_elicitation')
+                ->info('Native URL-mode elicitation for pending approvals, on MCP 2026-07-28 or later. Off by default: the card and link always work, and some clients declare URL mode and then decline or drop it.')
+                ->addDefaultsIfNotSet()
+                ->children()
+                    ->booleanNode('enabled')->defaultFalse()->end()
+                    ->arrayNode('clients')
+                        ->info('clientInfo names to prompt, such as "claude-code", or "*" for any client declaring URL mode.')
+                        ->scalarPrototype()->cannotBeEmpty()->end()
+                    ->end()
+                ->end()
+            ->end()
         ->end();
     }
 
@@ -56,6 +71,7 @@ final class ExactApprovalBundle extends AbstractBundle
             service($config['verifier']), service($config['clock']), service(ExecutionGuard::class),
         ]);
         $services->set(ApprovalPresenter::class)->arg('$publicOrigin', $config['public_origin']);
+        $services->alias(ResultPresenter::class, ApprovalPresenter::class);
         $services->set('exact_approval.limiter.storage', CacheStorage::class)->args([service('cache.app')]);
         $services->set('exact_approval.limiter.lock_store', FlockStore::class)->args(['%kernel.cache_dir%/exact-approval-locks']);
         $services->set('exact_approval.limiter.lock_factory', LockFactory::class)->args([service('exact_approval.limiter.lock_store')]);
@@ -65,6 +81,9 @@ final class ExactApprovalBundle extends AbstractBundle
         ]);
         $services->set(ApprovalController::class)->arg('$limiter', service($config['rate_limiter']))->public()->tag('controller.service_arguments');
         $services->set(ApprovalStatusTool::class);
+        $services->set(ApprovalCardApp::class);
+        $services->set(UrlPrompt::class)->args([$config['url_elicitation']['enabled'], $config['url_elicitation']['clients']]);
+        $services->set(ApprovalFlow::class);
         $services->set(SecurityHeadersSubscriber::class);
     }
 }

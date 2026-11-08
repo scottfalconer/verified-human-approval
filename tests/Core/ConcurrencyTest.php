@@ -53,8 +53,9 @@ final class ConcurrencyTest extends TestCase
     {
         $database = $this->directory.'/application.sqlite';
         $fixture = new CoreFixture($database);
-        $first = $fixture->service->request($fixture->actor, 'article.publish', ['id' => 1]);
-        $second = $fixture->service->request($fixture->actor, 'article.publish', ['id' => 1]);
+        // Identical keyless requests now share one pending proposal; distinct keys make two.
+        $first = $fixture->service->request($fixture->actor, 'article.publish', ['id' => 1], 'proposal-a');
+        $second = $fixture->service->request($fixture->actor, 'article.publish', ['id' => 1], 'proposal-b');
         $ceremonyA = $fixture->service->begin($fixture->reviewer, $first->request->id);
         $ceremonyB = $fixture->service->begin($fixture->reviewer, $second->request->id);
         $results = $this->race([

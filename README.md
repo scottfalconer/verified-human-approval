@@ -78,7 +78,7 @@ Open that URL, review the actual title, body, destination, revision and required
 php examples/clients/mcp.php status YOUR_REQUEST_ID
 ```
 
-Reusing `my-first-request` with identical arguments returns the original request or result. Changing arguments under that key conflicts. A new intended action needs a new key. Without a supplied key, request retries can create separate pending proposals; protected execution is still at most once per proposal.
+Reusing `my-first-request` with identical arguments returns the original request or result. Changing arguments under that key conflicts. A new intended action needs a new key. Without a key, a retry of the same request through the same connection returns its pending proposal instead of creating another. Once that proposal is completed, cancelled, expired or invalid, a new request prepares a fresh one. Protected execution is at most once per proposal either way.
 
 ### Show a refusal
 
@@ -114,6 +114,7 @@ The scripted mode is tested and clearly labels itself. No paid model call was ma
 | --- | --- | --- |
 | `packages/core` | Frozen proposals, policies, current authority, transaction coordination, guarded execution, receipts and evidence verification. | PHP and small supporting libraries; no Symfony kernel or Drupal. |
 | `packages/webauthn` | Existing WebAuthn library integration, trusted credential repository, assertion verification and enrollment methods. | Symfony components used by WebAuthn; no application kernel. |
+| `packages/mcp` | The MCP App approval card, the optional URL-mode elicitation and its bound retry, shared by Symfony and Drupal. | The official MCP SDK; no framework. |
 | `packages/symfony` | Bundle configuration, action autoconfiguration, trusted review routes, CSRF, response headers, rate limits and MCP status tool. | Existing Symfony application and Symfony MCP Bundle. |
 | `packages/drupal/exact_approval` | Native permission policies, guarded node storage, saved-revision publish/delete actions, passkey UI, durable evidence and optional existing-endpoint MCP tools. | Drupal 11.4+, shared core and WebAuthn; no Symfony FrameworkBundle. |
 | `examples/symfony` | Account/token isolation, application tables, policy form, protected publication service and runnable endpoint. | Reference application, not a required hosting service. |
@@ -141,7 +142,7 @@ The WebAuthn challenge commits to a fresh random nonce and the proposal digest. 
 
 The SQLite adapter obtains a write reservation before reading relevant state. All relevant application writers need to preserve the versioning/transaction contract. Competing completions return the existing result; competing proposals for the same source revision cannot both pass a version-changing action. A known failed transaction retires its ceremony. A retry requires a fresh ceremony. An ambiguous outcome is read back before another attempt can be considered.
 
-No queue, additional daemon, new MCP protocol or proprietary destination-tool envelope is required. Protected actions are normal MCP tools; pending approval is a normal business result, not a spurious authentication error. This initial version uses the portable review URL plus status flow rather than negotiated URL elicitation.
+No queue, additional daemon, new MCP protocol or proprietary destination-tool envelope is required. Protected actions are normal MCP tools; pending approval is a normal business result, not a spurious authentication error. Every pending result carries the review URL and a view for the MCP App approval card, which opens that page and shows only the recorded outcome. An application can also turn on a URL-mode elicitation (MCP 2026-07-28) for the clients it has tested; its retry is bound to the same caller, tool and arguments, and never approves anything. See [MCP presentation](packages/mcp/README.md).
 
 ## Evidence
 
@@ -172,7 +173,7 @@ Browser, real-device and hosted-client coverage are reported separately in [veri
 
 ## What comes next
 
-The Drupal adapter is implemented and verified on a real Drupal 11.4.12 site. The next integration work is physical-device acceptance and hosted agent-client authentication: choose a stable origin, connect the application's real identity provider, reuse or enroll a real approval passkey, and record a full personal-user flow. The Symfony example's personal development token and the Drupal test fixture's personal Basic authentication are development connections, not completed OAuth authorization servers.
+The Drupal adapter is implemented and verified on a real Drupal 11.4.12 site. The MCP App approval card and the optional URL-mode elicitation are implemented for both Symfony and Drupal and tested with protocol-level requests shaped like Claude Code's. They have not yet been shown in a real Claude or ChatGPT window. The next integration work is physical-device acceptance and hosted agent-client authentication: choose a stable origin, connect the application's real identity provider, reuse or enroll a real approval passkey, and record a full personal-user flow. The Symfony example's personal development token and the Drupal test fixture's personal Basic authentication are development connections, not completed OAuth authorization servers.
 
 For production adoption, replace the demo identity/persistence setup with the host application’s services, review every supported write path, choose a shared limiter/lock backend when deploying across hosts, and review enrollment/recovery/key management. External effects such as email, remote MCP calls and payments do not gain a local transaction’s exactly-once properties.
 

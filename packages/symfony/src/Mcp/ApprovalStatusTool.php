@@ -16,10 +16,12 @@ use Symfony\Component\Security\Core\Exception\AccessDeniedException;
 
 final readonly class ApprovalStatusTool
 {
+    public const NAME = 'approval_status';
+
     public function __construct(private ApprovalService $approvals, private ActorProvider $actors, private ApprovalPresenter $presenter) {}
 
     #[McpTool(
-        name: 'approval_status',
+        name: self::NAME,
         description: 'Get the authoritative result of one action approval request belonging to the current user. This never executes or approves an action.',
         annotations: new ToolAnnotations(readOnlyHint: true, destructiveHint: false, idempotentHint: true),
     )]

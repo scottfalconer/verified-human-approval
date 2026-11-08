@@ -8,6 +8,8 @@ import socket
 import sqlite3
 import subprocess
 import time
+import base64
+import urllib.request
 
 ROOT = Path(__file__).resolve().parents[4]
 SITE = ROOT / 'examples/drupal'
@@ -24,6 +26,35 @@ def drush(*args):
     if r.returncode:
         raise RuntimeError(r.stderr)
     return r.stdout
+
+CARD = 'ui://exact-approval/approval-card.html'
+APP_MIME = 'text/html;profile=mcp-app'
+
+def modern(arguments, client='claude-code', extra=None, tool='exact_approval_publish', user='editor'):
+    """A raw MCP 2026-07-28 tools/call shaped like Claude Code's, over real HTTP."""
+    params = {'name': tool, 'arguments': arguments, '_meta': {
+        'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+        'io.modelcontextprotocol/clientCapabilities': {'elicitation': {'url': {}}},
+        'io.modelcontextprotocol/clientInfo': {'name': client, 'version': '2.1.317'},
+    }, **(extra or {})}
+    password = DEMO['editor_password' if user == 'editor' else 'admin_password']
+    request = urllib.request.Request(ORIGIN + '/mcp', data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call', 'params': params}).encode(), method='POST', headers={
+        'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream',
+        'Authorization': 'Basic ' + base64.b64encode(f'{user}:{password}'.encode()).decode(),
+        'Mcp-Method': 'tools/call', 'Mcp-Name': tool, 'MCP-Protocol-Version': '2026-07-28',
+    })
+    with urllib.request.urlopen(request, timeout=25) as response:
+        body = response.read().decode()
+    for line in body.splitlines():
+        if line.startswith('data: '):
+            body = line[6:]
+            break
+    message = json.loads(body)
+    assert 'result' in message, message
+    return message['result']
+
+def answer(asked, action):
+    return {'inputResponses': {'exact_approval': {'action': action}}, 'requestState': asked['requestState']}
 
 def mcp(method, arguments=None, user='editor'):
     payload = {'endpoint': ORIGIN + '/mcp', 'user': user, 'password': DEMO['editor_password' if user == 'editor' else 'admin_password'], 'method': method, 'arguments': arguments or {}}
@@ -75,6 +106,41 @@ try:
         assert db.execute('SELECT status FROM node_field_data WHERE nid=?', [node_id]).fetchone()[0] == 0
         assert db.execute('SELECT COUNT(*) FROM exact_approval_executions WHERE request_id=?', [request_id]).fetchone()[0] == 0
     checks.append('Neither approval requests nor ordinary tool bypass attempts publish or delete content without human proof')
+    with sqlite3.connect(SITE / 'var/drupal.sqlite') as db:
+        executions_before = db.execute('SELECT COUNT(*) FROM exact_approval_executions').fetchone()[0]
+    tools = {tool['name']: tool for tool in mcp('list')['tools']}
+    for tool in ('exact_approval_publish', 'exact_approval_delete'):
+        assert tools[tool]['_meta']['ui']['resourceUri'] == CARD, tools[tool]
+    assert 'ui' not in (tools['exact_approval_status'].get('_meta') or {})
+    resources = {resource['uri']: resource for resource in mcp('resources')['resources']}
+    assert resources[CARD]['mimeType'] == APP_MIME, resources
+    card = mcp('read', {'uri': CARD})['contents'][0]
+    assert card['mimeType'] == APP_MIME and 'ui/open-link' in card['text'] and 'navigator.credentials' not in card['text']
+    checks.append('Publish and delete link the MCP App approval card, which the endpoint serves and which never runs a passkey')
+
+    second = node_id  # a keyless request for the same node reuses its pending proposal
+    asked = modern({'node_id': second})
+    assert asked.get('resultType') == 'input_required', asked
+    ask = asked['inputRequests']['exact_approval']
+    assert ask['method'] == 'elicitation/create' and ask['params']['mode'] == 'url', ask
+    assert ask['params']['url'].startswith(DEMO['origin'] + '/exact-approval/'), ask
+    accepted = modern({'node_id': second}, extra=answer(asked, 'accept'))
+    assert not accepted.get('isError'), accepted
+    assert accepted['structuredContent']['status'] == 'pending', accepted
+    assert accepted['structuredContent']['reviewUrl'] == ask['params']['url'], accepted
+    assert 'not an approval' in accepted['structuredContent']['message'], accepted
+    assert accepted['structuredContent']['approval']['statusTool'] == 'exact_approval_status'
+    checks.append('Claude Code gets a URL-mode elicitation on 2026-07-28; its accept is reported as not an approval, and the retry keeps the same proposal')
+    declined = modern({'node_id': second}, extra=answer(asked, 'decline'))
+    assert declined['structuredContent']['status'] == 'pending' and 'nothing was approved or changed' in declined['structuredContent']['message'], declined
+    changed = modern({'node_id': second, 'idempotency_key': 'changed-' + os.urandom(4).hex()}, extra=answer(asked, 'accept'))
+    assert changed.get('isError') and changed['structuredContent']['reason'] == 'continuation_mismatch', changed
+    checks.append('A declined prompt leaves the request open, and a retry with changed arguments cannot continue it')
+    other = modern({'node_id': second}, client='another-client')
+    assert other.get('resultType') != 'input_required' and other['structuredContent']['status'] == 'pending', other
+    checks.append('A client the site has not listed gets the card and link only')
+    with sqlite3.connect(SITE / 'var/drupal.sqlite') as db:
+        assert db.execute('SELECT COUNT(*) FROM exact_approval_executions').fetchone()[0] == executions_before, 'An MCP prompt or its answer executed an action'
     report = {'passed': True, 'checks': checks, 'transport': 'real HTTP, official mcp/sdk client and Drupal mcp_server SDK server', 'authentication': 'per-user Basic authentication on isolated test-only route', 'live_model_calls': 0, 'browser_or_physical_device_tested': False}
     (SITE / 'var/mcp-verification.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report, indent=2))

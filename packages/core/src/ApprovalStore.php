@@ -12,6 +12,8 @@ interface ApprovalStore
     public function get(string $id): ?ApprovalState;
     /** @return null|array{state: ApprovalState, fingerprint: string} */
     public function findByKey(Actor $actor, string $idempotencyKey): ?array;
+    /** The newest still-pending proposal this actor made with these exact arguments. */
+    public function findPending(Actor $actor, string $fingerprint): ?ApprovalState;
     public function save(ApprovalState $state): void;
     public function putCeremony(Ceremony $ceremony): void;
     public function getCeremony(string $id): ?Ceremony;

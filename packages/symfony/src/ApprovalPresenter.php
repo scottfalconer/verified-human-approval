@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace ExactApproval\Symfony;
 
 use ExactApproval\Core\ApprovalState;
+use ExactApproval\Mcp\ApprovalCard;
+use ExactApproval\Mcp\ResultPresenter;
+use ExactApproval\Symfony\Mcp\ApprovalStatusTool;
 use Mcp\Schema\Content\TextContent;
 use Mcp\Schema\Result\CallToolResult;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
 /** One result shape for MCP and browser status, with no assertion material. */
-final readonly class ApprovalPresenter
+final readonly class ApprovalPresenter implements ResultPresenter
 {
     public function __construct(private UrlGeneratorInterface $urls, private string $publicOrigin)
     {
@@ -22,20 +25,35 @@ final readonly class ApprovalPresenter
         }
     }
 
-    public function data(ApprovalState $state): array
+    public function statusTool(): string
+    {
+        return ApprovalStatusTool::NAME;
+    }
+
+    public function reviewUrl(ApprovalState $state): string
+    {
+        return rtrim($this->publicOrigin, '/').$this->urls->generate('exact_approval_review', ['id' => $state->request->id]);
+    }
+
+    public function data(ApprovalState $state, ?string $message = null): array
     {
         $data = $state->toArray();
         if ($state->status === 'pending') {
-            $data['review_url'] = rtrim($this->publicOrigin, '/').$this->urls->generate('exact_approval_review', ['id' => $state->request->id]);
+            $data['review_url'] = $this->reviewUrl($state);
             $data['message'] = 'Approval required. Open the review URL in your browser. The application executes only its stored proposal after valid passkey approval. Then call approval_status.';
         }
+        if ($message !== null) {
+            $data['message'] = $message;
+        }
+        // The MCP App card reads these fixed names; it shows only what the application recorded.
+        $data['approval'] = ApprovalCard::view($state, $this->reviewUrl($state), $this->statusTool());
 
         return $data;
     }
 
-    public function toolResult(ApprovalState $state): CallToolResult
+    public function toolResult(ApprovalState $state, ?string $message = null): CallToolResult
     {
-        $data = $this->data($state);
+        $data = $this->data($state, $message);
 
         return new CallToolResult(
             [new TextContent(json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES))],

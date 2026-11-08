@@ -25,7 +25,7 @@ function exact_approval_schema(): array {
     ],
     'primary key' => ['id'],
     'unique keys' => ['idempotency' => ['actor_key', 'idempotency_key']],
-    'indexes' => ['owner' => ['actor_tenant', 'actor_user'], 'created' => ['created']],
+    'indexes' => ['owner' => ['actor_tenant', 'actor_user'], 'created' => ['created'], 'pending' => ['actor_key', 'fingerprint', 'status']],
   ];
   $schema['exact_approval_executions'] = [
     'fields' => ['request_id' => $id, 'record' => $text],
@@ -88,3 +88,12 @@ function exact_approval_requirements(string $phase): array {
   return $requirements;
 }
 
+/**
+ * Adds the index that lets a keyless retry reuse its pending proposal.
+ */
+function exact_approval_update_11001(): void {
+  $schema = \Drupal::database()->schema();
+  if (!$schema->indexExists('exact_approval_requests', 'pending')) {
+    $schema->addIndex('exact_approval_requests', 'pending', ['actor_key', 'fingerprint', 'status'], exact_approval_schema()['exact_approval_requests']);
+  }
+}

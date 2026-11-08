@@ -85,6 +85,14 @@ final class DrupalApprovalStore implements ApprovalStore
         return $row ? ['state' => $this->get($row['id']), 'fingerprint' => $row['fingerprint']] : null;
     }
 
+    public function findPending(Actor $actor, string $fingerprint): ?ApprovalState
+    {
+        $id = $this->database->select('exact_approval_requests', 'r')->fields('r', ['id'])
+            ->condition('actor_key', $actor->key())->condition('fingerprint', $fingerprint)->condition('status', 'pending')
+            ->orderBy('created', 'DESC')->orderBy('id', 'DESC')->range(0, 1)->execute()->fetchField();
+        return $id === false ? null : $this->get((string) $id);
+    }
+
     public function save(ApprovalState $state): void
     {
         $this->assertTransaction();

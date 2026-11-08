@@ -186,3 +186,18 @@ composer test -- --testsuite symfony
 They use the real Symfony kernel, session firewall, CSRF handling, MCP Bundle, SDK HTTP transport and genuine synthetic ES256 assertions validated by the production WebAuthn bridge. They check pending/complete/status, unchanged publication, stale content, current delegation, read scopes, administrator forms, account/tenant isolation, credential enrollment separation and the mutation guard.
 
 Synthetic authenticators prove the protocol and server checks. Real Mac Touch ID, iPhone Face ID and external Claude/ChatGPT client runs are separate integration checks and are not claimed by these tests.
+
+## Approval card and native prompt
+
+Pending results carry a view for the shared MCP App approval card. To show it, add `ExactApproval\Symfony\Mcp\ApprovalCardApp` to your MCP server's `registry.apps` list and give each protected tool `meta: ApprovalCard::TOOL_META`. The app serves the card resource and enables the MCP Apps extension through the MCP bundle's `#[AsMcpApp]`.
+
+A protected tool takes the SDK's `RequestContext` and returns `ApprovalFlow::respond()`. To also send a URL-mode elicitation to clients you have tested:
+
+```php
+'exact_approval' => [
+    // ...
+    'url_elicitation' => ['enabled' => true, 'clients' => ['claude-code']],
+],
+```
+
+It is off by default, applies only under MCP 2026-07-28 or later, and its retry is bound to the same caller, tool and arguments. The demo enables it for Claude Code. See [MCP presentation](../mcp/README.md).

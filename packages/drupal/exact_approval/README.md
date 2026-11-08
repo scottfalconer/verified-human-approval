@@ -124,7 +124,9 @@ vendor/bin/drush en mcp_server exact_approval_mcp -y
 vendor/bin/drush cr
 ```
 
-This adds plugins to the existing MCP server; it does not replace `/mcp`, install another kernel, replace the server's authentication flow, or expose a tool that signs on a human's behalf. Configure access and tool exposure through the MCP server's normal mechanisms.
+This registers three tools and the approval card on the existing MCP server through its attribute-discovery hook (`McpServerFactory::addDiscovery()`), so each tool receives the SDK request context. It does not replace `/mcp`, install another kernel, replace the server's authentication flow, patch `mcp_server`, or expose a tool that signs on a human's behalf. Because they are discovered rather than plugins, these tools do not appear in the MCP server's per-tool settings; access still requires the caller's own authenticated Drupal account.
+
+Publish and delete link the MCP App approval card (`ui://exact-approval/approval-card.html`), which opens the review page and shows only the recorded outcome. To also send a URL-mode elicitation to clients you have tested, set `exact_approval_mcp.settings:url_elicitation` to `{enabled: true, clients: ['claude-code']}`. It applies only under MCP 2026-07-28 or later, and its retry is bound to the same caller, tool and arguments. See [MCP presentation](../../mcp/README.md).
 
 | Tool | Input | Result |
 | --- | --- | --- |
@@ -188,7 +190,7 @@ The latest local gate passed:
 | --- | --- |
 | Real installed-Drupal acceptance | 19 scenarios, 138 assertions, 0 failures |
 | Real HTTP UI, sessions, Form API, and WebAuthn ceremonies | 7 scenarios, 86 assertions, 0 failures |
-| Official PHP MCP SDK client against the Drupal HTTP MCP server | 7 checks passed |
+| Official PHP MCP SDK client and raw 2026-07-28 calls against the Drupal HTTP MCP server | 11 checks passed |
 
 The HTTP UI suite includes an actual unchanged-settings POST, native moderation permission choices, strict proof payloads, CSRF/ownership/replay checks, and refusal of Basic authentication for human administration and approval. The database suite includes stale state, revoked account roles, hook failures, post-save alteration, hidden-field protection, deletion evidence, and a simultaneous-completion race.
 

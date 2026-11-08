@@ -37,6 +37,8 @@ foreach (['Campaign announcement ready for publication', 'Obsolete campaign anno
 ])->save();
 \Drupal::service('theme_installer')->install(['claro']);
 \Drupal::configFactory()->getEditable('system.theme')->set('default', 'claro')->set('admin', 'claro')->save();
+// Claude Code shows URL-mode elicitation (2.1.287 and later); other clients get the card and the link.
+\Drupal::configFactory()->getEditable('exact_approval_mcp.settings')->set('url_elicitation', ['enabled' => TRUE, 'clients' => ['claude-code']])->save();
 drupal_flush_all_caches();
 echo "Configured a publisher, two saved drafts, and protected publish/delete rules.\n";
 

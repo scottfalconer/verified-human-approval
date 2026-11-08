@@ -156,7 +156,7 @@ class Smoke:
 
     def node(self, nid: int) -> dict | None:
         # Read-only local verification independently checks persisted state.
-        with sqlite3.connect(f"file:{DEMO / 'var/drupal.sqlite'}?mode=ro", uri=True) as db:
+        with sqlite3.connect(f"file:{DEMO / 'var/drupal.sqlite'}", uri=True) as db:
             db.row_factory = sqlite3.Row
             row = db.execute("SELECT nid, title, status FROM node_field_data WHERE nid = ? AND default_langcode = 1", (nid,)).fetchone()
             return dict(row) if row else None
@@ -248,7 +248,7 @@ class Smoke:
         response = self.request(self.admin, "GET", "/admin/config/people/exact-approval")
         self.check("administer node published status" in response.text and "delete any announcement content" in response.text, "Policy form does not expose real native permission bindings")
         action, original = self.form(response, "form.exact-approval-settings")
-        with sqlite3.connect(f"file:{DEMO / 'var/drupal.sqlite'}?mode=ro", uri=True) as database:
+        with sqlite3.connect(f"file:{DEMO / 'var/drupal.sqlite'}", uri=True) as database:
             workflows_present = database.execute("SELECT COUNT(*) FROM config WHERE name LIKE 'workflows.workflow.%'").fetchone()[0] > 0
         if workflows_present:
             self.check(any(" transition " in option.get("value", "") for option in BeautifulSoup(response.text, "html.parser").select("select option")), "Policy picker omitted installed moderation transition permissions")

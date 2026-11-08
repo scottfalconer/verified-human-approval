@@ -18,6 +18,7 @@ use ExactApproval\Demo\Security\DemoUser;
 use ExactApproval\Demo\Security\DemoUserProvider;
 use ExactApproval\Demo\Security\PersonalTokenAuthenticator;
 use ExactApproval\Symfony\ExactApprovalBundle;
+use ExactApproval\Symfony\Mcp\ApprovalCardApp;
 use ExactApproval\Symfony\Mcp\ApprovalStatusTool;
 use ExactApproval\WebAuthn\Configuration;
 use ExactApproval\WebAuthn\CredentialRepository;
@@ -111,13 +112,15 @@ final class DemoKernel extends Kernel
             'http' => ['path' => '/mcp', 'allowed_hosts' => [$this->settings['rp_id']]],
             'session' => ['store' => 'file', 'directory' => $this->runtimeDirectory.'/mcp'],
             'request_state' => ['key' => $this->settings['app_secret']],
-            'registry' => ['tools' => [DemoTools::class, ApprovalStatusTool::class]],
+            'registry' => ['tools' => [DemoTools::class, ApprovalStatusTool::class], 'apps' => [ApprovalCardApp::class]],
         ]]]);
         $container->extension('exact_approval', [
             'public_origin' => $this->settings['origin'], 'actor_provider' => DemoActorProvider::class,
             'policy_provider' => DemoPolicyProvider::class, 'authorizer' => DemoAuthorizer::class,
             'store' => PdoApprovalStore::class, 'verifier' => WebAuthnVerifier::class,
             'attempts_per_minute' => $this->settings['approval_attempts_per_minute'] ?? 30,
+            // Claude Code shows URL-mode elicitation (2.1.287 and later); other clients get the card and link.
+            'url_elicitation' => ['enabled' => true, 'clients' => ['claude-code']],
         ]);
 
         $services = $container->services()->defaults()->autowire()->autoconfigure();

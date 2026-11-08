@@ -18,7 +18,12 @@ $client->connect(new \Mcp\Client\Transport\HttpTransport(
     streamFactory: $factory,
 ));
 try {
-    $result = $input['method'] === 'list' ? $client->listTools() : $client->callTool($input['method'], $input['arguments'] ?? []);
+    $result = match ($input['method']) {
+        'list' => $client->listTools(),
+        'resources' => $client->listResources(),
+        'read' => $client->readResource($input['arguments']['uri']),
+        default => $client->callTool($input['method'], $input['arguments'] ?? []),
+    };
     echo json_encode($result, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), "\n";
 } finally {
     $client->disconnect();

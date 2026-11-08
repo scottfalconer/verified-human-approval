@@ -46,6 +46,16 @@ final class ApprovalService
                 $this->assertOwner($actor, $existing['state']);
                 return $this->expire($existing['state']);
             }
+            // A retry without a key (a client re-sending the call, or MCP re-entering the handler
+            // after an elicitation) gets the same pending proposal instead of a second review URL.
+            if ($idempotencyKey === null && ($pending = $this->store->findPending($actor, $fingerprint)) !== null) {
+                $this->assertOwner($actor, $pending);
+                $pending = $this->eligible($pending);
+                if ($pending->status === 'pending') {
+                    return $pending;
+                }
+                // The earlier proposal expired or lost eligibility, so a fresh one is prepared below.
+            }
             $adapter = $this->actions->get($actionId);
             $prepared = $adapter->prepare($actor, $input);
             if ($prepared->actionId !== $adapter->id() || $prepared->version !== $adapter->version()) {

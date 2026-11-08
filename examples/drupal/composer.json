@@ -13,6 +13,13 @@
     },
     {
       "type": "path",
+      "url": "../../packages/mcp",
+      "options": {
+        "symlink": true
+      }
+    },
+    {
+      "type": "path",
       "url": "../../packages/webauthn",
       "options": {
         "symlink": true

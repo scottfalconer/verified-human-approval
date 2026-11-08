@@ -8,6 +8,7 @@
     "php": "^8.3",
     "drupal/core": "^11.4",
     "exact-approval/core": "^0.1",
+    "exact-approval/mcp": "^0.1",
     "exact-approval/webauthn": "^0.1",
     "ext-sodium": "*"
   },

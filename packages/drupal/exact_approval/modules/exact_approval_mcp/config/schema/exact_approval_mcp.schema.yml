@@ -1,0 +1,17 @@
+exact_approval_mcp.settings:
+  type: config_object
+  label: Exact approval MCP settings
+  mapping:
+    url_elicitation:
+      type: mapping
+      label: Native URL-mode elicitation (MCP 2026-07-28 or later)
+      mapping:
+        enabled:
+          type: boolean
+          label: Prompt the listed clients natively
+        clients:
+          type: sequence
+          label: clientInfo names, or * for any client that declares URL mode
+          sequence:
+            type: string
+            label: clientInfo name

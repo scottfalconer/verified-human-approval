@@ -14,6 +14,9 @@ use ExactApproval\Demo\DemoDatabase;
 use ExactApproval\Demo\DemoKernel;
 use ExactApproval\Demo\DemoSetup;
 use ExactApproval\Tests\Support\VirtualAuthenticator;
+use ExactApproval\Mcp\ApprovalCard;
+use ExactApproval\Mcp\UrlPrompt;
+use Mcp\Schema\Extension\Apps\McpApps;
 use Mcp\Client;
 use Mcp\Client\Transport\HttpTransport;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -334,6 +337,146 @@ final class SymfonyApprovalTest extends TestCase
         self::assertFalse($result->isError, json_encode($result->structuredContent));
 
         return $result->structuredContent['requestId'];
+    }
+
+    public function testProtectedToolLinksTheApprovalCardWhichTheServerServes(): void
+    {
+        $client = $this->mcp();
+        $tools = [];
+        foreach ($client->listTools()->tools as $tool) $tools[$tool->name] = json_decode(json_encode($tool, JSON_THROW_ON_ERROR), true);
+        self::assertSame(ApprovalCard::URI, $tools['publish_announcement']['_meta']['ui']['resourceUri']);
+        self::assertArrayNotHasKey('ui', $tools['approval_status']['_meta'] ?? []);
+        $resources = [];
+        foreach ($client->listResources()->resources as $resource) $resources[$resource->uri] = json_decode(json_encode($resource, JSON_THROW_ON_ERROR), true);
+        self::assertSame(McpApps::MIME_TYPE, $resources[ApprovalCard::URI]['mimeType']);
+        $card = json_decode(json_encode($client->readResource(ApprovalCard::URI)->contents[0], JSON_THROW_ON_ERROR), true);
+        self::assertSame(McpApps::MIME_TYPE, $card['mimeType']);
+        self::assertStringContainsString('ui/open-link', $card['text']);
+        self::assertStringNotContainsString('navigator.credentials', $card['text']);
+        $capabilities = json_decode(json_encode($client->getServerCapabilities(), JSON_THROW_ON_ERROR), true);
+        self::assertArrayHasKey(McpApps::EXTENSION_ID, $capabilities['extensions'] ?? []);
+
+        $pending = $client->callTool('publish_announcement', ['announcement_id' => 'summer-campaign']);
+        $view = $pending->structuredContent['approval'];
+        self::assertSame($pending->structuredContent['requestId'], $view['requestId']);
+        self::assertSame('pending', $view['status']);
+        self::assertSame($pending->structuredContent['review_url'], $view['reviewUrl']);
+        self::assertSame('approval_status', $view['statusTool']);
+        self::assertStringContainsString('I approve publishing', $view['statement']);
+        $status = $client->callTool('approval_status', ['request_id' => $view['requestId']]);
+        self::assertSame('pending', $status->structuredContent['approval']['status']);
+        self::assertSame(0, $this->mutationCount());
+    }
+
+    public function testClaudeCodeGetsAUrlPromptWhoseAcceptIsNotAnApproval(): void
+    {
+        $first = $this->modernCall(['announcement_id' => 'summer-campaign']);
+        self::assertSame('input_required', $first['resultType'] ?? null, json_encode($first));
+        $ask = $first['inputRequests'][UrlPrompt::KEY];
+        self::assertSame('elicitation/create', $ask['method']);
+        self::assertSame('url', $ask['params']['mode']);
+        self::assertStringStartsWith(self::ORIGIN.'/approval/apr_', $ask['params']['url']);
+        self::assertStringContainsString('I approve publishing', $ask['params']['message']);
+        $id = substr($ask['params']['url'], \strlen(self::ORIGIN.'/approval/'));
+
+        $accepted = $this->modernCall(['announcement_id' => 'summer-campaign'], extra: $this->answer($first, 'accept'));
+        self::assertFalse($accepted['isError'] ?? false, json_encode($accepted));
+        self::assertSame($id, $accepted['structuredContent']['requestId']);
+        self::assertSame('pending', $accepted['structuredContent']['status']);
+        self::assertStringContainsString('not an approval', $accepted['structuredContent']['message']);
+        self::assertSame(1, $this->pendingRequests(), 'Re-entering the handler must not create a second proposal.');
+        self::assertSame(0, $this->mutationCount());
+    }
+
+    public function testADeclinedPromptLeavesTheRequestOpenOnTheSiteAndChangesNothing(): void
+    {
+        $first = $this->modernCall(['announcement_id' => 'summer-campaign']);
+        $declined = $this->modernCall(['announcement_id' => 'summer-campaign'], extra: $this->answer($first, 'decline'));
+        self::assertSame('pending', $declined['structuredContent']['status']);
+        self::assertStringContainsString('nothing was approved or changed', $declined['structuredContent']['message']);
+        self::assertStringStartsWith(self::ORIGIN.'/approval/', $declined['structuredContent']['review_url']);
+        self::assertSame(0, $this->mutationCount());
+
+        $id = $declined['structuredContent']['requestId'];
+        $browser = $this->browser('editor');
+        $authenticator = $this->enroll($browser);
+        [$csrf, $ceremony] = $this->begin($browser, $id);
+        $completed = $this->post($browser, '/approval/'.$id.'/complete', $csrf, ['ceremony_id' => $ceremony['ceremony_id'], 'credential' => $authenticator->assertion($ceremony['publicKey'])]);
+        self::assertSame('completed', $completed['status']);
+        self::assertSame(1, $this->mutationCount());
+    }
+
+    public function testARetryWithChangedArgumentsCannotContinueTheApproval(): void
+    {
+        $first = $this->modernCall(['announcement_id' => 'summer-campaign']);
+        $changed = $this->modernCall(['announcement_id' => 'summer-campaign', 'request_key' => 'another-request'], extra: $this->answer($first, 'accept'));
+        self::assertTrue($changed['isError'] ?? false, json_encode($changed));
+        self::assertSame('continuation_mismatch', $changed['structuredContent']['reason']);
+        self::assertSame(1, $this->pendingRequests());
+        self::assertSame(0, $this->mutationCount());
+    }
+
+    public function testARetryAfterThePasskeyApprovalReadsTheRecordedOutcomeOnce(): void
+    {
+        $first = $this->modernCall(['announcement_id' => 'summer-campaign']);
+        $id = substr($first['inputRequests'][UrlPrompt::KEY]['params']['url'], \strlen(self::ORIGIN.'/approval/'));
+        $browser = $this->browser('editor');
+        $authenticator = $this->enroll($browser);
+        [$csrf, $ceremony] = $this->begin($browser, $id);
+        $this->post($browser, '/approval/'.$id.'/complete', $csrf, ['ceremony_id' => $ceremony['ceremony_id'], 'credential' => $authenticator->assertion($ceremony['publicKey'])]);
+        self::assertSame(1, $this->mutationCount());
+
+        foreach ([1, 2] as $attempt) {
+            $after = $this->modernCall(['announcement_id' => 'summer-campaign'], extra: $this->answer($first, 'accept'));
+            self::assertSame('completed', $after['structuredContent']['status'], 'attempt '.$attempt);
+            self::assertSame('published', $after['structuredContent']['result']['disposition']);
+            self::assertSame('completed', $after['structuredContent']['approval']['status']);
+        }
+        self::assertSame(1, $this->mutationCount());
+    }
+
+    public function testAClientTheApplicationHasNotListedGetsTheCardAndLinkOnly(): void
+    {
+        $result = $this->modernCall(['announcement_id' => 'summer-campaign'], client: 'another-client');
+        self::assertNotSame('input_required', $result['resultType'] ?? null);
+        self::assertSame('pending', $result['structuredContent']['status']);
+        self::assertSame('approval_status', $result['structuredContent']['approval']['statusTool']);
+        self::assertSame(0, $this->mutationCount());
+    }
+
+    /** A raw MCP 2026-07-28 tools/call, shaped like Claude Code's, through a fresh kernel. */
+    private function modernCall(array $arguments, string $client = 'claude-code', array $extra = [], string $user = 'editor'): array
+    {
+        $params = ['name' => 'publish_announcement', 'arguments' => (object) $arguments, '_meta' => [
+            'io.modelcontextprotocol/protocolVersion' => '2026-07-28',
+            'io.modelcontextprotocol/clientCapabilities' => ['elicitation' => ['url' => new \stdClass()]],
+            'io.modelcontextprotocol/clientInfo' => ['name' => $client, 'version' => '2.1.317'],
+        ]] + $extra;
+        $factory = new Psr17Factory();
+        $request = $factory->createRequest('POST', self::ORIGIN.'/mcp')
+            ->withHeader('Content-Type', 'application/json')
+            ->withHeader('Accept', 'application/json, text/event-stream')
+            ->withHeader('Authorization', 'Bearer '.$this->accounts[$user]['personal_token'])
+            ->withHeader('Mcp-Method', 'tools/call')
+            ->withHeader('Mcp-Name', 'publish_announcement')
+            ->withHeader('MCP-Protocol-Version', '2026-07-28')
+            ->withBody($factory->createStream(json_encode(['jsonrpc' => '2.0', 'id' => random_int(1, 1_000_000), 'method' => 'tools/call', 'params' => $params], JSON_THROW_ON_ERROR)));
+        $body = (string) (new SymfonyKernelHttpClient($this->runtime))->sendRequest($request)->getBody();
+        if (preg_match('/^data: (.+)$/m', $body, $match) === 1) $body = $match[1];
+        $message = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
+        self::assertArrayHasKey('result', $message, $body);
+
+        return $message['result'];
+    }
+
+    private function answer(array $asked, string $action): array
+    {
+        return ['inputResponses' => [UrlPrompt::KEY => ['action' => $action]], 'requestState' => $asked['requestState']];
+    }
+
+    private function pendingRequests(): int
+    {
+        return (int) (new \PDO('sqlite:'.$this->runtime.'/application.sqlite'))->query("SELECT COUNT(*) FROM exact_approval_requests WHERE status = 'pending'")->fetchColumn();
     }
 
     private function browser(string $user): KernelBrowser

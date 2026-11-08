@@ -10,3 +10,6 @@
 **/__pycache__/
 *.pyc
 /.venv-drupal-http/
+/examples/drupal/.gitignore
+/examples/drupal/recipes/
+.DS_Store

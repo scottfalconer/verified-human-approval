@@ -10,6 +10,7 @@
     "ext-pdo_sqlite": "*",
     "ext-sodium": "*",
     "exact-approval/core": "^0.1",
+    "exact-approval/mcp": "^0.1",
     "exact-approval/symfony-bundle": "^0.1",
     "exact-approval/webauthn": "^0.1",
     "mcp/sdk": "^0.9",

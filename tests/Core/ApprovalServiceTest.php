@@ -272,6 +272,43 @@ final class ApprovalServiceTest extends TestCase
         self::assertSame(1, $this->fixture->effectCount());
     }
 
+    public function testKeylessRetryReusesThePendingProposal(): void
+    {
+        $first = $this->request();
+        $again = $this->request();
+        self::assertSame($first->request->id, $again->request->id);
+        self::assertSame($first->request->canonical, $again->request->canonical);
+        self::assertSame('pending', $again->status);
+        self::assertSame(1, (int) $this->fixture->pdo->query("SELECT COUNT(*) FROM exact_approval_requests WHERE status = 'pending'")->fetchColumn());
+        self::assertSame(0, $this->fixture->effectCount());
+    }
+
+    public function testKeylessReuseIsScopedToTheSameDelegation(): void
+    {
+        $first = $this->request();
+        $otherAgent = $this->fixture->service->request(new Actor('alice', 'tenant-a', 'agent-2'), 'article.publish', ['id' => 1]);
+        self::assertNotSame($first->request->id, $otherAgent->request->id);
+    }
+
+    public function testKeylessRetryAfterCancellationPreparesAFreshProposal(): void
+    {
+        $first = $this->request();
+        self::assertSame('cancelled', $this->fixture->service->cancel($this->fixture->reviewer, $first->request->id)->status);
+        $again = $this->request();
+        self::assertNotSame($first->request->id, $again->request->id);
+        self::assertSame('pending', $again->status);
+    }
+
+    public function testKeylessRetryDoesNotReuseAProposalWhoseSourceChanged(): void
+    {
+        $first = $this->request();
+        $this->fixture->pdo->exec('UPDATE test_articles SET revision = revision + 1 WHERE id = 1');
+        $again = $this->request();
+        self::assertNotSame($first->request->id, $again->request->id);
+        self::assertSame(18, $again->request->prepared()->preconditions['revision']);
+        self::assertSame('invalidated', $this->fixture->service->get($this->fixture->reviewer, $first->request->id)->status);
+    }
+
     public function testUnprotectedPolicyIsAnExplicitSeparatePathWithNoInventedApprovalProof(): void
     {
         $this->fixture->pdo->exec("UPDATE test_policies SET required = 0 WHERE action_id = 'article.publish'");

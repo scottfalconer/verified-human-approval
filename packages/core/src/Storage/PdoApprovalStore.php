@@ -38,6 +38,7 @@ final class PdoApprovalStore implements ApprovalStore
             options TEXT NOT NULL, consumed INTEGER NOT NULL DEFAULT 0
         )');
         $this->pdo->exec('CREATE INDEX IF NOT EXISTS exact_approval_ceremony_request ON exact_approval_ceremonies(request_id)');
+        $this->pdo->exec('CREATE INDEX IF NOT EXISTS exact_approval_request_pending ON exact_approval_requests(actor_key, fingerprint, status)');
     }
 
     public function connection(): \PDO
@@ -96,6 +97,14 @@ final class PdoApprovalStore implements ApprovalStore
         $statement->execute([$actor->key(), hash('sha256', $idempotencyKey)]);
         $row = $statement->fetch(\PDO::FETCH_ASSOC);
         return $row === false ? null : ['state' => $this->get($row['id']), 'fingerprint' => $row['fingerprint']];
+    }
+
+    public function findPending(Actor $actor, string $fingerprint): ?ApprovalState
+    {
+        $statement = $this->pdo->prepare("SELECT id FROM exact_approval_requests WHERE actor_key = ? AND fingerprint = ? AND status = 'pending' ORDER BY rowid DESC LIMIT 1");
+        $statement->execute([$actor->key(), $fingerprint]);
+        $id = $statement->fetchColumn();
+        return $id === false ? null : $this->get((string) $id);
     }
 
     public function save(ApprovalState $state): void

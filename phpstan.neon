@@ -3,6 +3,7 @@ parameters:
     paths:
         - packages/core/src
         - packages/webauthn/src
+        - packages/mcp/src
         - packages/symfony/src
         - examples/symfony/src
         - bin
