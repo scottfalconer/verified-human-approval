@@ -220,7 +220,15 @@ Saving does not change anything by itself. It proposes a `policy.change` action,
 
 The review templates live in the bundle's `templates/` directory, and its browser script, published by `assets:install`, uses `navigator.credentials.create()` / `navigator.credentials.get()`. Override them the usual way, in `templates/bundles/VerifiedHumanApprovalBundle/`, keeping the full frozen action and the required statement: `base.html.twig` has `header`, `site_name` and `footer` blocks for your layout, and `review.html.twig` has `preview`, to show the effect as its audience will see it, and `return`, the way back to the agent. A refusal on the JSON routes, such as a stale CSRF token or a ceremony from another page, is a JSON answer with a `reason` the page shows.
 
-The default browser approval budget is 30 attempts per user per minute across proposal IDs. It uses Symfony RateLimiter, the application cache and a Symfony Lock backed by `FlockStore`. Override `rate_limiter` with your existing `RateLimiterFactoryInterface` service when using shared infrastructure. Multi-host deployments need coordinated persistence and limiter storage/locks; the local reference application does not supply that deployment.
+The browser approval budget is an ordinary framework rate limiter named `verified_human_approval`: 30 attempts per person per minute across all requests, set by `attempts_per_minute`. It uses the framework's `cache.rate_limiter` pool and, when `framework.lock` is on, its lock. Override any of it in your own configuration, per environment too:
+
+```yaml
+framework:
+    rate_limiter:
+        verified_human_approval: { policy: sliding_window, limit: 10, interval: '1 minute' }
+```
+
+Or point `rate_limiter` at a `RateLimiterFactoryInterface` service of your own. The phone code's single redemption takes a lock from `lock_factory`: by default a file lock on this host; set it to `lock.factory` with a shared store when several hosts serve the application, and give them a shared `cache.app` for the codes.
 
 ## Evidence and validation
 

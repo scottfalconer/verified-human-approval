@@ -10,8 +10,6 @@ use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigura
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
 use Symfony\Component\Lock\LockFactory;
 use Symfony\Component\Lock\Store\FlockStore;
-use Symfony\Component\RateLimiter\RateLimiterFactory;
-use Symfony\Component\RateLimiter\Storage\CacheStorage;
 use VerifiedHumanApproval\Bundle\Controller\ApprovalController;
 use VerifiedHumanApproval\Bundle\Handoff\ApprovalHandoff;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp;
@@ -54,8 +52,11 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             ->scalarNode('requester_label')->defaultNull()
                 ->info('Service id of a VerifiedHumanApproval\\Bundle\\RequesterLabel that names who asked on the review page. Unset, a service aliased to that interface is used if there is one.')->end()
             ->scalarNode('clock')->defaultValue('clock')->info('Service id of a PSR-20 clock; the framework\'s "clock" by default.')->end()
-            ->integerNode('attempts_per_minute')->min(2)->max(1000)->defaultValue(30)->info('Browser approval attempts per person per minute, across all requests.')->end()
-            ->scalarNode('rate_limiter')->defaultValue('verified_human_approval.limiter')->info('Service id of a Symfony\\Component\\RateLimiter\\RateLimiterFactoryInterface, to replace the built-in budget with your own.')->end()
+            ->integerNode('attempts_per_minute')->min(2)->max(1000)->defaultValue(30)
+                ->info('Browser approval attempts per person per minute, across all requests. It sets the default of the framework rate limiter "verified_human_approval", which your own framework.rate_limiter config can override.')->end()
+            ->scalarNode('rate_limiter')->defaultValue('limiter.verified_human_approval')->info('Service id of a Symfony\\Component\\RateLimiter\\RateLimiterFactoryInterface, to replace the framework limiter with your own.')->end()
+            ->scalarNode('lock_factory')->defaultValue('verified_human_approval.lock_factory')
+                ->info('Service id of a Symfony\\Component\\Lock\\LockFactory that makes each phone code single-use. The default locks files on this host; use "lock.factory" with a shared store when several hosts serve the application.')->end()
             ->scalarNode('receipt_signer')
                 ->info('Service id of a VerifiedHumanApproval\\Core\\Evidence\\EvidenceSigner. When set, each execution\'s receipt is signed inside the completing transaction, so later edits to the record show.')
                 ->defaultNull()
@@ -72,6 +73,22 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
                 ->end()
             ->end()
         ->end();
+    }
+
+    /**
+     * The approval budget is an ordinary framework rate limiter named "verified_human_approval": it uses the
+     * framework's rate-limiter cache and lock, and your own framework.rate_limiter config overrides any of it,
+     * per environment too.
+     */
+    public function prependExtension(ContainerConfigurator $container, ContainerBuilder $builder): void
+    {
+        $attempts = 30;
+        foreach ($builder->getExtensionConfig($this->extensionAlias) as $config) {
+            $attempts = $config['attempts_per_minute'] ?? $attempts;
+        }
+        $builder->prependExtensionConfig('framework', ['rate_limiter' => [$this->extensionAlias => [
+            'policy' => 'fixed_window', 'limit' => $attempts, 'interval' => '1 minute',
+        ]]]);
     }
 
     /** @param array<string, mixed> $config */
@@ -107,18 +124,12 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
         $services->alias(ApprovalPresenter::class, 'verified_human_approval.presenter');
         $services->alias(ResultPresenter::class, 'verified_human_approval.presenter');
 
-        // The built-in approval budget. Replace it with "rate_limiter" for storage shared across hosts.
-        $services->set('verified_human_approval.limiter.storage', CacheStorage::class)->args([service('cache.app')]);
-        $services->set('verified_human_approval.limiter.lock_store', FlockStore::class)->args(['%kernel.cache_dir%/verified-human-approval-locks']);
-        $services->set('verified_human_approval.limiter.lock_factory', LockFactory::class)->args([service('verified_human_approval.limiter.lock_store')]);
-        $services->set('verified_human_approval.limiter', RateLimiterFactory::class)->args([
-            ['id' => 'verified-human-approval', 'policy' => 'fixed_window', 'limit' => $config['attempts_per_minute'], 'interval' => '1 minute'],
-            service('verified_human_approval.limiter.storage'),
-            service('verified_human_approval.limiter.lock_factory'),
-        ]);
+        // A file lock on this host, so a phone code is redeemed once even when two devices open it together.
+        $services->set('verified_human_approval.lock_store', FlockStore::class)->args(['%kernel.cache_dir%/verified-human-approval-locks']);
+        $services->set('verified_human_approval.lock_factory', LockFactory::class)->args([service('verified_human_approval.lock_store')]);
 
         $services->set('verified_human_approval.handoff', ApprovalHandoff::class)->args([
-            service('cache.app'), service('router'), $config['public_origin'], service('verified_human_approval.limiter.lock_factory'),
+            service('cache.app'), service('router'), $config['public_origin'], service($config['lock_factory']),
         ]);
 
         $services->set('verified_human_approval.url_prompt', UrlPrompt::class)

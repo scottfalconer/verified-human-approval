@@ -13,7 +13,6 @@ use Symfony\Bundle\SecurityBundle\SecurityBundle;
 use Symfony\Bundle\TwigBundle\TwigBundle;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Kernel;
-use Symfony\Component\RateLimiter\RateLimiterFactory;
 use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool;
@@ -115,6 +114,12 @@ final class DemoKernel extends Kernel
             'csrf_protection' => true,
             'form' => true,
             'validation' => ['email_validation_mode' => 'html5'],
+            // Locks for the rate limiters and the phone code's single redemption, next to this runtime's other files.
+            'lock' => 'flock://'.$this->runtimeDirectory.'/locks',
+            'rate_limiter' => [
+                'demo_passkey_enrollment' => ['policy' => 'fixed_window', 'limit' => $this->settings['enrollment_attempts_per_minute'] ?? 10, 'interval' => '1 minute'],
+                'demo_oauth_registration' => ['policy' => 'fixed_window', 'limit' => $this->settings['registration_attempts_per_minute'] ?? 10, 'interval' => '1 minute'],
+            ],
         ]);
         $container->extension('twig', ['strict_variables' => true]);
         // The MCP bundle logs to its own "mcp" channel: session-save failures, refused request state and the like land here.
@@ -133,7 +138,7 @@ final class DemoKernel extends Kernel
                 'main' => [
                     'provider' => 'demo',
                     'form_login' => ['login_path' => 'demo_login', 'check_path' => 'demo_login', 'enable_csrf' => true, 'default_target_path' => '/'],
-                    'login_throttling' => ['max_attempts' => 5, 'interval' => '1 minute', 'lock_factory' => 'verified_human_approval.limiter.lock_factory', 'storage_service' => 'verified_human_approval.limiter.storage'],
+                    'login_throttling' => ['max_attempts' => 5, 'interval' => '1 minute'],
                     'logout' => ['path' => 'demo_logout', 'target' => 'demo_login', 'enable_csrf' => true],
                 ],
             ],
@@ -170,6 +175,8 @@ final class DemoKernel extends Kernel
             // Each receipt is signed as the action commits, so a later edit to the record shows.
             'receipt_signer' => SodiumEvidenceSigner::class,
             'attempts_per_minute' => $this->settings['approval_attempts_per_minute'] ?? 30,
+            // The framework's lock, which a multi-host deployment would back with a shared store.
+            'lock_factory' => 'lock.factory',
             // Claude Code shows URL-mode elicitation (2.1.287 and later); other clients get the card and link.
             'url_elicitation' => ['enabled' => true, 'clients' => ['claude-code']],
         ]);
@@ -189,16 +196,8 @@ final class DemoKernel extends Kernel
         $services->set(EvidenceExporter::class)->args([service(SodiumEvidenceSigner::class)]);
         // One description of the protected resource (RFC 9728): served at /.well-known and named in every 401.
         $services->set(ProtectedResourceMetadata::class)->args([$origin.'/mcp', [$origin], OAuthServer::SCOPES, 'Riverside Council public alerts']);
-        $services->set('demo.enrollment_limiter', RateLimiterFactory::class)->args([
-            ['id' => 'demo-passkey-enrollment', 'policy' => 'fixed_window', 'limit' => $this->settings['enrollment_attempts_per_minute'] ?? 10, 'interval' => '1 minute'],
-            service('verified_human_approval.limiter.storage'), service('verified_human_approval.limiter.lock_factory'),
-        ]);
-        $services->set('demo.registration_limiter', RateLimiterFactory::class)->args([
-            ['id' => 'demo-oauth-registration', 'policy' => 'fixed_window', 'limit' => $this->settings['registration_attempts_per_minute'] ?? 10, 'interval' => '1 minute'],
-            service('verified_human_approval.limiter.storage'), service('verified_human_approval.limiter.lock_factory'),
-        ]);
-        $services->get(AccountController::class)->arg('$limiter', service('demo.enrollment_limiter'));
-        $services->get(OAuthController::class)->arg('$origin', $origin)->arg('$registrationLimiter', service('demo.registration_limiter'));
+        $services->get(AccountController::class)->arg('$limiter', service('limiter.demo_passkey_enrollment'));
+        $services->get(OAuthController::class)->arg('$origin', $origin)->arg('$registrationLimiter', service('limiter.demo_oauth_registration'));
     }
 
     protected function configureRoutes(RoutingConfigurator $routes): void
