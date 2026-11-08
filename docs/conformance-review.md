@@ -31,6 +31,16 @@ Done the same day; none of it changes what the application enforces.
 6. **The card** stops on `ui/notifications/tool-cancelled`, answers `ui/resource-teardown`, and polls every 3 s, then 10 s, then 30 s, not while hidden.
 7. **Docs and logging.** The OAuth server is labelled a stand-in with the recommended replacement named; the deviations above are stated in the overview and the security model; the wording about app-only tools, server workers and the passkey sandbox is corrected; the demo runs Monolog with the bundle's `mcp` channel.
 
+## Bundle maturity
+
+Also done, as Symfony's bundle best practices ask:
+
+- **Explicit services.** No autowiring or autoconfiguration in the bundle: every service has a `verified_human_approval.` id, the classes applications inject are aliased to those ids, and the MCP elements and the headers subscriber carry their tags explicitly. A `requester_label` key names the requester-label service; `clock` defaults to the framework's.
+- **Assets in `public/`**, published by `assets:install` and referenced with `asset()`, instead of a controller serving them.
+- **Route-level opt-in** for the review pages' security headers (`_verified_human_approval_headers`), instead of a route-name prefix that the demo's own routes matched by accident; a `verified_human_approval.review_request_matcher` for `access_control`, instead of a hand-maintained path regex; JSON refusals on the JSON routes; neutral templates with blocks.
+- **Symfony's coding standard** (`@Symfony`, `@Symfony:risky`), checked in CI, and **PHPStan level 8**.
+- **CI on the lowest allowed versions and on Symfony 8.** The lowest-versions run found a real gap: `web-auth/webauthn-lib` 5.3.0 to 5.3.10 accept an assertion whose client data says `webauthn.create`, and one whose backup eligibility changed, so the packages now require 5.3.11.
+
 ## Still open
 
-Bundle maturity, as Symfony's bundle best practices ask: explicit service definitions with `verified_human_approval.*` ids, assets in `public/`, php-cs-fixer `@Symfony`, a CI job with lowest dependencies, a Flex recipe. Two upstream suggestions, to be filed after judging: a public `RequestContext::getClientInfo()` in the SDK (we read the session key the SDK uses internally), and `annotations`/`outputSchema` parameters on the bundle's `#[AsMcpAppTool]`, which would make the plain-tool workaround above unnecessary.
+A Flex recipe; reading the demo's runtime settings through a service so the tests share one compiled container (and drop their 512 MB memory limit); the framework's own rate limiter configuration through `prependExtension()`; one word for the demo's domain (alert, not announcement); and the demo controllers' PDO transactions moved into services. Two upstream suggestions, to be filed after judging: a public `RequestContext::getClientInfo()` in the SDK (we read the session key the SDK uses internally), and `annotations`/`outputSchema` parameters on the bundle's `#[AsMcpAppTool]`, which would make the plain-tool workaround above unnecessary.

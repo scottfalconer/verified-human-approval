@@ -24,7 +24,7 @@ composer config repositories.verified-human-approval path '../verified-human-app
 composer require verified-human-approval/symfony-bundle:dev-main verified-human-approval/webauthn:dev-main
 ```
 
-You need PHP 8.3+ with `pdo`, `sodium` and `openssl`, a Symfony 7.4+ application with SecurityBundle and TwigBundle, and the Symfony MCP bundle (`symfony/mcp-bundle`), which serves your MCP endpoint.
+You need PHP 8.3+ with `pdo`, `sodium` and `openssl`, a Symfony 7.4 or 8 application with SecurityBundle and TwigBundle, and the Symfony MCP bundle (`symfony/mcp-bundle`), which serves your MCP endpoint. That bundle is still in beta, so until it is stable your application needs `minimum-stability: beta` with `prefer-stable: true`.
 
 ## Configure
 
@@ -221,9 +221,12 @@ This repository holds them together, like `symfony/ai`: the root `composer.json`
 
 ```bash
 composer test        # PHPUnit: core, WebAuthn, the bundle, MCP, OAuth, the phone code and evidence
-composer analyse     # PHPStan
+composer analyse     # PHPStan, level 8
+composer cs          # Symfony's coding standard (composer cs:fix applies it)
 PHP_BIN=php python3 tests/http_smoke.py   # the real demo and the official SDK client over HTTP
 ```
+
+CI runs them on PHP 8.3 and 8.4 with the locked dependencies, on the lowest versions the packages allow, and on Symfony 8.
 
 Optional checks that drive real clients. The browser checks need Python Playwright, and `CHROMIUM_BIN` set to Chrome or Chromium:
 
