@@ -8,6 +8,7 @@
     "php": "^8.3",
     "exact-approval/core": "^0.1",
     "exact-approval/mcp": "^0.1",
+    "chillerlan/php-qrcode": "^5.0",
     "mcp/sdk": "^0.9",
     "symfony/mcp-bundle": "^1.0@beta",
     "symfony/framework-bundle": "^7.4 || ^8.0",

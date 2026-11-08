@@ -7,6 +7,7 @@ namespace ExactApproval\Symfony;
 use ExactApproval\Core\ApprovalState;
 use ExactApproval\Mcp\ApprovalCard;
 use ExactApproval\Mcp\ResultPresenter;
+use ExactApproval\Symfony\Mcp\ApprovalCardApp;
 use ExactApproval\Symfony\Mcp\ApprovalStatusTool;
 use Mcp\Schema\Content\TextContent;
 use Mcp\Schema\Result\CallToolResult;
@@ -46,7 +47,9 @@ final readonly class ApprovalPresenter implements ResultPresenter
             $data['message'] = $message;
         }
         // The MCP App card reads these fixed names; it shows only what the application recorded.
-        $data['approval'] = ApprovalCard::view($state, $this->reviewUrl($state), $this->statusTool());
+        // It offers the phone only when a phone could reach the site: a public HTTPS address.
+        $phone = str_starts_with($this->publicOrigin, 'https://') ? ApprovalCardApp::HANDOFF_TOOL : null;
+        $data['approval'] = ApprovalCard::view($state, $this->reviewUrl($state), $this->statusTool(), $phone);
 
         return $data;
     }

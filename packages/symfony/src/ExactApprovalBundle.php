@@ -12,6 +12,7 @@ use ExactApproval\Symfony\Controller\ApprovalController;
 use ExactApproval\Mcp\ApprovalFlow;
 use ExactApproval\Mcp\ResultPresenter;
 use ExactApproval\Mcp\UrlPrompt;
+use ExactApproval\Symfony\Handoff\ApprovalHandoff;
 use ExactApproval\Symfony\Mcp\ApprovalCardApp;
 use ExactApproval\Symfony\Mcp\ApprovalStatusTool;
 use Symfony\Component\Clock\NativeClock;
@@ -81,6 +82,7 @@ final class ExactApprovalBundle extends AbstractBundle
         ]);
         $services->set(ApprovalController::class)->arg('$limiter', service($config['rate_limiter']))->public()->tag('controller.service_arguments');
         $services->set(ApprovalStatusTool::class);
+        $services->set(ApprovalHandoff::class)->args([service('cache.app'), service('router'), $config['public_origin']]);
         $services->set(ApprovalCardApp::class);
         $services->set(UrlPrompt::class)->args([$config['url_elicitation']['enabled'], $config['url_elicitation']['clients']]);
         $services->set(ApprovalFlow::class);

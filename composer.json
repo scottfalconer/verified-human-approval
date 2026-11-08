@@ -9,6 +9,7 @@
     "ext-pdo": "*",
     "ext-pdo_sqlite": "*",
     "ext-sodium": "*",
+    "chillerlan/php-qrcode": "^5.0",
     "exact-approval/core": "^0.1",
     "exact-approval/mcp": "^0.1",
     "exact-approval/symfony-bundle": "^0.1",

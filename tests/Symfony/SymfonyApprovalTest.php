@@ -59,7 +59,8 @@ final class SymfonyApprovalTest extends TestCase
         $client = $this->mcp();
         $tools = [];
         foreach ($client->listTools()->tools as $tool) $tools[$tool->name] = $tool;
-        self::assertEqualsCanonicalizing(['approval_status', 'publish_alert', 'read_alert'], array_keys($tools));
+        self::assertEqualsCanonicalizing(['approval_handoff', 'approval_status', 'publish_alert', 'read_alert'], array_keys($tools));
+        self::assertSame(['app'], json_decode(json_encode($tools['approval_handoff'], JSON_THROW_ON_ERROR), true)['_meta']['ui']['visibility'], 'Only the card can ask for a phone code.');
         self::assertArrayNotHasKey('actor', $tools['publish_alert']->inputSchema['properties']);
         self::assertArrayNotHasKey('user_id', $tools['publish_alert']->inputSchema['properties']);
 
@@ -278,7 +279,7 @@ final class SymfonyApprovalTest extends TestCase
         $settings['receipt_secret_key'] = ChallengeBinding::encode($secret);
         $settings['receipt_public_key'] = ChallengeBinding::encode(sodium_crypto_sign_publickey($keypair));
         file_put_contents($this->runtime.'/settings.json', json_encode($settings, JSON_THROW_ON_ERROR));
-        self::assertCount(3, $this->mcp()->listTools()->tools);
+        self::assertCount(4, $this->mcp()->listTools()->tools);
     }
 
     public function testBrowserApprovalAttemptsAreBoundedAcrossRequestsWithoutExecuting(): void

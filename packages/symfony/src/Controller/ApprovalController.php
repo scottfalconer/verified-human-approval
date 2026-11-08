@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace ExactApproval\Symfony\Controller;
 
+use ExactApproval\Core\Actor;
 use ExactApproval\Core\ApprovalException;
 use ExactApproval\Core\ApprovalService;
 use ExactApproval\Symfony\ActorProvider;
 use ExactApproval\Symfony\ApprovalPresenter;
+use ExactApproval\Symfony\Handoff\ApprovalHandoff;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
@@ -17,6 +20,7 @@ use Symfony\Component\Security\Core\Exception\AccessDeniedException;
 use Symfony\Component\Security\Csrf\CsrfToken;
 use Symfony\Component\Security\Csrf\CsrfTokenManagerInterface;
 use Symfony\Component\RateLimiter\RateLimiterFactoryInterface;
+use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Twig\Environment;
 
 final readonly class ApprovalController
@@ -28,12 +32,14 @@ final readonly class ApprovalController
         private CsrfTokenManagerInterface $csrf,
         private Environment $twig,
         private RateLimiterFactoryInterface $limiter,
+        private ?ApprovalHandoff $handoff = null,
+        private ?UrlGeneratorInterface $urls = null,
     ) {}
 
     public function review(Request $request, string $id): Response
     {
         try {
-            $state = $this->approvals->get($this->actors->interactive(), $id);
+            $state = $this->approvals->get($this->reviewer($request, $id), $id);
         } catch (ApprovalException) {
             throw new NotFoundHttpException('This request is unavailable for your account.');
         }
@@ -48,16 +54,16 @@ final readonly class ApprovalController
 
     public function status(Request $request, string $id): JsonResponse
     {
-        return $this->respond(fn () => $this->presenter->data($this->approvals->get($this->actors->interactive(), $id)));
+        return $this->respond(fn () => $this->presenter->data($this->approvals->get($this->reviewer($request, $id), $id)));
     }
 
     public function options(Request $request, string $id): JsonResponse
     {
         $this->assertCsrf($request, $id);
-        if (($limited = $this->limit()) !== null) return $limited;
+        if (($limited = $this->limit($this->reviewer($request, $id))) !== null) return $limited;
 
         return $this->respond(function () use ($request, $id): array {
-            $ceremony = $this->approvals->begin($this->actors->interactive(), $id);
+            $ceremony = $this->approvals->begin($this->reviewer($request, $id), $id);
             // The page/request pairing is checked independently of proof validation.
             $request->getSession()->set('exact_approval.ceremony.'.$id, $ceremony->id);
 
@@ -68,7 +74,7 @@ final readonly class ApprovalController
     public function complete(Request $request, string $id): JsonResponse
     {
         $this->assertCsrf($request, $id);
-        if (($limited = $this->limit()) !== null) return $limited;
+        if (($limited = $this->limit($this->reviewer($request, $id))) !== null) return $limited;
         $body = $this->body($request);
         if (array_diff(array_keys($body), ['ceremony_id', 'credential']) !== []
             || !\is_string($body['ceremony_id'] ?? null) || !\is_array($body['credential'] ?? null)) {
@@ -80,7 +86,7 @@ final readonly class ApprovalController
         }
 
         return $this->respond(function () use ($request, $id, $body): array {
-            $actor = $this->actors->interactive();
+            $actor = $this->reviewer($request, $id);
             $this->approvals->get($actor, $id); // Ownership is checked before any work.
             $request->getSession()->remove('exact_approval.ceremony.'.$id);
 
@@ -92,7 +98,7 @@ final readonly class ApprovalController
     {
         $this->assertCsrf($request, $id);
 
-        return $this->respond(fn () => $this->presenter->data($this->approvals->cancel($this->actors->interactive(), $id)));
+        return $this->respond(fn () => $this->presenter->data($this->approvals->cancel($this->reviewer($request, $id), $id)));
     }
 
     public function script(): Response
@@ -105,9 +111,28 @@ final readonly class ApprovalController
         return new Response(file_get_contents(\dirname(__DIR__, 2).'/assets/approval.css'), headers: ['Content-Type' => 'text/css; charset=utf-8']);
     }
 
+    /** Opens a one-time phone link: a session scoped to one request's review, then that review page. */
+    public function handoff(Request $request, string $token): Response
+    {
+        $id = $this->handoff?->redeem($token, $request->getSession());
+        if ($id === null) {
+            return new Response($this->twig->render('@ExactApproval/handoff_expired.html.twig'), 410);
+        }
+
+        $review = $this->urls?->generate('exact_approval_review', ['id' => $id]) ?? '/approval/'.rawurlencode($id);
+
+        return new RedirectResponse($review.'#return=handoff');
+    }
+
+    /** The person reviewing: a phone session scoped to this request, or the signed-in person. */
+    private function reviewer(Request $request, string $id): Actor
+    {
+        return $this->handoff?->personFor($request, $id) ?? $this->actors->interactive();
+    }
+
     private function assertCsrf(Request $request, string $id): void
     {
-        $this->actors->interactive();
+        $this->reviewer($request, $id);
         if (!$this->csrf->isTokenValid(new CsrfToken('exact_approval.'.$id, (string) $request->headers->get('X-CSRF-Token', '')))) {
             throw new AccessDeniedException('Invalid or missing CSRF token.');
         }
@@ -139,9 +164,8 @@ final readonly class ApprovalController
         }
     }
 
-    private function limit(): ?JsonResponse
+    private function limit(Actor $actor): ?JsonResponse
     {
-        $actor = $this->actors->interactive();
         // One account budget covers all proposal IDs, so changing the URL cannot reset it.
         $limit = $this->limiter->create(hash('sha256', $actor->tenantId."\0".$actor->userId))->consume();
         if ($limit->isAccepted()) return null;

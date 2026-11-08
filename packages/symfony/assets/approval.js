@@ -90,6 +90,8 @@ if (returnPanel && back) {
     if (back === 'claude-desktop' || back === 'claude-mobile') {
         returnPanel.hidden = false; app.hidden = false;
         if (hint) hint.textContent = 'Claude already shows the result. This tab can be closed.';
+    } else if (back === 'handoff') {
+        if (hint) hint.textContent = 'Done. Claude on your computer already shows the result.';
     } else if (back === 'claude-web') {
         returnPanel.hidden = false; tab.hidden = false;
         tab.addEventListener('click', () => {

@@ -108,6 +108,9 @@ final class DemoKernel extends Kernel
                 ['path' => '^/approval/assets/', 'roles' => 'PUBLIC_ACCESS'],
                 ['path' => '^/(alerts$|site/)', 'roles' => 'PUBLIC_ACCESS'],
                 ['path' => '^/(\.well-known/|oauth/(register|token)$)', 'roles' => 'PUBLIC_ACCESS'],
+                // A one-time phone link opens a review without signing in; the controller still requires
+                // the signed-in person or a session scoped to that one request.
+                ['path' => '^/approval/(handoff/[^/]+|[^/]+(/(status|options|complete|cancel))?)$', 'roles' => 'PUBLIC_ACCESS'],
                 ['path' => '^/mcp(?:$|/)', 'roles' => 'ROLE_USER'],
                 ['path' => '^/', 'roles' => 'ROLE_USER'],
             ],

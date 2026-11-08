@@ -89,7 +89,7 @@ final class UrlPromptTest extends TestCase
         $fixture = new CoreFixture();
         $pending = $fixture->service->request($fixture->actor, 'article.publish', ['id' => 1]);
         $view = ApprovalCard::view($pending, 'https://example.test/approval/x', 'approval_status');
-        self::assertSame(['requestId', 'status', 'reason', 'reviewUrl', 'statusTool', 'statement'], array_keys($view));
+        self::assertSame(['requestId', 'status', 'reason', 'reviewUrl', 'statusTool', 'statement', 'handoffTool'], array_keys($view));
         self::assertSame('pending', $view['status']);
     }
 
