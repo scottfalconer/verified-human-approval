@@ -2,6 +2,18 @@
 
 Build verification completed on November 8, 2026, using PHP 8.4.24. These results describe the implemented Symfony/PHP slice, not a production certification or physical-device demonstration.
 
+## Update: claude.ai and a physical phone (November 8, 2026, 17:46 UTC)
+
+Run by Scott through `examples/symfony/bin/public start` (a Cloudflare quick tunnel) and checked on the server.
+
+| Check | Result |
+| --- | --- |
+| claude.ai custom connector, OAuth | Passed. claude.ai detected the server's OAuth and chose Claude's published identity: the server fetched `https://claude.ai/oauth/mcp-oauth-client-metadata`, the person signed in as `editor` and allowed access, and the code (redirect `https://claude.ai/api/mcp/auth_callback`) was exchanged for a grant |
+| The card's phone code in claude.ai | Passed. The card called the app-only `approval_handoff` tool through claude.ai, and the code it drew was redeemed |
+| Approval on a physical iPhone | Passed at 17:46:16 UTC. The approval came from the phone's scoped session, which never signed in, with the iCloud Keychain passkey registered in Safari on the Mac (user verification required). The application recorded the approval and issued the alert in the same second, once |
+
+Found on the way: claude.ai did not pass the server's instructions to Claude, so it guessed the alert's ID and asked for it.
+
 ## Update: alert story, per-role rule, OAuth and the phone code (November 8, 2026, later)
 
 Run on macOS with PHP 8.3.31. The demo became Riverside Council's public alerts site: `publish_alert`, `read_alert`, and an administrator's rule per role.
@@ -14,7 +26,7 @@ Run on macOS with PHP 8.3.31. The demo became Riverside Council's public alerts 
 | `tests/card_smoke.py`, real Chrome with a scripted MCP Apps host | Passed. The card drew the phone code, a QR decoder read it back as the one-time link, the code disappeared on approval and on expiry, and the option was hidden on a local address, without the server's offer, and inside Claude on a phone |
 | `tests/phone_smoke.py`, real Chrome behind a stand-in HTTPS tunnel | Passed. A separate phone browser that never signed in opened the code's link, reached nothing but that review, approved with a synced copy of the passkey, and the agent's `approval_status` showed completed; the link was refused the second time |
 
-Not yet run: claude.ai through the public tunnel, and a physical phone with Face ID. The Claude Desktop and Touch ID run below used the earlier announcement version of the demo.
+At the time, claude.ai and a physical phone had not been run yet (see the update above). The Claude Desktop and Touch ID run below used the earlier announcement version of the demo.
 
 ## Update: approval card, native prompt and final-page review (November 8, 2026)
 

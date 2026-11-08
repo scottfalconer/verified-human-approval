@@ -145,12 +145,10 @@ Verified on a Mac with PHP 8.3:
 - the HTTP smoke test;
 - Chrome with virtual passkeys: the approval flow, the card's phone code, and a phone approval behind a stand-in HTTPS tunnel;
 - Claude Code 2.1.317's native prompt end to end;
-- the whole flow in a real Claude Desktop chat with Touch ID, on the earlier announcement version of this demo: the card appeared, the review page showed the final page, an iCloud Keychain passkey approved it, the site published once, and the card picked up the result.
+- the whole flow in a real Claude Desktop chat with Touch ID, on the earlier announcement version of this demo: the card appeared, the review page showed the final page, an iCloud Keychain passkey approved it, the site published once, and the card picked up the result;
+- claude.ai through a Cloudflare quick tunnel, with a physical iPhone: claude.ai signed in through the demo's OAuth using Claude's published identity, the card in claude.ai showed the phone code, and the iPhone, never signed in, approved with the synced passkey. The alert was issued once.
 
-Not yet run:
-- claude.ai through the public tunnel, including its OAuth sign-in;
-- a physical phone approving with Face ID;
-- production identity integration.
+Not yet covered: production identity integration.
 
 See the [full overview](docs/overview.md), the [security model](docs/security-model.md) and [evidence verification](docs/evidence.md).
 

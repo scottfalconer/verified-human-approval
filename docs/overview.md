@@ -168,11 +168,11 @@ PHP_BIN=php python3 tests/phone_smoke.py     # a never-signed-in phone browser b
 
 The PHP suite includes process-level concurrency, real WebAuthn signature and registration validation, real Symfony Security/CSRF/MCP handling, transaction rollback and a separate evidence-verification process. The HTTP smoke test starts the actual application and uses the actual SDK over TCP. Test authenticators and a scripted model are explicitly confined to tests; there is no production “approve anyway” verifier.
 
-Browser, real-device and hosted-client coverage are reported separately in [verification results](verification.md). Claude Code’s native prompt and a Claude Desktop chat with physical Touch ID have been run end to end. claude.ai through the public tunnel and a physical phone with Face ID have not been run yet.
+Browser, real-device and hosted-client coverage are reported separately in [verification results](verification.md). Claude Code’s native prompt, a Claude Desktop chat with physical Touch ID, and claude.ai through the public tunnel with a physical iPhone approving the phone code have all been run end to end.
 
 ## What comes next
 
-The next checks are claude.ai through the public tunnel, including its OAuth sign-in, and a physical phone approving with Face ID. The demo’s OAuth server and personal tokens are reference implementations: a production deployment connects the application’s real identity provider and keeps the origin, and so the passkeys, stable.
+The demo’s OAuth server and personal tokens are reference implementations: a production deployment connects the application’s real identity provider and keeps the origin, and so the passkeys, stable.
 
 For production adoption, replace the demo identity/persistence setup with the host application’s services, review every supported write path, choose a shared limiter/lock backend when deploying across hosts, and review enrollment/recovery/key management. External effects such as email, remote MCP calls and payments do not gain a local transaction’s exactly-once properties.
 
