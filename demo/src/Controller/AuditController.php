@@ -9,6 +9,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Attribute\AsController;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\Security\Core\Exception\AccessDeniedException;
 use Symfony\Component\Security\Csrf\CsrfToken;
@@ -25,6 +26,8 @@ use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
 use VerifiedHumanApproval\Core\Evidence\ReceiptVerifier;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
 use VerifiedHumanApproval\Core\Storage\PdoApprovalStore;
+use VerifiedHumanApproval\Demo\Account\AgentConnections;
+use VerifiedHumanApproval\Demo\Account\PasskeyLinks;
 use VerifiedHumanApproval\Demo\DemoDatabase;
 use VerifiedHumanApproval\Demo\Security\Authenticators;
 use VerifiedHumanApproval\Demo\Security\DemoRequesterLabel;
@@ -38,6 +41,7 @@ use VerifiedHumanApproval\WebAuthn\WebAuthnVerifier;
  * action is re-checked on every visit: its receipt against the signature made at commit, and the
  * person's passkey signature against the public key recorded, signed, when that passkey was enrolled.
  */
+#[AsController]
 final readonly class AuditController
 {
     public function __construct(
@@ -50,6 +54,8 @@ final readonly class AuditController
         private PdoCredentialRepository $credentials,
         private AnchoredCredentialRepository $anchored,
         private AuditLog $audit,
+        private AgentConnections $connections,
+        private PasskeyLinks $links,
         private DemoDatabase $database,
         private DemoRequesterLabel $requesters,
         private CsrfTokenManagerInterface $csrf,
@@ -123,13 +129,7 @@ final readonly class AuditController
     {
         $admin = $this->admin();
         $this->assertCsrf($request);
-        $pdo = $this->database->pdo;
-        $pdo->beginTransaction();
-        $grant = $this->database->grant($id);
-        if (null !== $grant && $this->database->revokeGrant($id, $admin->tenantId)) {
-            $this->audit->append($admin->tenantId, 'connection.revoked', $id, ['userId' => $grant['user_id'], 'by' => $admin->userId]);
-        }
-        $pdo->commit();
+        $this->connections->revoke($id, $admin->tenantId, $admin->userId);
 
         return new RedirectResponse('/admin/audit');
     }
@@ -148,11 +148,7 @@ final readonly class AuditController
         if (null === $user || $user['tenant_id'] !== $admin->tenantId) {
             throw new NotFoundHttpException('No such person in your organization.');
         }
-        $pdo = $this->database->pdo;
-        $pdo->beginTransaction();
-        $token = $this->database->issuePasskeyLink($userId, $admin->tenantId, 'administrator '.$admin->userId, 86400);
-        $this->audit->append($admin->tenantId, 'passkey_link.issued', $userId, ['issuedBy' => $admin->userId, 'confirmedWith' => $confirmed['credential'], 'expiresAt' => time() + 86400]);
-        $pdo->commit();
+        $token = $this->links->issue($userId, $admin->tenantId, 'administrator '.$admin->userId, 86400, ['issuedBy' => $admin->userId, 'confirmedWith' => $confirmed['credential']]);
         $request->getSession()->set('demo.new_link', ['user' => $userId, 'url' => $request->getSchemeAndHttpHost().'/account/passkeys/link/'.$token]);
 
         return new RedirectResponse('/admin/audit');

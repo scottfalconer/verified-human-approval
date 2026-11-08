@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace VerifiedHumanApproval\Demo\Controller;
 
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Attribute\AsController;
 use Twig\Environment;
 use VerifiedHumanApproval\Demo\DemoDatabase;
 
 /** The council's public alerts page. It shows only an alert that an approved proposal made live. */
+#[AsController]
 final readonly class PublicController
 {
     public function __construct(private DemoDatabase $database, private Environment $twig)

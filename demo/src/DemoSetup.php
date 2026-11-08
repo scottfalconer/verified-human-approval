@@ -9,6 +9,7 @@ use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\ChallengeBinding;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
 use VerifiedHumanApproval\Core\Storage\PdoApprovalStore;
+use VerifiedHumanApproval\Demo\Account\PasskeyLinks;
 use VerifiedHumanApproval\WebAuthn\Configuration;
 use VerifiedHumanApproval\WebAuthn\PdoCredentialRepository;
 
@@ -48,6 +49,7 @@ final class DemoSetup
         $signer = new SodiumEvidenceSigner('demo-application-1', sodium_crypto_sign_secretkey($keypair));
         $audit = new AuditLog($database->pdo, $signer, $signer->publicKey(), new NativeClock());
         $audit->initialize();
+        $links = new PasskeyLinks($database, $audit);
         $credentials = [];
         $users = [
             ['manager', 'campaigns', 'Emergency manager', true, true, 'manager'],
@@ -64,8 +66,7 @@ final class DemoSetup
             $database->pdo->prepare('INSERT INTO demo_grants (id, user_id, tenant_id, token_hash, scopes, created_at) VALUES (?, ?, ?, ?, ?, ?)')
                 ->execute([$id.'-personal', $id, $tenant, hash('sha256', $token), json_encode($scopes, \JSON_THROW_ON_ERROR), time()]);
             // A password alone cannot add an approval passkey: each person's first one needs this one-time link.
-            $link = $database->issuePasskeyLink($id, $tenant, 'setup', self::LINK_SECONDS);
-            $audit->append($tenant, 'passkey_link.issued', $id, ['issuedBy' => 'setup', 'expiresAt' => time() + self::LINK_SECONDS]);
+            $link = $links->issue($id, $tenant, 'setup', self::LINK_SECONDS, ['issuedBy' => 'setup']);
             $credentials[$id] = ['password' => $password, 'personal_token' => $token, 'passkey_link' => rtrim($origin, '/').'/account/passkeys/link/'.$link];
         }
         $database->pdo->prepare('INSERT INTO demo_alerts (id, tenant_id, revision, title, body) VALUES (?, ?, ?, ?, ?)')

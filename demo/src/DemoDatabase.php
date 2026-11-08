@@ -112,6 +112,31 @@ SQL);
         return array_values($query->fetchAll());
     }
 
+    /**
+     * Runs $work in one transaction: all of it commits, or none of it does. The core's audit log joins
+     * a transaction it finds open. Each caller writes before it appends to that log, so SQLite's write
+     * lock is already held when the log reads its newest entry, and two writers cannot fork the chain.
+     *
+     * @template T
+     *
+     * @param callable(): T $work
+     *
+     * @return T
+     */
+    public function transactional(callable $work): mixed
+    {
+        $this->pdo->beginTransaction();
+        try {
+            $result = $work();
+            $this->pdo->commit();
+
+            return $result;
+        } catch (\Throwable $error) {
+            $this->pdo->rollBack();
+            throw $error;
+        }
+    }
+
     /** Ends an agent connection: its access and refresh tokens stop working at once. */
     public function revokeGrant(string $id, string $tenantId, ?string $userId = null): bool
     {

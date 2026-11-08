@@ -9,6 +9,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Attribute\AsController;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\RateLimiter\RateLimiterFactoryInterface;
 use Symfony\Component\Security\Core\Exception\AccessDeniedException;
@@ -19,8 +20,9 @@ use Twig\Environment;
 use VerifiedHumanApproval\Bundle\ActorProvider;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
-use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\ChallengeBinding;
+use VerifiedHumanApproval\Demo\Account\AgentConnections;
+use VerifiedHumanApproval\Demo\Account\PasskeyEnrollment;
 use VerifiedHumanApproval\Demo\DemoDatabase;
 use VerifiedHumanApproval\Demo\Security\Authenticators;
 use VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository;
@@ -33,6 +35,7 @@ use VerifiedHumanApproval\WebAuthn\WebAuthnVerifier;
  * other needs a fresh confirmation with an existing passkey. Every passkey is recorded, signed, in the
  * security log, and only passkeys with that record can approve anything.
  */
+#[AsController]
 final readonly class AccountController
 {
     /** How long a passkey confirmation authorizes a sensitive step, such as adding another passkey. */
@@ -43,7 +46,8 @@ final readonly class AccountController
         private WebAuthnVerifier $webauthn,
         private PdoCredentialRepository $credentials,
         private AnchoredCredentialRepository $anchored,
-        private AuditLog $audit,
+        private PasskeyEnrollment $enrollment,
+        private AgentConnections $connections,
         private DemoDatabase $database,
         private CsrfTokenManagerInterface $csrf,
         private Environment $twig,
@@ -174,27 +178,10 @@ final readonly class AccountController
             throw new AccessDeniedException('This enrollment expired. Start again from your account page.');
         }
         $request->getSession()->remove('verified_human_approval.enrollment');
-        $authorization = $saved['authorization'];
-        $pdo = $this->database->pdo;
-        // One transaction: the passkey, its signed enrollment record and the link it used up.
-        $pdo->beginTransaction();
         try {
-            $credential = $this->webauthn->register($actor, $saved['options'], $body['credential'], 'Personal passkey');
-            if ('passkey link' === $authorization['method'] && !$this->database->usePasskeyLink($authorization['link'], $credential->id)) {
-                throw new ApprovalException('link_used', 'This passkey link has already been used or has expired.');
-            }
-            $this->anchored->anchor($credential, [
-                'method' => $authorization['method'], 'authorizedBy' => $authorization['authorizedBy'],
-                'authenticator' => Authenticators::name($credential->sourceJson),
-            ]);
-            $pdo->commit();
+            $this->enrollment->complete($actor, $saved['options'], $body['credential'], $saved['authorization']);
         } catch (ApprovalException $error) {
-            $pdo->rollBack();
-
             return new JsonResponse(['status' => 'rejected', 'message' => $error->getMessage()], 400);
-        } catch (\Throwable $error) {
-            $pdo->rollBack();
-            throw $error;
         }
         $request->getSession()->remove('demo.passkey_link');
         $request->getSession()->remove('demo.confirmed');
@@ -215,12 +202,7 @@ final readonly class AccountController
     {
         $actor = $this->actors->interactive();
         $this->assertFormCsrf($request);
-        $pdo = $this->database->pdo;
-        $pdo->beginTransaction();
-        if ($this->database->revokeGrant($id, $actor->tenantId, $actor->userId)) {
-            $this->audit->append($actor->tenantId, 'connection.revoked', $id, ['userId' => $actor->userId, 'by' => $actor->userId]);
-        }
-        $pdo->commit();
+        $this->connections->revoke($id, $actor->tenantId, $actor->userId, ownerId: $actor->userId);
 
         return new RedirectResponse('/account/passkeys');
     }

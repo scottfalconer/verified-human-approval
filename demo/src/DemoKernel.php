@@ -116,7 +116,7 @@ final class DemoKernel extends Kernel
             'form' => true,
             'validation' => ['email_validation_mode' => 'html5'],
         ]);
-        $container->extension('twig', ['paths' => [$this->getProjectDir().'/templates'], 'strict_variables' => true]);
+        $container->extension('twig', ['strict_variables' => true]);
         // The MCP bundle logs to its own "mcp" channel: session-save failures, refused request state and the like land here.
         $container->extension('monolog', ['channels' => ['mcp'], 'handlers' => [
             'main' => ['type' => 'stream', 'path' => '%kernel.logs_dir%/%kernel.environment%.log', 'level' => 'info', 'channels' => ['!event']],
@@ -189,9 +189,6 @@ final class DemoKernel extends Kernel
         $services->set(EvidenceExporter::class)->args([service(SodiumEvidenceSigner::class)]);
         // One description of the protected resource (RFC 9728): served at /.well-known and named in every 401.
         $services->set(ProtectedResourceMetadata::class)->args([$origin.'/mcp', [$origin], OAuthServer::SCOPES, 'Riverside Council public alerts']);
-        foreach ([DemoController::class, AccountController::class, AuditController::class, EvidenceController::class, PublicController::class, OAuthController::class] as $controller) {
-            $services->set($controller)->public()->tag('controller.service_arguments');
-        }
         $services->set('demo.enrollment_limiter', RateLimiterFactory::class)->args([
             ['id' => 'demo-passkey-enrollment', 'policy' => 'fixed_window', 'limit' => $this->settings['enrollment_attempts_per_minute'] ?? 10, 'interval' => '1 minute'],
             service('verified_human_approval.limiter.storage'), service('verified_human_approval.limiter.lock_factory'),

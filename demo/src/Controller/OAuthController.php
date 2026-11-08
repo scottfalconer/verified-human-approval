@@ -9,6 +9,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Attribute\AsController;
 use Symfony\Component\RateLimiter\RateLimiterFactoryInterface;
 use Symfony\Component\Security\Csrf\CsrfToken;
 use Symfony\Component\Security\Csrf\CsrfTokenManagerInterface;
@@ -28,6 +29,7 @@ use VerifiedHumanApproval\Demo\OAuth\OAuthServer;
  * single-use codes, rotating refresh tokens that end after 30 days, tokens valid only for this
  * server. The MCP bundle's documentation recommends a dedicated OAuth server for production.
  */
+#[AsController]
 final readonly class OAuthController
 {
     private const SCOPE_DESCRIPTIONS = [

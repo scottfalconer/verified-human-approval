@@ -23,7 +23,8 @@ if (!is_file($runtime.'/settings.json')) {
     exit;
 }
 try {
-    $kernel = new DemoKernel($runtime);
+    // APP_DEBUG=1 is for local development only: it shows stack traces. Never set it for the public copy.
+    $kernel = new DemoKernel($runtime, debug: filter_var(getenv('APP_DEBUG') ?: '0', \FILTER_VALIDATE_BOOL));
 } catch (RuntimeException $error) {
     http_response_code(503);
     header('Content-Type: text/plain; charset=utf-8');
