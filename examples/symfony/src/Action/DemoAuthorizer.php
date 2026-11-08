@@ -17,9 +17,11 @@ final readonly class DemoAuthorizer implements Authorizer
     public function assertAllowed(Actor $actor, PreparedAction $action): void
     {
         $user = $this->database->user($actor->userId);
-        if ($user === null || !(bool) $user['enabled'] || $user['tenant_id'] !== $actor->tenantId || !(bool) $user['can_publish']
+        // The administrator's per-role rule decides who may act at all; a passkey never adds rights.
+        $mode = $user === null ? null : $this->database->roleMode($action->actionId, (string) $user['role']);
+        if ($user === null || !(bool) $user['enabled'] || $user['tenant_id'] !== $actor->tenantId || !(bool) $user['can_publish'] || $mode === null || $mode === 'denied'
             || ($action->target['tenant_id'] ?? null) !== $actor->tenantId || $action->actionId !== 'announcement.publish') {
-            throw new ApprovalException('permission_denied', 'Your account no longer has permission to publish this announcement.');
+            throw new ApprovalException('permission_denied', 'Your role may not issue this public alert.');
         }
         if ($actor->delegationId !== null) {
             $grant = $this->database->grant($actor->delegationId);

@@ -162,7 +162,7 @@ final class FixturePolicies implements PolicyProvider
     {
     }
 
-    public function get(string $actionId): ApprovalPolicy
+    public function get(string $actionId, ?Actor $actor = null): ApprovalPolicy
     {
         $query = $this->pdo->prepare('SELECT * FROM test_policies WHERE action_id = ?');
         $query->execute([$actionId]);

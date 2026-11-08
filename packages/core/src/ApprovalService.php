@@ -63,7 +63,7 @@ final class ApprovalService
             }
             $this->authorizer->assertAllowed($actor, $prepared);
             $adapter->assertPreconditions($actor, $prepared);
-            $policy = $this->policies->get($actionId);
+            $policy = $this->policies->get($actionId, $actor);
             if ($policy->actionId !== $actionId) {
                 throw new \LogicException('The policy belongs to a different action.');
             }
@@ -250,7 +250,7 @@ final class ApprovalService
     private function assertCurrent(ApprovalRequest $request, bool $checkAuthority = true): void
     {
         $action = $request->prepared();
-        $policy = $this->policies->get($action->actionId);
+        $policy = $this->policies->get($action->actionId, $request->actor());
         if (!hash_equals($request->payload()['policyDigest'], $policy->digest()) || $request->statement() !== $policy->statement($action)) {
             throw new ApprovalException('policy_changed', 'The approval policy or statement changed.');
         }

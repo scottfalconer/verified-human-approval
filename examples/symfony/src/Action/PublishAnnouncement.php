@@ -28,14 +28,14 @@ final readonly class PublishAnnouncement implements ActionAdapter
             throw new ApprovalException('invalid_input', 'Provide exactly one announcement_id.');
         }
         $row = $this->database->announcement($input['announcement_id']);
-        if ($row === null || $row['tenant_id'] !== $actor->tenantId) throw new ApprovalException('not_found', 'Announcement unavailable for this account.');
+        if ($row === null || $row['tenant_id'] !== $actor->tenantId) throw new ApprovalException('not_found', 'This alert is unavailable for this account.');
 
         return new PreparedAction(
             $this->id(), $this->version(),
             ['application' => 'Riverside Council website', 'environment' => 'Local demonstration', 'tenant_id' => $actor->tenantId, 'resource' => $row['id']],
             ['title' => $row['title'], 'body' => $row['body'], 'state' => 'published'],
             ['revision' => (int) $row['revision'], 'published_revision' => $row['published_revision'] === null ? null : (int) $row['published_revision']],
-            ['title' => 'Publish “'.$row['title'].'”', 'consequence' => 'The approved title and body will become the published announcement immediately.'],
+            ['title' => 'Issue the public alert “'.$row['title'].'”', 'consequence' => 'As soon as this is approved, every resident sees the alert on the Riverside Council website.'],
             ['title' => $row['title'], 'revision' => (string) $row['revision'], 'application' => 'Riverside Council website', 'environment' => 'Local demonstration'],
         );
     }

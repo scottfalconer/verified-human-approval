@@ -52,7 +52,7 @@ def approve_in_browser(url: str, origin: str, password: str) -> None:
         page.locator("[data-approve]").click()
         expect(page.get_by_text("Personal passkey", exact=True)).to_be_visible(timeout=15000)
         page.goto(url)
-        expect(page.locator(".rc-frame .rc-title")).to_contain_text("Flood update")
+        expect(page.locator(".rc-frame .rc-title")).to_contain_text("Evacuation order")
         page.locator("[data-approve]").click()
         expect(page.locator(".notice")).to_contain_text("completed", timeout=15000)
         browser.close()
@@ -83,7 +83,7 @@ def main() -> None:
                         time.sleep(0.1)
                 report = run_claude(config, work, origin, editor["password"])
                 with sqlite3.connect(work / "runtime/application.sqlite") as db:
-                    report["committed_effects"] = db.execute("SELECT mutation_count FROM demo_announcements WHERE id = 'flood-update'").fetchone()[0]
+                    report["committed_effects"] = db.execute("SELECT mutation_count FROM demo_announcements WHERE id = 'riverside-evacuation'").fetchone()[0]
             finally:
                 server.terminate()
                 server.wait(timeout=10)
@@ -97,7 +97,7 @@ def main() -> None:
 
 
 def run_claude(config: Path, work: Path, origin: str, password: str) -> dict:
-    tools = "mcp__verified-human-approval__publish_announcement,mcp__verified-human-approval__approval_status"
+    tools = "mcp__verified-human-approval__publish_alert,mcp__verified-human-approval__approval_status"
     claude = subprocess.Popen([CLAUDE, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
                                "--mcp-config", str(config), "--strict-mcp-config", "--allowedTools", tools,
                                "--model", MODEL, "--max-turns", "6"],
@@ -109,7 +109,7 @@ def run_claude(config: Path, work: Path, origin: str, password: str) -> dict:
 
     send({"type": "control_request", "request_id": "init-1", "request": {"subtype": "initialize"}})
     send({"type": "user", "message": {"role": "user", "content":
-          'Use the verified-human-approval server. Call publish_announcement once with announcement_id "flood-update". '
+          'Use the verified-human-approval server. Call publish_alert once with alert_id "riverside-evacuation". '
           "Then answer in one sentence with the status it reports."}})
     report = {"claude_code_version": None, "model": MODEL, "elicitation": None, "host_answer": None, "tool_results": [], "final": None}
     deadline = time.time() + 240

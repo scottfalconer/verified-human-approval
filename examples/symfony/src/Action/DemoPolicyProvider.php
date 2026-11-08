@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ExactApproval\Demo\Action;
 
 use ExactApproval\Core\ApprovalException;
+use ExactApproval\Core\Actor;
 use ExactApproval\Core\ApprovalPolicy;
 use ExactApproval\Core\PolicyProvider;
 use ExactApproval\Demo\DemoDatabase;
@@ -13,11 +14,14 @@ final readonly class DemoPolicyProvider implements PolicyProvider
 {
     public function __construct(private DemoDatabase $database) {}
 
-    public function get(string $actionId): ApprovalPolicy
+    /** The rule follows the acting person's role. Without a direct rule, verified approval is required. */
+    public function get(string $actionId, ?Actor $actor = null): ApprovalPolicy
     {
         $row = $this->database->policy($actionId);
         if ($row === null) throw new ApprovalException('policy_missing', 'This action has no configured approval policy.');
+        $user = $actor === null ? null : $this->database->user($actor->userId);
+        $mode = $user === null ? 'approval' : ($this->database->roleMode($actionId, (string) $user['role']) ?? 'denied');
 
-        return new ApprovalPolicy($row['action_id'], (string) $row['version'], $row['statement'], 600, (bool) $row['required']);
+        return new ApprovalPolicy($row['action_id'], (string) $row['version'], $row['statement'], 600, $mode !== 'direct');
     }
 }

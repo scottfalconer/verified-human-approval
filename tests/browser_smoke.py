@@ -55,12 +55,12 @@ def main():
             def row():
                 with sqlite3.connect(runtime / "application.sqlite") as db:
                     db.row_factory = sqlite3.Row
-                    return dict(db.execute("SELECT * FROM demo_announcements WHERE id = 'flood-update'").fetchone())
+                    return dict(db.execute("SELECT * FROM demo_announcements WHERE id = 'riverside-evacuation'").fetchone())
 
             catalogue = mcp("list")
             names = {tool["name"] for tool in catalogue["tools"]}
-            assert {"publish_announcement", "read_announcement", "approval_status"} <= names
-            initial = mcp("publish", "flood-update", "browser-approval-one")["structuredContent"]
+            assert {"publish_alert", "read_alert", "approval_status"} <= names
+            initial = mcp("publish", "riverside-evacuation", "browser-approval-one")["structuredContent"]
             assert initial["status"] == "pending" and row()["mutation_count"] == 0
 
             with sync_playwright() as playwright:
@@ -86,12 +86,12 @@ def main():
 
                 # Opened the way Claude Desktop's card opens it, so the page offers the way back.
                 page.goto(initial["review_url"] + "#return=claude-desktop")
-                expect(page.locator(".statement")).to_contain_text("Flood update")
-                expect(page.locator(".content-preview")).to_contain_text("Hill Street detour")
+                expect(page.locator(".statement")).to_contain_text("Evacuation order")
+                expect(page.locator(".rc-frame .rc-body")).to_contain_text("Hill Street route")
                 # The approval page shows the final public page, rendered from the frozen proposal.
                 approved_title = page.locator(".rc-frame .rc-title").inner_text()
                 approved_body = page.locator(".rc-frame .rc-body").inner_text()
-                assert page.request.get(origin + "/news/flood-update").status == 404, "Nothing is live before approval"
+                assert "No active alerts" in page.request.get(origin + "/alerts").text(), "Nothing is live before approval"
                 if SHOTS:
                     page.screenshot(path=str(SHOTS / "1-approval-page.png"), full_page=True)
                 page.locator("[data-approve]").click()
@@ -101,23 +101,23 @@ def main():
                 assert page.locator("[data-return-app]").get_attribute("href") == "claude://"
                 if SHOTS:
                     page.screenshot(path=str(SHOTS / "3-approved.png"), full_page=True)
-                page.goto(origin + "/news/flood-update")
+                page.goto(origin + "/alerts")
                 assert page.locator(".rc-title").inner_text() == approved_title
                 assert page.locator(".rc-body").inner_text() == approved_body
                 if SHOTS:
                     page.screenshot(path=str(SHOTS / "2-live-page.png"), full_page=True)
                 status = mcp("status", initial["requestId"])["structuredContent"]
                 assert status["status"] == "completed"
-                replay = mcp("publish", "flood-update", "browser-approval-one")["structuredContent"]
+                replay = mcp("publish", "riverside-evacuation", "browser-approval-one")["structuredContent"]
                 assert replay["status"] == "completed" and row()["mutation_count"] == 1
 
                 # Stage a *new* draft through a versioned writer, request approval, then change it after review.
                 with sqlite3.connect(runtime / "application.sqlite") as db:
-                    db.execute("UPDATE demo_announcements SET revision = revision + 1, body = body || ' New draft.' WHERE id = 'flood-update'")
-                pending = mcp("publish", "flood-update", "browser-stale-two")["structuredContent"]
+                    db.execute("UPDATE demo_announcements SET revision = revision + 1, body = body || ' New draft.' WHERE id = 'riverside-evacuation'")
+                pending = mcp("publish", "riverside-evacuation", "browser-stale-two")["structuredContent"]
                 page.goto(pending["review_url"])
                 with sqlite3.connect(runtime / "application.sqlite") as db:
-                    db.execute("UPDATE demo_announcements SET revision = revision + 1, body = body || ' Changed after review.' WHERE id = 'flood-update'")
+                    db.execute("UPDATE demo_announcements SET revision = revision + 1, body = body || ' Changed after review.' WHERE id = 'riverside-evacuation'")
                 page.locator("[data-approve]").click()
                 expect(page.locator("[data-message]")).to_contain_text("no longer eligible", timeout=15000)
                 stale = mcp("status", pending["requestId"])["structuredContent"]

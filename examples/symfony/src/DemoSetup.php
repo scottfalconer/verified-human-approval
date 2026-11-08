@@ -29,24 +29,29 @@ final class DemoSetup
         (new PdoCredentialRepository($database->pdo))->initialize();
         $credentials = [];
         $users = [
-            ['editor', 'campaigns', 'Communications editor', true, true],
-            ['reader', 'campaigns', 'Read-only colleague', false, false],
-            ['other', 'other-organization', 'Other organization', true, false],
+            ['manager', 'campaigns', 'Emergency manager', true, true, 'manager'],
+            ['editor', 'campaigns', 'County staff', true, false, 'staff'],
+            ['reader', 'campaigns', 'Read-only colleague', false, false, 'reader'],
+            ['other', 'other-organization', 'Other organization', true, false, 'staff'],
         ];
-        foreach ($users as [$id, $tenant, $name, $publish, $admin]) {
+        foreach ($users as [$id, $tenant, $name, $publish, $admin, $role]) {
             $password = ChallengeBinding::encode(random_bytes(18));
             $token = ChallengeBinding::encode(random_bytes(32));
-            $database->pdo->prepare('INSERT INTO demo_users (id, tenant_id, display_name, password_hash, can_publish, is_admin) VALUES (?, ?, ?, ?, ?, ?)')
-                ->execute([$id, $tenant, $name, password_hash($password, PASSWORD_DEFAULT), (int) $publish, (int) $admin]);
+            $database->pdo->prepare('INSERT INTO demo_users (id, tenant_id, display_name, password_hash, can_publish, is_admin, role) VALUES (?, ?, ?, ?, ?, ?, ?)')
+                ->execute([$id, $tenant, $name, password_hash($password, PASSWORD_DEFAULT), (int) $publish, (int) $admin, $role]);
             $scopes = $publish ? ['announcement.read', 'announcement.publish', 'approval.read'] : ['announcement.read', 'approval.read'];
             $database->pdo->prepare('INSERT INTO demo_grants (id, user_id, tenant_id, token_hash, scopes) VALUES (?, ?, ?, ?, ?)')
                 ->execute([$id.'-personal', $id, $tenant, hash('sha256', $token), json_encode($scopes, JSON_THROW_ON_ERROR)]);
             $credentials[$id] = ['password' => $password, 'personal_token' => $token];
         }
         $database->pdo->prepare('INSERT INTO demo_announcements (id, tenant_id, revision, title, body) VALUES (?, ?, ?, ?, ?)')
-            ->execute(['flood-update', 'campaigns', 1, 'Flood update: Riverside Road closed', 'Riverside Road is closed between Mill Street and the bridge until the water drops. Use the Hill Street detour. Sandbags are available at the depot on Station Lane.']);
+            ->execute(['riverside-evacuation', 'campaigns', 1, 'Evacuation order: Riverside Road area', "Water is rising fast. If you are between Mill Street and the river bridge, leave now.\nUse the Hill Street route: Riverside Road is closed.\nShelter is open at the Station Lane community centre."]);
         $database->pdo->prepare('INSERT INTO demo_policies (action_id, version, statement, required) VALUES (?, ?, ?, ?)')
-            ->execute(['announcement.publish', 1, 'I approve publishing “{{title}}” revision {{revision}} on {{application}} ({{environment}}). This content will become publicly visible immediately.', 1]);
+            ->execute(['announcement.publish', 1, 'I approve issuing the public alert “{{title}}” (revision {{revision}}) on {{application}}. Every resident sees it as soon as I approve.', 1]);
+        // The administrator's rule per role: who may issue an alert, and who must verify each exact alert with a passkey.
+        foreach (['manager' => 'direct', 'staff' => 'approval', 'reader' => 'denied'] as $role => $mode) {
+            $database->pdo->prepare('INSERT INTO demo_role_policies (action_id, role, mode) VALUES (?, ?, ?)')->execute(['announcement.publish', $role, $mode]);
+        }
         $keypair = sodium_crypto_sign_keypair();
         $settings = [
             'origin' => $origin, 'rp_id' => $rpId, 'app_secret' => ChallengeBinding::encode(random_bytes(48)),

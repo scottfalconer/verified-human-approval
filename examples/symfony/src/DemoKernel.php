@@ -102,14 +102,14 @@ final class DemoKernel extends Kernel
             'access_control' => [
                 ['path' => '^/login$', 'roles' => 'PUBLIC_ACCESS'],
                 ['path' => '^/approval/assets/', 'roles' => 'PUBLIC_ACCESS'],
-                ['path' => '^/(news/|site/)', 'roles' => 'PUBLIC_ACCESS'],
+                ['path' => '^/(alerts$|site/)', 'roles' => 'PUBLIC_ACCESS'],
                 ['path' => '^/mcp(?:$|/)', 'roles' => 'ROLE_USER'],
                 ['path' => '^/', 'roles' => 'ROLE_USER'],
             ],
         ]);
         $container->extension('mcp', ['servers' => ['application' => [
             'name' => 'Verified Human Approval demo', 'version' => '0.1.0',
-            'instructions' => 'Read the announcement, then request publication. If approval is required, show the review URL. Only the person’s browser passkey can approve. Call approval_status afterward; never claim publication while pending.',
+            'instructions' => 'Riverside Council public alerts. The draft evacuation alert is riverside-evacuation: read it with read_alert, then ask to issue it with publish_alert. If approval is required, show the review URL; only the person’s own passkey on the site can approve. Call approval_status afterwards and never say the alert is live while it is pending.',
             'transports' => ['http' => true, 'stdio' => false],
             'http' => ['path' => '/mcp', 'allowed_hosts' => [$this->settings['rp_id']]],
             'session' => ['store' => 'file', 'directory' => $this->runtimeDirectory.'/mcp'],
@@ -156,7 +156,7 @@ final class DemoKernel extends Kernel
         $routes->add('exact_approval_policy', '/admin/approval-policy')->controller([DemoController::class, 'policy'])->methods(['GET', 'POST']);
         $routes->add('exact_approval_request_publication', '/announcements/{id}/publish')->controller([DemoController::class, 'requestPublication'])->methods(['POST']);
         $routes->add('exact_approval_edit_draft', '/announcements/{id}/draft')->controller([DemoController::class, 'editDraft'])->methods(['POST']);
-        $routes->add('riverside_news', '/news/{id}')->controller([PublicController::class, 'news'])->methods(['GET']);
+        $routes->add('riverside_alerts', '/alerts')->controller([PublicController::class, 'alerts'])->methods(['GET']);
         $routes->add('riverside_styles', '/site/riverside.css')->controller([PublicController::class, 'styles'])->methods(['GET']);
         $routes->add('exact_approval_evidence', '/approval/{id}/evidence')->controller([EvidenceController::class, 'export'])->methods(['GET']);
     }

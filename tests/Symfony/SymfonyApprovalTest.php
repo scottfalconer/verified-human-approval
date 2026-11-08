@@ -59,11 +59,11 @@ final class SymfonyApprovalTest extends TestCase
         $client = $this->mcp();
         $tools = [];
         foreach ($client->listTools()->tools as $tool) $tools[$tool->name] = $tool;
-        self::assertEqualsCanonicalizing(['approval_status', 'publish_announcement', 'read_announcement'], array_keys($tools));
-        self::assertArrayNotHasKey('actor', $tools['publish_announcement']->inputSchema['properties']);
-        self::assertArrayNotHasKey('user_id', $tools['publish_announcement']->inputSchema['properties']);
+        self::assertEqualsCanonicalizing(['approval_status', 'publish_alert', 'read_alert'], array_keys($tools));
+        self::assertArrayNotHasKey('actor', $tools['publish_alert']->inputSchema['properties']);
+        self::assertArrayNotHasKey('user_id', $tools['publish_alert']->inputSchema['properties']);
 
-        $pending = $client->callTool('publish_announcement', ['announcement_id' => 'flood-update', 'request_key' => 'same-request']);
+        $pending = $client->callTool('publish_alert', ['alert_id' => 'riverside-evacuation', 'request_key' => 'same-request']);
         self::assertFalse($pending->isError);
         self::assertSame('pending', $pending->structuredContent['status']);
         self::assertStringStartsWith(self::ORIGIN.'/approval/', $pending->structuredContent['review_url']);
@@ -79,13 +79,13 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame('completed', $completed['status']);
         self::assertSame('published', $completed['result']['disposition']);
         self::assertSame(1, $this->mutationCount());
-        $row = $this->database->announcement('flood-update');
+        $row = $this->database->announcement('riverside-evacuation');
         self::assertSame($row['title'], $row['published_title']);
         self::assertSame($row['body'], $row['published_body']);
 
         $status = $client->callTool('approval_status', ['request_id' => $id]);
         self::assertSame('completed', $status->structuredContent['status']);
-        $retry = $client->callTool('publish_announcement', ['announcement_id' => 'flood-update', 'request_key' => 'same-request']);
+        $retry = $client->callTool('publish_alert', ['alert_id' => 'riverside-evacuation', 'request_key' => 'same-request']);
         self::assertSame($id, $retry->structuredContent['requestId']);
         self::assertSame('completed', $retry->structuredContent['status']);
         self::assertSame(1, $this->mutationCount());
@@ -94,7 +94,7 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame(200, $browser->getResponse()->getStatusCode());
         $evidence = json_decode((string) $browser->getResponse()->getContent(), true, 64, JSON_THROW_ON_ERROR);
         self::assertSame('exact-approval/evidence/v1', $evidence['format']);
-        self::assertStringContainsString('I approve publishing', $evidence['proposal']);
+        self::assertStringContainsString('I approve issuing the public alert', $evidence['proposal']);
         self::assertNotEmpty($evidence['receipt']['signature']);
         self::assertSame(1, $this->mutationCount());
     }
@@ -105,7 +105,7 @@ final class SymfonyApprovalTest extends TestCase
         $browser = $this->browser('editor');
         $authenticator = $this->enroll($browser);
         [$csrf, $ceremony] = $this->begin($browser, $id);
-        $this->database->pdo->exec("UPDATE demo_announcements SET body = body || '!', revision = revision + 1 WHERE id = 'flood-update'");
+        $this->database->pdo->exec("UPDATE demo_announcements SET body = body || '!', revision = revision + 1 WHERE id = 'riverside-evacuation'");
         $result = $this->post($browser, '/approval/'.$id.'/complete', $csrf, ['ceremony_id' => $ceremony['ceremony_id'], 'credential' => $authenticator->assertion($ceremony['publicKey'])]);
         self::assertSame('invalidated', $result['status']);
         self::assertSame('stale_resource', $result['reason']);
@@ -128,8 +128,8 @@ final class SymfonyApprovalTest extends TestCase
     public function testAReadOnlyPersonsMcpCredentialCannotRequestPublication(): void
     {
         $client = $this->mcp('reader');
-        self::assertFalse($client->callTool('read_announcement', ['announcement_id' => 'flood-update'])->isError);
-        $response = $client->callTool('publish_announcement', ['announcement_id' => 'flood-update']);
+        self::assertFalse($client->callTool('read_alert', ['alert_id' => 'riverside-evacuation'])->isError);
+        $response = $client->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
         self::assertTrue($response->isError);
         self::assertSame('permission_denied', $response->structuredContent['reason']);
         self::assertSame(0, (int) $this->database->pdo->query('SELECT COUNT(*) FROM exact_approval_requests')->fetchColumn());
@@ -143,7 +143,7 @@ final class SymfonyApprovalTest extends TestCase
             $browser = $this->browser($user);
             $browser->request('GET', self::ORIGIN.'/approval/'.$id);
             self::assertSame(404, $browser->getResponse()->getStatusCode());
-            self::assertStringNotContainsString('Use the Hill Street detour', (string) $browser->getResponse()->getContent());
+            self::assertStringNotContainsString('Use the Hill Street route', (string) $browser->getResponse()->getContent());
         }
         self::assertSame(0, $this->mutationCount());
     }
@@ -184,7 +184,7 @@ final class SymfonyApprovalTest extends TestCase
     {
         $browser = $this->browser('editor');
         $crawler = $browser->request('GET', self::ORIGIN.'/');
-        $browser->submit($crawler->selectButton('Request publication')->form());
+        $browser->submit($crawler->selectButton('Issue alert')->form());
         self::assertSame(302, $browser->getResponse()->getStatusCode());
         self::assertStringContainsString('/approval/', (string) $browser->getResponse()->headers->get('Location'));
         self::assertSame(0, $this->mutationCount());
@@ -203,7 +203,7 @@ final class SymfonyApprovalTest extends TestCase
         $adapter = new PublishAnnouncement($this->database, $publisher);
         $actor = new Actor('editor', 'campaigns');
         try {
-            $publisher->publish($actor, $adapter->prepare($actor, ['announcement_id' => 'flood-update']));
+            $publisher->publish($actor, $adapter->prepare($actor, ['announcement_id' => 'riverside-evacuation']));
             self::fail('Direct publication should require the approval execution context.');
         } catch (ApprovalException $error) {
             self::assertSame('approval_required', $error->reason);
@@ -214,7 +214,7 @@ final class SymfonyApprovalTest extends TestCase
     public function testCurrentReadScopeAppliesToStatusAndIdempotentResultRetrieval(): void
     {
         $client = $this->mcp();
-        $request = $client->callTool('publish_announcement', ['announcement_id' => 'flood-update', 'request_key' => 'scope-test']);
+        $request = $client->callTool('publish_alert', ['alert_id' => 'riverside-evacuation', 'request_key' => 'scope-test']);
         self::assertFalse($request->isError);
         $id = $request->structuredContent['requestId'];
         $this->database->pdo->prepare("UPDATE demo_grants SET scopes = ? WHERE id = 'editor-personal'")
@@ -222,7 +222,7 @@ final class SymfonyApprovalTest extends TestCase
         $status = $client->callTool('approval_status', ['request_id' => $id]);
         self::assertTrue($status->isError);
         self::assertNull($status->structuredContent);
-        $retry = $client->callTool('publish_announcement', ['announcement_id' => 'flood-update', 'request_key' => 'scope-test']);
+        $retry = $client->callTool('publish_alert', ['alert_id' => 'riverside-evacuation', 'request_key' => 'scope-test']);
         self::assertTrue($retry->isError);
         self::assertSame('result_read_denied', $retry->structuredContent['reason']);
         self::assertArrayNotHasKey('result', $retry->structuredContent);
@@ -232,7 +232,10 @@ final class SymfonyApprovalTest extends TestCase
     public function testAdministratorFormValidatesStatementsAndVersionChangesInvalidatePendingRequests(): void
     {
         $id = $this->requestAction();
-        $browser = $this->browser('editor');
+        $staff = $this->browser('editor');
+        $staff->request('GET', self::ORIGIN.'/admin/approval-policy');
+        self::assertSame(403, $staff->getResponse()->getStatusCode(), 'County staff cannot change who must verify.');
+        $browser = $this->browser('manager');
         $crawler = $browser->request('GET', self::ORIGIN.'/admin/approval-policy');
         self::assertSame(200, $browser->getResponse()->getStatusCode());
         $form = $crawler->selectButton('Save policy')->form();
@@ -247,18 +250,20 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame(302, $browser->getResponse()->getStatusCode());
         self::assertSame(2, (int) $this->database->policy('announcement.publish')['version']);
         $crawler = $browser->request('GET', self::ORIGIN.'/approval/'.$id);
+        $staff = $this->browser('editor');
+        $crawler = $staff->request('GET', self::ORIGIN.'/approval/'.$id);
         $csrf = (string) $crawler->filter('[data-passkey-panel]')->attr('data-csrf');
-        $rejected = $this->post($browser, '/approval/'.$id.'/options', $csrf, []);
-        self::assertSame(409, $browser->getResponse()->getStatusCode());
+        $rejected = $this->post($staff, '/approval/'.$id.'/options', $csrf, []);
+        self::assertSame(409, $staff->getResponse()->getStatusCode());
         self::assertSame('policy_changed', $rejected['reason']);
         self::assertSame(0, $this->mutationCount());
 
         $crawler = $browser->request('GET', self::ORIGIN.'/admin/approval-policy');
         $form = $crawler->selectButton('Save policy')->form();
-        $form['approval_policy[required]']->untick();
+        $form['approval_policy[staff]']->select('direct');
         $browser->submit($form);
         self::assertSame(302, $browser->getResponse()->getStatusCode());
-        $newRequest = $this->mcp()->callTool('publish_announcement', ['announcement_id' => 'flood-update']);
+        $newRequest = $this->mcp()->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
         self::assertSame('completed', $newRequest->structuredContent['status']);
         self::assertSame(1, $this->mutationCount());
         self::assertSame(1, (int) $this->database->pdo->query("SELECT COUNT(*) FROM exact_approval_requests WHERE status='invalidated'")->fetchColumn());
@@ -333,34 +338,48 @@ final class SymfonyApprovalTest extends TestCase
 
     private function requestAction(): string
     {
-        $result = $this->mcp()->callTool('publish_announcement', ['announcement_id' => 'flood-update']);
+        $result = $this->mcp()->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
         self::assertFalse($result->isError, json_encode($result->structuredContent));
 
         return $result->structuredContent['requestId'];
+    }
+
+    public function testTheAdministratorsRulePerRoleDecidesWhoMustVerify(): void
+    {
+        $staff = $this->mcp('editor')->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
+        self::assertSame('pending', $staff->structuredContent['status'], 'County staff must verify each exact alert.');
+        self::assertSame(0, $this->mutationCount());
+        $reader = $this->mcp('reader')->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
+        self::assertTrue($reader->isError, 'A read-only colleague cannot issue alerts.');
+        self::assertSame(0, $this->mutationCount());
+        $manager = $this->mcp('manager')->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
+        self::assertSame('completed', $manager->structuredContent['status'], 'The emergency manager issues directly.');
+        self::assertSame(1, $this->mutationCount());
     }
 
     public function testTheApprovalPageShowsTheFinalPublicPageWhichGoesLiveUnchanged(): void
     {
         $public = new KernelBrowser(new DemoKernel($this->runtime, 'test'), ['HTTP_HOST' => 'localhost:8080']);
         $this->browsers[] = $public;
-        $public->request('GET', self::ORIGIN.'/news/flood-update');
-        self::assertSame(404, $public->getResponse()->getStatusCode(), 'Nothing is live before approval.');
+        $calm = $public->request('GET', self::ORIGIN.'/alerts');
+        self::assertSame(200, $public->getResponse()->getStatusCode());
+        self::assertSame('No active alerts', $calm->filter('.rc-title')->text(), 'Nothing is live before approval.');
 
         $id = $this->requestAction();
         $browser = $this->browser('editor');
         $authenticator = $this->enroll($browser);
         $review = $browser->request('GET', self::ORIGIN.'/approval/'.$id)->filter('.rc-frame');
         self::assertCount(1, $review, 'The approval page shows the final public page.');
-        self::assertStringContainsString(self::ORIGIN.'/news/flood-update', $review->filter('.rc-frame-url')->text());
+        self::assertStringContainsString(self::ORIGIN.'/alerts', $review->filter('.rc-frame-url')->text());
         $approvedTitle = $review->filter('.rc-title')->text();
         $approvedBody = $review->filter('.rc-body')->text();
-        self::assertSame('Flood update: Riverside Road closed', $approvedTitle);
+        self::assertSame('Evacuation order: Riverside Road area', $approvedTitle);
 
         [$csrf, $ceremony] = $this->begin($browser, $id);
         $completed = $this->post($browser, '/approval/'.$id.'/complete', $csrf, ['ceremony_id' => $ceremony['ceremony_id'], 'credential' => $authenticator->assertion($ceremony['publicKey'])]);
         self::assertSame('completed', $completed['status']);
 
-        $live = $public->request('GET', self::ORIGIN.'/news/flood-update');
+        $live = $public->request('GET', self::ORIGIN.'/alerts');
         self::assertSame(200, $public->getResponse()->getStatusCode());
         self::assertSame($approvedTitle, $live->filter('.rc-title')->text());
         self::assertSame($approvedBody, $live->filter('.rc-body')->text());
@@ -392,7 +411,7 @@ final class SymfonyApprovalTest extends TestCase
         $client = $this->mcp();
         $tools = [];
         foreach ($client->listTools()->tools as $tool) $tools[$tool->name] = json_decode(json_encode($tool, JSON_THROW_ON_ERROR), true);
-        self::assertSame(ApprovalCard::URI, $tools['publish_announcement']['_meta']['ui']['resourceUri']);
+        self::assertSame(ApprovalCard::URI, $tools['publish_alert']['_meta']['ui']['resourceUri']);
         self::assertArrayNotHasKey('ui', $tools['approval_status']['_meta'] ?? []);
         $resources = [];
         foreach ($client->listResources()->resources as $resource) $resources[$resource->uri] = json_decode(json_encode($resource, JSON_THROW_ON_ERROR), true);
@@ -404,13 +423,13 @@ final class SymfonyApprovalTest extends TestCase
         $capabilities = json_decode(json_encode($client->getServerCapabilities(), JSON_THROW_ON_ERROR), true);
         self::assertArrayHasKey(McpApps::EXTENSION_ID, $capabilities['extensions'] ?? []);
 
-        $pending = $client->callTool('publish_announcement', ['announcement_id' => 'flood-update']);
+        $pending = $client->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
         $view = $pending->structuredContent['approval'];
         self::assertSame($pending->structuredContent['requestId'], $view['requestId']);
         self::assertSame('pending', $view['status']);
         self::assertSame($pending->structuredContent['review_url'], $view['reviewUrl']);
         self::assertSame('approval_status', $view['statusTool']);
-        self::assertStringContainsString('I approve publishing', $view['statement']);
+        self::assertStringContainsString('I approve issuing the public alert', $view['statement']);
         $status = $client->callTool('approval_status', ['request_id' => $view['requestId']]);
         self::assertSame('pending', $status->structuredContent['approval']['status']);
         self::assertSame(0, $this->mutationCount());
@@ -418,16 +437,16 @@ final class SymfonyApprovalTest extends TestCase
 
     public function testClaudeCodeGetsAUrlPromptWhoseAcceptIsNotAnApproval(): void
     {
-        $first = $this->modernCall(['announcement_id' => 'flood-update']);
+        $first = $this->modernCall(['alert_id' => 'riverside-evacuation']);
         self::assertSame('input_required', $first['resultType'] ?? null, json_encode($first));
         $ask = $first['inputRequests'][UrlPrompt::KEY];
         self::assertSame('elicitation/create', $ask['method']);
         self::assertSame('url', $ask['params']['mode']);
         self::assertStringStartsWith(self::ORIGIN.'/approval/apr_', $ask['params']['url']);
-        self::assertStringContainsString('I approve publishing', $ask['params']['message']);
+        self::assertStringContainsString('I approve issuing the public alert', $ask['params']['message']);
         $id = substr($ask['params']['url'], \strlen(self::ORIGIN.'/approval/'));
 
-        $accepted = $this->modernCall(['announcement_id' => 'flood-update'], extra: $this->answer($first, 'accept'));
+        $accepted = $this->modernCall(['alert_id' => 'riverside-evacuation'], extra: $this->answer($first, 'accept'));
         self::assertFalse($accepted['isError'] ?? false, json_encode($accepted));
         self::assertSame($id, $accepted['structuredContent']['requestId']);
         self::assertSame('pending', $accepted['structuredContent']['status']);
@@ -438,8 +457,8 @@ final class SymfonyApprovalTest extends TestCase
 
     public function testADeclinedPromptLeavesTheRequestOpenOnTheSiteAndChangesNothing(): void
     {
-        $first = $this->modernCall(['announcement_id' => 'flood-update']);
-        $declined = $this->modernCall(['announcement_id' => 'flood-update'], extra: $this->answer($first, 'decline'));
+        $first = $this->modernCall(['alert_id' => 'riverside-evacuation']);
+        $declined = $this->modernCall(['alert_id' => 'riverside-evacuation'], extra: $this->answer($first, 'decline'));
         self::assertSame('pending', $declined['structuredContent']['status']);
         self::assertStringContainsString('nothing was approved or changed', $declined['structuredContent']['message']);
         self::assertStringStartsWith(self::ORIGIN.'/approval/', $declined['structuredContent']['review_url']);
@@ -456,8 +475,8 @@ final class SymfonyApprovalTest extends TestCase
 
     public function testARetryWithChangedArgumentsCannotContinueTheApproval(): void
     {
-        $first = $this->modernCall(['announcement_id' => 'flood-update']);
-        $changed = $this->modernCall(['announcement_id' => 'flood-update', 'request_key' => 'another-request'], extra: $this->answer($first, 'accept'));
+        $first = $this->modernCall(['alert_id' => 'riverside-evacuation']);
+        $changed = $this->modernCall(['alert_id' => 'riverside-evacuation', 'request_key' => 'another-request'], extra: $this->answer($first, 'accept'));
         self::assertTrue($changed['isError'] ?? false, json_encode($changed));
         self::assertSame('continuation_mismatch', $changed['structuredContent']['reason']);
         self::assertSame(1, $this->pendingRequests());
@@ -466,7 +485,7 @@ final class SymfonyApprovalTest extends TestCase
 
     public function testARetryAfterThePasskeyApprovalReadsTheRecordedOutcomeOnce(): void
     {
-        $first = $this->modernCall(['announcement_id' => 'flood-update']);
+        $first = $this->modernCall(['alert_id' => 'riverside-evacuation']);
         $id = substr($first['inputRequests'][UrlPrompt::KEY]['params']['url'], \strlen(self::ORIGIN.'/approval/'));
         $browser = $this->browser('editor');
         $authenticator = $this->enroll($browser);
@@ -475,7 +494,7 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame(1, $this->mutationCount());
 
         foreach ([1, 2] as $attempt) {
-            $after = $this->modernCall(['announcement_id' => 'flood-update'], extra: $this->answer($first, 'accept'));
+            $after = $this->modernCall(['alert_id' => 'riverside-evacuation'], extra: $this->answer($first, 'accept'));
             self::assertSame('completed', $after['structuredContent']['status'], 'attempt '.$attempt);
             self::assertSame('published', $after['structuredContent']['result']['disposition']);
             self::assertSame('completed', $after['structuredContent']['approval']['status']);
@@ -485,7 +504,7 @@ final class SymfonyApprovalTest extends TestCase
 
     public function testAClientTheApplicationHasNotListedGetsTheCardAndLinkOnly(): void
     {
-        $result = $this->modernCall(['announcement_id' => 'flood-update'], client: 'another-client');
+        $result = $this->modernCall(['alert_id' => 'riverside-evacuation'], client: 'another-client');
         self::assertNotSame('input_required', $result['resultType'] ?? null);
         self::assertSame('pending', $result['structuredContent']['status']);
         self::assertSame('approval_status', $result['structuredContent']['approval']['statusTool']);
@@ -495,7 +514,7 @@ final class SymfonyApprovalTest extends TestCase
     /** A raw MCP 2026-07-28 tools/call, shaped like Claude Code's, through a fresh kernel. */
     private function modernCall(array $arguments, string $client = 'claude-code', array $extra = [], string $user = 'editor'): array
     {
-        $params = ['name' => 'publish_announcement', 'arguments' => (object) $arguments, '_meta' => [
+        $params = ['name' => 'publish_alert', 'arguments' => (object) $arguments, '_meta' => [
             'io.modelcontextprotocol/protocolVersion' => '2026-07-28',
             'io.modelcontextprotocol/clientCapabilities' => ['elicitation' => ['url' => new \stdClass()]],
             'io.modelcontextprotocol/clientInfo' => ['name' => $client, 'version' => '2.1.317'],
@@ -506,7 +525,7 @@ final class SymfonyApprovalTest extends TestCase
             ->withHeader('Accept', 'application/json, text/event-stream')
             ->withHeader('Authorization', 'Bearer '.$this->accounts[$user]['personal_token'])
             ->withHeader('Mcp-Method', 'tools/call')
-            ->withHeader('Mcp-Name', 'publish_announcement')
+            ->withHeader('Mcp-Name', 'publish_alert')
             ->withHeader('MCP-Protocol-Version', '2026-07-28')
             ->withBody($factory->createStream(json_encode(['jsonrpc' => '2.0', 'id' => random_int(1, 1_000_000), 'method' => 'tools/call', 'params' => $params], JSON_THROW_ON_ERROR)));
         $body = (string) (new SymfonyKernelHttpClient($this->runtime))->sendRequest($request)->getBody();
@@ -590,7 +609,7 @@ final class SymfonyApprovalTest extends TestCase
         return $client;
     }
 
-    private function mutationCount(): int { return (int) $this->database->announcement('flood-update')['mutation_count']; }
+    private function mutationCount(): int { return (int) $this->database->announcement('riverside-evacuation')['mutation_count']; }
 }
 
 /** Test adapter transports real HTTP messages through a fresh Symfony kernel per request. */

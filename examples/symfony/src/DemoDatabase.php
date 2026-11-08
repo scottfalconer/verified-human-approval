@@ -22,7 +22,8 @@ final readonly class DemoDatabase
         $this->pdo->exec(<<<'SQL'
 CREATE TABLE IF NOT EXISTS demo_users (
     id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, display_name TEXT NOT NULL, password_hash TEXT NOT NULL,
-    enabled INTEGER NOT NULL DEFAULT 1, can_publish INTEGER NOT NULL DEFAULT 0, is_admin INTEGER NOT NULL DEFAULT 0
+    enabled INTEGER NOT NULL DEFAULT 1, can_publish INTEGER NOT NULL DEFAULT 0, is_admin INTEGER NOT NULL DEFAULT 0,
+    role TEXT NOT NULL DEFAULT 'reader'
 );
 CREATE TABLE IF NOT EXISTS demo_grants (
     id TEXT PRIMARY KEY, user_id TEXT NOT NULL, tenant_id TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE,
@@ -34,6 +35,11 @@ CREATE TABLE IF NOT EXISTS demo_announcements (
 );
 CREATE TABLE IF NOT EXISTS demo_policies (
     action_id TEXT PRIMARY KEY, version INTEGER NOT NULL, statement TEXT NOT NULL, required INTEGER NOT NULL
+);
+-- Per role: 'direct', 'approval' (verified human approval of each exact action) or 'denied'.
+CREATE TABLE IF NOT EXISTS demo_role_policies (
+    action_id TEXT NOT NULL, role TEXT NOT NULL, mode TEXT NOT NULL CHECK (mode IN ('direct', 'approval', 'denied')),
+    PRIMARY KEY (action_id, role)
 );
 SQL);
     }
@@ -68,6 +74,20 @@ SQL);
         $query->execute([$id]);
 
         return $query->fetch() ?: null;
+    }
+
+    public function liveAlert(): ?array
+    {
+        return $this->pdo->query('SELECT * FROM demo_announcements WHERE published_revision IS NOT NULL ORDER BY id LIMIT 1')->fetch() ?: null;
+    }
+
+    public function roleMode(string $action, string $role): ?string
+    {
+        $query = $this->pdo->prepare('SELECT mode FROM demo_role_policies WHERE action_id = ? AND role = ?');
+        $query->execute([$action, $role]);
+        $mode = $query->fetchColumn();
+
+        return $mode === false ? null : (string) $mode;
     }
 
     public function policy(string $action): ?array

@@ -1,10 +1,9 @@
 {% extends '@ExactApproval/base.html.twig' %}
-{% block title %}Approval policy · Verified Human Approval{% endblock %}
+{% block title %}Alert policy · Verified Human Approval{% endblock %}
 {% block body %}
-<p class="eyebrow">Administrator</p><h1>Protect announcement publication</h1>
-<p>Require a person to approve the exact content before it becomes published. Saving a change invalidates pending requests using the previous policy.</p>
-{% if saved %}<p class="notice">Policy saved.</p>{% endif %}
-<section class="card">{{ form_start(form) }}{{ form_widget(form) }}<p class="muted">Available placeholders: {% verbatim %}{{title}}, {{revision}}, {{application}}, {{environment}}{% endverbatim %}.</p><button>Save policy</button>{{ form_end(form) }}</section>
-<section class="card"><h2>Statement preview</h2><p class="statement">{{ preview }}</p></section>
-<p class="muted">Turning protection off allows new authorized requests to execute without a passkey. Existing pending requests cannot reuse their previous approval.</p>
+<p class="eyebrow">Administrator · Riverside Council</p><h1>Who can issue public alerts</h1>
+<p>An evacuation order is a high-stakes change. Many people can be allowed to issue one, as long as the roles you choose must verify each exact alert with their own passkey. The application enforces this rule itself, whether the request comes from this site, an AI agent over MCP or any other client.</p>
+{% if saved %}<p class="notice">Policy saved. Requests waiting under the old rules can no longer be approved.</p>{% endif %}
+<section class="card">{{ form_start(form) }}{{ form_widget(form) }}<p class="muted">Read-only colleagues cannot issue alerts. Placeholders for the statement: {% verbatim %}{{title}}, {{revision}}, {{application}}, {{environment}}{% endverbatim %}.</p><button>Save policy</button>{{ form_end(form) }}</section>
+<section class="card"><h2>What the approver confirms</h2><p class="statement">{{ preview }}</p></section>
 {% endblock %}

@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace Drupal\exact_approval\Policy;
 
-use ExactApproval\Core\{ApprovalException, ApprovalPolicy, PolicyProvider};
+use ExactApproval\Core\{Actor, ApprovalException, ApprovalPolicy, PolicyProvider};
 
 final readonly class DrupalPolicyProvider implements PolicyProvider
 {
     public function __construct(private PolicyRules $rules) {}
 
-    public function get(string $actionId): ApprovalPolicy
+    public function get(string $actionId, ?Actor $actor = null): ApprovalPolicy
     {
         $operation = match ($actionId) {
             'node.publish' => 'publish',

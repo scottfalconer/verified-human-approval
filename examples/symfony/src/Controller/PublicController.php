@@ -8,16 +8,17 @@ use ExactApproval\Demo\DemoDatabase;
 use Symfony\Component\HttpFoundation\Response;
 use Twig\Environment;
 
-/** The council's public site. It shows only content that an approved proposal published. */
+/** The council's public alerts page. It shows only an alert that an approved proposal made live. */
 final readonly class PublicController
 {
     public function __construct(private DemoDatabase $database, private Environment $twig) {}
 
-    public function news(string $id): Response
+    /** The alerts page: calm until an approved alert is live, then in alert mode. */
+    public function alerts(): Response
     {
-        $row = $this->database->announcement($id);
-        if ($row === null || $row['published_revision'] === null) {
-            return new Response($this->twig->render('public/not_published.html.twig'), 404);
+        $row = $this->database->liveAlert();
+        if ($row === null) {
+            return new Response($this->twig->render('public/not_published.html.twig'));
         }
 
         return new Response($this->twig->render('public/announcement.html.twig', ['title' => $row['published_title'], 'body' => $row['published_body']]));
