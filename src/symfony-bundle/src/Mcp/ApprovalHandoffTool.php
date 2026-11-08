@@ -4,11 +4,6 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Bundle\Mcp;
 
-use VerifiedHumanApproval\Core\ApprovalException;
-use VerifiedHumanApproval\Core\ApprovalService;
-use VerifiedHumanApproval\Mcp\ApprovalCard;
-use VerifiedHumanApproval\Bundle\ActorProvider;
-use VerifiedHumanApproval\Bundle\Handoff\ApprovalHandoff;
 use Mcp\Capability\Attribute\McpTool;
 use Mcp\Capability\Attribute\Schema;
 use Mcp\Schema\Content\TextContent;
@@ -16,6 +11,11 @@ use Mcp\Schema\Result\CallToolResult;
 use Mcp\Schema\ToolAnnotations;
 use Symfony\Component\RateLimiter\RateLimiterFactoryInterface;
 use Symfony\Component\Security\Core\Exception\AccessDeniedException;
+use VerifiedHumanApproval\Bundle\ActorProvider;
+use VerifiedHumanApproval\Bundle\Handoff\ApprovalHandoff;
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\ApprovalService;
+use VerifiedHumanApproval\Mcp\ApprovalCard;
 
 /**
  * "Approve on your phone": a one-time QR code that opens one pending approval on the person's phone.
@@ -46,7 +46,8 @@ final readonly class ApprovalHandoffTool
         private ActorProvider $actors,
         private ApprovalHandoff $handoff,
         private RateLimiterFactoryInterface $limiter,
-    ) {}
+    ) {
+    }
 
     #[McpTool(
         name: self::NAME,
@@ -69,7 +70,7 @@ final readonly class ApprovalHandoffTool
             if (!$this->limiter->create('handoff|'.hash('sha256', $actor->tenantId."\0".$actor->userId))->consume()->isAccepted()) {
                 throw new ApprovalException('rate_limited', 'Too many phone codes. Wait a minute, then show a new code.');
             }
-            if ($state->status !== 'pending') {
+            if ('pending' !== $state->status) {
                 throw new ApprovalException($state->status, 'This request is no longer waiting for approval.');
             }
             if (!$this->handoff->reachable()) {

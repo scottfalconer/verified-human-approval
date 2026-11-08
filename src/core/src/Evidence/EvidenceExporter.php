@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Core\Evidence;
 
-use VerifiedHumanApproval\Core\{ApprovalException, ApprovalState};
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\ApprovalState;
 
 /** Export only after execution commits; a signer failure cannot call an action again. */
 final readonly class EvidenceExporter
@@ -16,7 +17,7 @@ final readonly class EvidenceExporter
     /** The host must obtain this state through ApprovalService::get() to enforce ownership. */
     public function export(ApprovalState $state): array
     {
-        if ($state->status !== 'completed' || $state->execution === null) {
+        if ('completed' !== $state->status || null === $state->execution) {
             throw new ApprovalException('not_completed', 'Only a committed action has execution evidence.');
         }
         // A receipt signed inside the completing transaction is returned as it was signed. Records
@@ -25,8 +26,8 @@ final readonly class EvidenceExporter
 
         return [
             'format' => 'verified-human-approval/evidence/v1', 'proposal' => $state->request->canonical,
-            'proof' => $state->proof === null ? null : (object) $state->proof, 'execution' => (object) $state->execution,
-            'receipt' => (object) ($receipt + ['signed' => $state->receipt === null ? 'at_export' : 'at_commit']),
+            'proof' => null === $state->proof ? null : (object) $state->proof, 'execution' => (object) $state->execution,
+            'receipt' => (object) ($receipt + ['signed' => null === $state->receipt ? 'at_export' : 'at_commit']),
         ];
     }
 }

@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Demo;
 
+use Symfony\Component\Clock\NativeClock;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\ChallengeBinding;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
 use VerifiedHumanApproval\Core\Storage\PdoApprovalStore;
 use VerifiedHumanApproval\WebAuthn\Configuration;
 use VerifiedHumanApproval\WebAuthn\PdoCredentialRepository;
-use Symfony\Component\Clock\NativeClock;
 
 final class DemoSetup
 {
@@ -21,14 +21,22 @@ final class DemoSetup
     /** Returns credentials once. No plaintext account password or token is stored. */
     public static function initialize(string $directory, string $origin = 'http://localhost:8080'): array
     {
-        if (is_file($directory.'/settings.json')) throw new \RuntimeException('This demo is already initialized; existing accounts were not replaced.');
-        $rpId = parse_url($origin, PHP_URL_HOST);
-        if (!\is_string($rpId)) throw new \InvalidArgumentException('Provide a valid origin.');
+        if (is_file($directory.'/settings.json')) {
+            throw new \RuntimeException('This demo is already initialized; existing accounts were not replaced.');
+        }
+        $rpId = parse_url($origin, \PHP_URL_HOST);
+        if (!\is_string($rpId)) {
+            throw new \InvalidArgumentException('Provide a valid origin.');
+        }
         new Configuration($rpId, $origin);
-        if (!is_dir($directory) && !mkdir($directory, 0700, true) && !is_dir($directory)) throw new \RuntimeException('Could not create the runtime directory.');
+        if (!is_dir($directory) && !mkdir($directory, 0700, true) && !is_dir($directory)) {
+            throw new \RuntimeException('Could not create the runtime directory.');
+        }
         chmod($directory, 0700);
         foreach (['sessions', 'cache', 'log', 'mcp'] as $subdirectory) {
-            if (!is_dir($directory.'/'.$subdirectory)) mkdir($directory.'/'.$subdirectory, 0700, true);
+            if (!is_dir($directory.'/'.$subdirectory)) {
+                mkdir($directory.'/'.$subdirectory, 0700, true);
+            }
         }
         $database = new DemoDatabase(DemoDatabase::connect($directory.'/application.sqlite'));
         $database->initialize();
@@ -51,10 +59,10 @@ final class DemoSetup
             $password = ChallengeBinding::encode(random_bytes(18));
             $token = ChallengeBinding::encode(random_bytes(32));
             $database->pdo->prepare('INSERT INTO demo_users (id, tenant_id, display_name, password_hash, can_publish, is_admin, role) VALUES (?, ?, ?, ?, ?, ?, ?)')
-                ->execute([$id, $tenant, $name, password_hash($password, PASSWORD_DEFAULT), (int) $publish, (int) $admin, $role]);
+                ->execute([$id, $tenant, $name, password_hash($password, \PASSWORD_DEFAULT), (int) $publish, (int) $admin, $role]);
             $scopes = $publish ? ['announcement.read', 'announcement.publish', 'approval.read'] : ['announcement.read', 'approval.read'];
             $database->pdo->prepare('INSERT INTO demo_grants (id, user_id, tenant_id, token_hash, scopes, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-                ->execute([$id.'-personal', $id, $tenant, hash('sha256', $token), json_encode($scopes, JSON_THROW_ON_ERROR), time()]);
+                ->execute([$id.'-personal', $id, $tenant, hash('sha256', $token), json_encode($scopes, \JSON_THROW_ON_ERROR), time()]);
             // A password alone cannot add an approval passkey: each person's first one needs this one-time link.
             $link = $database->issuePasskeyLink($id, $tenant, 'setup', self::LINK_SECONDS);
             $audit->append($tenant, 'passkey_link.issued', $id, ['issuedBy' => 'setup', 'expiresAt' => time() + self::LINK_SECONDS]);
@@ -74,7 +82,7 @@ final class DemoSetup
             'receipt_secret_key' => ChallengeBinding::encode(sodium_crypto_sign_secretkey($keypair)),
             'receipt_public_key' => ChallengeBinding::encode(sodium_crypto_sign_publickey($keypair)),
         ];
-        file_put_contents($directory.'/settings.json', json_encode($settings, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n", LOCK_EX);
+        file_put_contents($directory.'/settings.json', json_encode($settings, \JSON_THROW_ON_ERROR | \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES)."\n", \LOCK_EX);
         chmod($directory.'/settings.json', 0600);
         chmod($directory.'/application.sqlite', 0600);
 

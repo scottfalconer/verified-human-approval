@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Demo\Action;
 
-use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\Actor;
+use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalPolicy;
 use VerifiedHumanApproval\Core\PolicyProvider;
 use VerifiedHumanApproval\Demo\DemoDatabase;
@@ -15,20 +15,24 @@ final readonly class DemoPolicyProvider implements PolicyProvider
     /** How long a proposal waits for the person. The MCP request state outlives it, so a late retry still reads the outcome. */
     public const LIFETIME_SECONDS = 600;
 
-    public function __construct(private DemoDatabase $database) {}
+    public function __construct(private DemoDatabase $database)
+    {
+    }
 
     /** The rule follows the acting person's role. Without a direct rule, verified approval is required. */
     public function get(string $actionId, ?Actor $actor = null): ApprovalPolicy
     {
-        if ($actionId === ChangeAlertRule::ID) {
+        if (ChangeAlertRule::ID === $actionId) {
             // Fixed in code, not in the database: no rule change can switch off approval of rule changes.
             return new ApprovalPolicy(ChangeAlertRule::ID, 'fixed-1', 'I approve changing who can issue public alerts on {{application}}: {{changes}}.', self::LIFETIME_SECONDS, true);
         }
         $row = $this->database->policy($actionId);
-        if ($row === null) throw new ApprovalException('policy_missing', 'This action has no configured approval policy.');
-        $user = $actor === null ? null : $this->database->user($actor->userId);
-        $mode = $user === null ? 'approval' : ($this->database->roleMode($actionId, (string) $user['role']) ?? 'denied');
+        if (null === $row) {
+            throw new ApprovalException('policy_missing', 'This action has no configured approval policy.');
+        }
+        $user = null === $actor ? null : $this->database->user($actor->userId);
+        $mode = null === $user ? 'approval' : ($this->database->roleMode($actionId, (string) $user['role']) ?? 'denied');
 
-        return new ApprovalPolicy($row['action_id'], (string) $row['version'], $row['statement'], self::LIFETIME_SECONDS, $mode !== 'direct');
+        return new ApprovalPolicy($row['action_id'], (string) $row['version'], $row['statement'], self::LIFETIME_SECONDS, 'direct' !== $mode);
     }
 }

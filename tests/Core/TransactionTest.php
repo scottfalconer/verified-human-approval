@@ -4,12 +4,11 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\Core;
 
-use VerifiedHumanApproval\Core\ApprovalException;
-use VerifiedHumanApproval\Core\ApprovalState;
-use VerifiedHumanApproval\Core\Ceremony;
-use VerifiedHumanApproval\Tests\Support\CoreFixture;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\ApprovalState;
+use VerifiedHumanApproval\Tests\Support\CoreFixture;
 
 final class TransactionTest extends TestCase
 {
@@ -58,7 +57,7 @@ final class TransactionTest extends TestCase
 
         $fixture->action->failAfterWrite = false;
         $fixture->action->alterAfterWrite = false;
-        if ($point === 'receipt') {
+        if ('receipt' === $point) {
             $fixture->pdo->exec('DROP TRIGGER reject_receipt');
         }
         $fresh = $fixture->service->begin($fixture->reviewer, $request->request->id);
@@ -76,7 +75,7 @@ final class TransactionTest extends TestCase
         $ceremony = $fixture->service->begin($fixture->reviewer, $pending->request->id);
         $completed = $fixture->service->complete($fixture->reviewer, $ceremony->id, $fixture->proof($ceremony));
         try {
-            $fixture->store->transaction(fn () => $fixture->store->save(new ApprovalState($pending->request, 'cancelled', 'overwrite')));
+            $fixture->store->transaction(static fn () => $fixture->store->save(new ApprovalState($pending->request, 'cancelled', 'overwrite')));
             self::fail('An immutable terminal record was overwritten.');
         } catch (ApprovalException $exception) {
             self::assertSame('immutable_approval', $exception->reason);

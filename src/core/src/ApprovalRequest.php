@@ -26,9 +26,10 @@ final readonly class ApprovalRequest
             'createdAt' => self::timestamp($now), 'expiresAt' => self::timestamp($now->modify('+'.$policy->lifetimeSeconds.' seconds')),
         ];
         $canonical = CanonicalJson::encode($payload);
-        if (strlen($canonical) > 262144) {
+        if (\strlen($canonical) > 262144) {
             throw new ApprovalException('proposal_too_large', 'The prepared action exceeds the 256 KiB approval limit.');
         }
+
         return new self($id, $canonical, hash('sha256', $canonical));
     }
 

@@ -4,11 +4,6 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\Bundle;
 
-use VerifiedHumanApproval\Demo\DemoDatabase;
-use VerifiedHumanApproval\Demo\DemoKernel;
-use VerifiedHumanApproval\Demo\OAuth\ClientRegistry;
-use VerifiedHumanApproval\Demo\DemoSetup;
-use VerifiedHumanApproval\Demo\OAuth\OAuthServer;
 use Mcp\Client;
 use Mcp\Client\Transport\HttpTransport;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -18,6 +13,11 @@ use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\NoPrivateNetworkHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
+use VerifiedHumanApproval\Demo\DemoDatabase;
+use VerifiedHumanApproval\Demo\DemoKernel;
+use VerifiedHumanApproval\Demo\DemoSetup;
+use VerifiedHumanApproval\Demo\OAuth\ClientRegistry;
+use VerifiedHumanApproval\Demo\OAuth\OAuthServer;
 
 /** MCP authorization the way a remote client such as claude.ai does it, end to end. */
 final class OAuthTest extends TestCase
@@ -36,7 +36,9 @@ final class OAuthTest extends TestCase
 
     protected function tearDown(): void
     {
-        foreach ($this->browsers as $browser) $browser->getKernel()->shutdown();
+        foreach ($this->browsers as $browser) {
+            $browser->getKernel()->shutdown();
+        }
         (new Filesystem())->remove($this->runtime);
     }
 
@@ -151,9 +153,9 @@ final class OAuthTest extends TestCase
 
     public function testOpenRegistrationHasABudgetPerAddress(): void
     {
-        $settings = json_decode((string) file_get_contents($this->runtime.'/settings.json'), true, 32, JSON_THROW_ON_ERROR);
+        $settings = json_decode((string) file_get_contents($this->runtime.'/settings.json'), true, 32, \JSON_THROW_ON_ERROR);
         $settings['registration_attempts_per_minute'] = 2;
-        file_put_contents($this->runtime.'/settings.json', json_encode($settings, JSON_THROW_ON_ERROR));
+        file_put_contents($this->runtime.'/settings.json', json_encode($settings, \JSON_THROW_ON_ERROR));
         $api = $this->client();
         foreach ([201, 201, 429] as $expected) {
             $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => [self::CALLBACK], 'client_name' => 'Claude']);
@@ -192,7 +194,7 @@ final class OAuthTest extends TestCase
         self::assertSame(302, $browser->getResponse()->getStatusCode());
         $location = (string) $browser->getResponse()->headers->get('Location');
         self::assertStringStartsWith(self::CALLBACK.'?', $location);
-        parse_str((string) parse_url($location, PHP_URL_QUERY), $query);
+        parse_str((string) parse_url($location, \PHP_URL_QUERY), $query);
         self::assertSame('state-123', $query['state']);
         self::assertSame(self::ORIGIN, $query['iss']);
 
@@ -219,16 +221,16 @@ final class OAuthTest extends TestCase
 
     private function json(KernelBrowser $browser, string $method, string $path, ?array $body = null): array
     {
-        $browser->request($method, self::ORIGIN.$path, server: ['CONTENT_TYPE' => 'application/json'], content: $body === null ? null : json_encode($body, JSON_THROW_ON_ERROR));
+        $browser->request($method, self::ORIGIN.$path, server: ['CONTENT_TYPE' => 'application/json'], content: null === $body ? null : json_encode($body, \JSON_THROW_ON_ERROR));
 
-        return json_decode((string) $browser->getResponse()->getContent(), true, 16, JSON_THROW_ON_ERROR);
+        return json_decode((string) $browser->getResponse()->getContent(), true, 16, \JSON_THROW_ON_ERROR);
     }
 
     private function token(KernelBrowser $browser, array $form): array
     {
         $browser->request('POST', self::ORIGIN.'/oauth/token', $form);
 
-        return json_decode((string) $browser->getResponse()->getContent(), true, 16, JSON_THROW_ON_ERROR);
+        return json_decode((string) $browser->getResponse()->getContent(), true, 16, \JSON_THROW_ON_ERROR);
     }
 
     private function mcp(string $token): Client

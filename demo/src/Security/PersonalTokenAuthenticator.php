@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Demo\Security;
 
-use VerifiedHumanApproval\Demo\DemoDatabase;
-use VerifiedHumanApproval\Demo\OAuth\OAuthServer;
 use Mcp\Server\Authorization\AccessToken;
 use Mcp\Server\Transport\Http\OAuth\ProtectedResourceMetadata;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -19,6 +17,8 @@ use Symfony\Component\Security\Http\Authenticator\Passport\Badge\UserBadge;
 use Symfony\Component\Security\Http\Authenticator\Passport\Passport;
 use Symfony\Component\Security\Http\Authenticator\Passport\SelfValidatingPassport;
 use Symfony\Component\Security\Http\EntryPoint\AuthenticationEntryPointInterface;
+use VerifiedHumanApproval\Demo\DemoDatabase;
+use VerifiedHumanApproval\Demo\OAuth\OAuthServer;
 
 /**
  * The stateless /mcp firewall: a personal token or an OAuth access token names a person and a
@@ -27,21 +27,28 @@ use Symfony\Component\Security\Http\EntryPoint\AuthenticationEntryPointInterface
  */
 final class PersonalTokenAuthenticator extends AbstractAuthenticator implements AuthenticationEntryPointInterface
 {
-    public function __construct(private readonly DemoDatabase $database, private readonly ProtectedResourceMetadata $metadata) {}
+    public function __construct(private readonly DemoDatabase $database, private readonly ProtectedResourceMetadata $metadata)
+    {
+    }
 
-    public function supports(Request $request): bool { return $request->headers->has('Authorization'); }
+    public function supports(Request $request): bool
+    {
+        return $request->headers->has('Authorization');
+    }
 
     public function authenticate(Request $request): Passport
     {
         $header = $request->headers->get('Authorization', '');
-        if (!preg_match('/^Bearer ([A-Za-z0-9_-]{32,256})$/D', $header, $matches)) throw new CustomUserMessageAuthenticationException('Invalid personal token.');
-        $grant = $this->database->tokenGrant($matches[1]);
-        $row = $grant === null ? null : $this->database->user($grant['user_id']);
-        $expired = ($grant['expires_at'] ?? null) !== null && (int) $grant['expires_at'] < time();
-        if ($grant === null || !(bool) $grant['active'] || $expired || $row === null || !(bool) $row['enabled'] || $grant['tenant_id'] !== $row['tenant_id']) {
+        if (!preg_match('/^Bearer ([A-Za-z0-9_-]{32,256})$/D', $header, $matches)) {
             throw new CustomUserMessageAuthenticationException('Invalid personal token.');
         }
-        $scopes = json_decode((string) $grant['scopes'], true, 8, JSON_THROW_ON_ERROR);
+        $grant = $this->database->tokenGrant($matches[1]);
+        $row = null === $grant ? null : $this->database->user($grant['user_id']);
+        $expired = ($grant['expires_at'] ?? null) !== null && (int) $grant['expires_at'] < time();
+        if (null === $grant || !(bool) $grant['active'] || $expired || null === $row || !(bool) $row['enabled'] || $grant['tenant_id'] !== $row['tenant_id']) {
+            throw new CustomUserMessageAuthenticationException('Invalid personal token.');
+        }
+        $scopes = json_decode((string) $grant['scopes'], true, 8, \JSON_THROW_ON_ERROR);
         // The SDK's HTTP transports read this attribute and expose it to tools as RequestContext::getAccessToken().
         $request->attributes->set(AccessToken::class, new AccessToken(
             \is_array($scopes) ? array_values(array_filter($scopes, 'is_string')) : [],
@@ -51,8 +58,16 @@ final class PersonalTokenAuthenticator extends AbstractAuthenticator implements 
         return new SelfValidatingPassport(new UserBadge($row['id'], static fn () => DemoUser::fromRow($row, $grant['id'])));
     }
 
-    public function onAuthenticationSuccess(Request $request, TokenInterface $token, string $firewallName): ?Response { return null; }
-    public function onAuthenticationFailure(Request $request, AuthenticationException $exception): Response { return $this->start($request, $exception); }
+    public function onAuthenticationSuccess(Request $request, TokenInterface $token, string $firewallName): ?Response
+    {
+        return null;
+    }
+
+    public function onAuthenticationFailure(Request $request, AuthenticationException $exception): Response
+    {
+        return $this->start($request, $exception);
+    }
+
     public function start(Request $request, ?AuthenticationException $authException = null): Response
     {
         // RFC 9728: point MCP clients at the protected resource metadata, so they can find the authorization

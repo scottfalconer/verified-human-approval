@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\Bundle;
 
-use VerifiedHumanApproval\Demo\DemoDatabase;
-use VerifiedHumanApproval\Demo\DemoKernel;
-use VerifiedHumanApproval\Demo\DemoSetup;
 use PHPUnit\Framework\TestCase;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
 use Symfony\Component\Filesystem\Filesystem;
+use VerifiedHumanApproval\Demo\DemoDatabase;
+use VerifiedHumanApproval\Demo\DemoKernel;
+use VerifiedHumanApproval\Demo\DemoSetup;
 
 final class AllClearCommandTest extends TestCase
 {

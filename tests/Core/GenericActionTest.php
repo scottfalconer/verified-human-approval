@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\Core;
 
+use PHPUnit\Framework\TestCase;
 use VerifiedHumanApproval\Core\ActionAdapter;
 use VerifiedHumanApproval\Core\ActionRegistry;
 use VerifiedHumanApproval\Core\Actor;
@@ -12,26 +13,34 @@ use VerifiedHumanApproval\Core\ApprovalService;
 use VerifiedHumanApproval\Core\ExecutionGuard;
 use VerifiedHumanApproval\Core\PreparedAction;
 use VerifiedHumanApproval\Tests\Support\CoreFixture;
-use PDO;
-use PHPUnit\Framework\TestCase;
 
 final class GenericActionTest extends TestCase
 {
     public function testSameCoreCanApproveAnExactCampaignClosingDateChange(): void
     {
         $fixture = new CoreFixture();
-        $fixture->pdo->exec("CREATE TABLE test_campaigns (id INTEGER PRIMARY KEY, tenant TEXT NOT NULL, closing_date TEXT NOT NULL, revision INTEGER NOT NULL)");
+        $fixture->pdo->exec('CREATE TABLE test_campaigns (id INTEGER PRIMARY KEY, tenant TEXT NOT NULL, closing_date TEXT NOT NULL, revision INTEGER NOT NULL)');
         $fixture->pdo->exec("INSERT INTO test_campaigns VALUES (1, 'tenant-a', '2026-06-10', 4)");
         $fixture->pdo->exec("INSERT INTO test_policies VALUES ('campaign.set_closing_date', '1', 'Change the closing date from {{ before }} to {{ after }}.', 1)");
         $guard = new ExecutionGuard();
         $adapter = new class($fixture->pdo, $guard) implements ActionAdapter {
-            public function __construct(private readonly PDO $pdo, private readonly ExecutionGuard $guard) {}
-            public function id(): string { return 'campaign.set_closing_date'; }
-            public function version(): string { return '1'; }
+            public function __construct(private readonly \PDO $pdo, private readonly ExecutionGuard $guard)
+            {
+            }
+
+            public function id(): string
+            {
+                return 'campaign.set_closing_date';
+            }
+
+            public function version(): string
+            {
+                return '1';
+            }
 
             public function prepare(Actor $actor, array $input): PreparedAction
             {
-                if (($input['campaign_id'] ?? null) !== 1 || !is_string($input['closing_date'] ?? null)
+                if (($input['campaign_id'] ?? null) !== 1 || !\is_string($input['closing_date'] ?? null)
                     || !preg_match('/^\d{4}-\d{2}-\d{2}$/D', $input['closing_date'])) {
                     throw new ApprovalException('invalid_input', 'A campaign and ISO closing date are required.');
                 }
@@ -60,7 +69,7 @@ final class GenericActionTest extends TestCase
                 $this->guard->assertExecuting($actor, $action);
                 $update = $this->pdo->prepare('UPDATE test_campaigns SET closing_date = ?, revision = revision + 1 WHERE id = 1 AND tenant = ? AND revision = ?');
                 $update->execute([$action->effect['closing_date'], $actor->tenantId, $action->preconditions['revision']]);
-                if ($update->rowCount() !== 1) {
+                if (1 !== $update->rowCount()) {
                     throw new ApprovalException('stale_campaign', 'The conditional deadline change did not match.');
                 }
 
@@ -77,7 +86,7 @@ final class GenericActionTest extends TestCase
 
             private function row(): array
             {
-                return $this->pdo->query('SELECT * FROM test_campaigns WHERE id = 1')->fetch(PDO::FETCH_ASSOC);
+                return $this->pdo->query('SELECT * FROM test_campaigns WHERE id = 1')->fetch(\PDO::FETCH_ASSOC);
             }
         };
         $service = new ApprovalService(new ActionRegistry([$adapter]), $fixture->policies, $fixture->authorizer, $fixture->store, $fixture->verifier, $fixture->clock, $guard);

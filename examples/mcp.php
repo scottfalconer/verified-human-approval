@@ -14,9 +14,9 @@ try {
         'status' => $tools->callTool('approval_status', ['request_id' => $argv[2] ?? throw new InvalidArgumentException('Provide a request ID.')]),
         default => throw new InvalidArgumentException('Usage: php examples/mcp.php list|read [id]|publish [id] [request-key]|status <request-id>'),
     };
-    echo json_encode($result, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), "\n";
+    echo json_encode($result, \JSON_THROW_ON_ERROR | \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES), "\n";
     $tools->disconnect();
 } catch (Throwable $error) {
-    fwrite(STDERR, $error->getMessage()."\n");
+    fwrite(\STDERR, $error->getMessage()."\n");
     exit(1);
 }

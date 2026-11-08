@@ -17,7 +17,7 @@ final readonly class Credential
         public bool $revoked = false,
         public string $label = 'Passkey',
     ) {
-        if ($id === '' || $userId === '' || $tenantId === '' || $sourceJson === '') {
+        if ('' === $id || '' === $userId || '' === $tenantId || '' === $sourceJson) {
             throw new \InvalidArgumentException('A credential requires an ID, an owner and a source record.');
         }
     }

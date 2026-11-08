@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\Core;
 
-use VerifiedHumanApproval\Core\Audit\AuditLog;
-use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Clock\MockClock;
+use VerifiedHumanApproval\Core\Audit\AuditLog;
+use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
 
 /** The security log: signed entries, each naming the one before, so edits and deletions show. */
 final class AuditLogTest extends TestCase

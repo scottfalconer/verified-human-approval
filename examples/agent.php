@@ -17,7 +17,7 @@ require __DIR__.'/connection.php';
 try {
     $tools = approvalToolset();
     $toolbox = new McpToolbox($tools);
-    if ($toolbox->getTools() === []) {
+    if ([] === $toolbox->getTools()) {
         throw new RuntimeException('No MCP tools were discovered. Check the running server and personal token.');
     }
     $scripted = in_array('--scripted', $argv, true);
@@ -28,14 +28,14 @@ try {
         $turn = 0;
         $key = 'scripted-'.bin2hex(random_bytes(12));
         $platform = MockPlatformFactory::createPlatform(static function () use (&$turn, $key) {
-            return $turn++ === 0
+            return 0 === $turn++
                 ? new ToolCallResult([new ToolCall('request-publication', 'application_publish_alert', ['alert_id' => 'riverside-evacuation', 'request_key' => $key])])
                 : new TextResult('Scripted client completed its tool round. Inspect the authoritative tool result below; no human approval was simulated.');
         });
         $model = 'scripted-test';
     } else {
         $apiKey = getenv('OPENAI_API_KEY');
-        if (!is_string($apiKey) || $apiKey === '') {
+        if (!is_string($apiKey) || '' === $apiKey) {
             throw new RuntimeException('Set OPENAI_API_KEY for a live model, or use --scripted for a deterministic Symfony AI integration check.');
         }
         $platform = Factory::createPlatform($apiKey);
@@ -49,13 +49,13 @@ try {
     echo $execution->getContent(), "\n";
     if ($scripted) {
         foreach ($execution->getMessages()->getMessages() as $message) {
-            if ($message instanceof \Symfony\AI\Platform\Message\ToolCallMessage) {
+            if ($message instanceof Symfony\AI\Platform\Message\ToolCallMessage) {
                 echo $message->asText(), "\n";
             }
         }
     }
     $tools->disconnect();
 } catch (Throwable $error) {
-    fwrite(STDERR, $error->getMessage()."\n");
+    fwrite(\STDERR, $error->getMessage()."\n");
     exit(1);
 }

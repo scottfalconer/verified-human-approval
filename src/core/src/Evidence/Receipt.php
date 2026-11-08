@@ -22,7 +22,7 @@ final class Receipt
         return CanonicalJson::encode([
             'format' => 'verified-human-approval/receipt/v1', 'keyId' => $keyId,
             'proposalDigest' => $proposalDigest,
-            'proofDigest' => hash('sha256', CanonicalJson::encode($proof === null ? null : (object) $proof)),
+            'proofDigest' => hash('sha256', CanonicalJson::encode(null === $proof ? null : (object) $proof)),
             'executionDigest' => hash('sha256', CanonicalJson::encode((object) $execution)),
         ]);
     }
@@ -51,7 +51,7 @@ final class Receipt
             return false;
         }
 
-        return \strlen($key) === SODIUM_CRYPTO_SIGN_PUBLICKEYBYTES && \strlen($bytes) === SODIUM_CRYPTO_SIGN_BYTES
+        return \SODIUM_CRYPTO_SIGN_PUBLICKEYBYTES === \strlen($key) && \SODIUM_CRYPTO_SIGN_BYTES === \strlen($bytes)
             && sodium_crypto_sign_verify_detached($bytes, self::message($manifest), $key);
     }
 }

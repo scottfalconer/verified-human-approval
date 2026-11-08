@@ -4,17 +4,16 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\Mcp;
 
-use VerifiedHumanApproval\Core\Actor;
-use VerifiedHumanApproval\Core\ApprovalException;
-use VerifiedHumanApproval\Core\ApprovalState;
-use VerifiedHumanApproval\Mcp\ApprovalCard;
-use VerifiedHumanApproval\Mcp\UrlPrompt;
-use VerifiedHumanApproval\Tests\Support\CoreFixture;
 use Mcp\Schema\Enum\ProtocolVersion;
 use Mcp\Schema\Extension\Apps\McpApps;
 use Mcp\Schema\Extension\Apps\UiToolMeta;
 use Mcp\Server\Stateless\InputContext;
 use PHPUnit\Framework\TestCase;
+use VerifiedHumanApproval\Core\Actor;
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Mcp\ApprovalCard;
+use VerifiedHumanApproval\Mcp\UrlPrompt;
+use VerifiedHumanApproval\Tests\Support\CoreFixture;
 
 final class UrlPromptTest extends TestCase
 {
@@ -58,8 +57,8 @@ final class UrlPromptTest extends TestCase
         $binding = UrlPrompt::binding(new Actor('alice', 'tenant-a'), 'publish', ['id' => 1]);
         $answer = [UrlPrompt::KEY => ['action' => 'accept']];
         $changed = ['format' => 'verified-human-approval/continuation/v1', 'requestId' => 'apr_1', 'binding' => UrlPrompt::binding(new Actor('alice', 'tenant-a'), 'publish', ['id' => 2])];
-        $this->assertReason('continuation_mismatch', fn () => UrlPrompt::resumed(new InputContext($answer, $changed), $binding));
-        $this->assertReason('continuation_invalid', fn () => UrlPrompt::resumed(new InputContext($answer, ['id' => 'apr_1']), $binding));
+        $this->assertReason('continuation_mismatch', static fn () => UrlPrompt::resumed(new InputContext($answer, $changed), $binding));
+        $this->assertReason('continuation_invalid', static fn () => UrlPrompt::resumed(new InputContext($answer, ['id' => 'apr_1']), $binding));
     }
 
     public function testTheModelIsNeverToldThatAClientAnswerApprovedAnything(): void

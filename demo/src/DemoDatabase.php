@@ -7,7 +7,9 @@ namespace VerifiedHumanApproval\Demo;
 /** Example application data. The library has no dependency on these tables. */
 final readonly class DemoDatabase
 {
-    public function __construct(public \PDO $pdo) {}
+    public function __construct(public \PDO $pdo)
+    {
+    }
 
     public static function connect(string $path): \PDO
     {
@@ -104,8 +106,8 @@ SQL);
     /** @return list<array<string, mixed>> agent connections: personal tokens and OAuth grants */
     public function grants(string $tenantId, ?string $userId = null): array
     {
-        $query = $this->pdo->prepare('SELECT id, user_id, tenant_id, active, scopes, expires_at, client_id, client_name, created_at FROM demo_grants WHERE tenant_id = ?'.($userId === null ? '' : ' AND user_id = ?').' ORDER BY created_at DESC, id');
-        $query->execute($userId === null ? [$tenantId] : [$tenantId, $userId]);
+        $query = $this->pdo->prepare('SELECT id, user_id, tenant_id, active, scopes, expires_at, client_id, client_name, created_at FROM demo_grants WHERE tenant_id = ?'.(null === $userId ? '' : ' AND user_id = ?').' ORDER BY created_at DESC, id');
+        $query->execute(null === $userId ? [$tenantId] : [$tenantId, $userId]);
 
         return $query->fetchAll();
     }
@@ -113,10 +115,10 @@ SQL);
     /** Ends an agent connection: its access and refresh tokens stop working at once. */
     public function revokeGrant(string $id, string $tenantId, ?string $userId = null): bool
     {
-        $query = $this->pdo->prepare('UPDATE demo_grants SET active = 0, refresh_hash = NULL WHERE id = ? AND tenant_id = ? AND active = 1'.($userId === null ? '' : ' AND user_id = ?'));
-        $query->execute($userId === null ? [$id, $tenantId] : [$id, $tenantId, $userId]);
+        $query = $this->pdo->prepare('UPDATE demo_grants SET active = 0, refresh_hash = NULL WHERE id = ? AND tenant_id = ? AND active = 1'.(null === $userId ? '' : ' AND user_id = ?'));
+        $query->execute(null === $userId ? [$id, $tenantId] : [$id, $tenantId, $userId]);
 
-        return $query->rowCount() === 1;
+        return 1 === $query->rowCount();
     }
 
     /** Issues a one-time link for adding a first passkey. Returns the token, which is stored only as a hash. */
@@ -144,7 +146,7 @@ SQL);
         $query = $this->pdo->prepare('UPDATE demo_passkey_links SET used_at = ?, credential_id = ? WHERE token_hash = ? AND used_at IS NULL AND expires_at >= ?');
         $query->execute([time(), $credentialId, $tokenHash, time()]);
 
-        return $query->rowCount() === 1;
+        return 1 === $query->rowCount();
     }
 
     /** @return list<array<string, mixed>> */
@@ -167,7 +169,7 @@ SQL);
         $query->execute([$action, $role]);
         $mode = $query->fetchColumn();
 
-        return $mode === false ? null : (string) $mode;
+        return false === $mode ? null : (string) $mode;
     }
 
     public function policy(string $action): ?array

@@ -4,24 +4,24 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Bundle\Controller;
 
-use VerifiedHumanApproval\Core\Actor;
-use VerifiedHumanApproval\Core\ApprovalException;
-use VerifiedHumanApproval\Core\ApprovalService;
-use VerifiedHumanApproval\Bundle\ActorProvider;
-use VerifiedHumanApproval\Bundle\ApprovalPresenter;
-use VerifiedHumanApproval\Bundle\Handoff\ApprovalHandoff;
-use VerifiedHumanApproval\Bundle\RequesterLabel;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Symfony\Component\RateLimiter\RateLimiterFactoryInterface;
+use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Component\Security\Core\Exception\AccessDeniedException;
 use Symfony\Component\Security\Csrf\CsrfToken;
 use Symfony\Component\Security\Csrf\CsrfTokenManagerInterface;
-use Symfony\Component\RateLimiter\RateLimiterFactoryInterface;
-use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Twig\Environment;
+use VerifiedHumanApproval\Bundle\ActorProvider;
+use VerifiedHumanApproval\Bundle\ApprovalPresenter;
+use VerifiedHumanApproval\Bundle\Handoff\ApprovalHandoff;
+use VerifiedHumanApproval\Bundle\RequesterLabel;
+use VerifiedHumanApproval\Core\Actor;
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\ApprovalService;
 
 /**
  * The review page and its JSON actions. A stranger is sent to sign in; once someone is reviewing,
@@ -39,7 +39,8 @@ final readonly class ApprovalController
         private ?ApprovalHandoff $handoff = null,
         private ?UrlGeneratorInterface $urls = null,
         private ?RequesterLabel $requesters = null,
-    ) {}
+    ) {
+    }
 
     public function review(Request $request, string $id): Response
     {
@@ -56,7 +57,7 @@ final readonly class ApprovalController
             'csrf' => $this->csrf->getToken('verified_human_approval.'.$id)->getValue(),
             // Who asked: an agent's request should not look like the person's own.
             'requested_by' => $this->requesters?->describe($state->request->actor()),
-            'scoped' => $this->handoff?->personFor($request, $id) !== null,
+            'scoped' => null !== $this->handoff?->personFor($request, $id),
         ]));
     }
 
@@ -67,8 +68,12 @@ final readonly class ApprovalController
 
     public function options(Request $request, string $id): JsonResponse
     {
-        if (($refused = $this->refuseWithoutToken($request, $id)) !== null) return $refused;
-        if (($limited = $this->limit($this->reviewer($request, $id))) !== null) return $limited;
+        if (($refused = $this->refuseWithoutToken($request, $id)) !== null) {
+            return $refused;
+        }
+        if (($limited = $this->limit($this->reviewer($request, $id))) !== null) {
+            return $limited;
+        }
 
         return $this->respond(function () use ($request, $id): array {
             $ceremony = $this->approvals->begin($this->reviewer($request, $id), $id);
@@ -81,10 +86,14 @@ final readonly class ApprovalController
 
     public function complete(Request $request, string $id): JsonResponse
     {
-        if (($refused = $this->refuseWithoutToken($request, $id)) !== null) return $refused;
-        if (($limited = $this->limit($this->reviewer($request, $id))) !== null) return $limited;
+        if (($refused = $this->refuseWithoutToken($request, $id)) !== null) {
+            return $refused;
+        }
+        if (($limited = $this->limit($this->reviewer($request, $id))) !== null) {
+            return $limited;
+        }
         $body = $this->body($request);
-        if ($body === null || array_diff(array_keys($body), ['ceremony_id', 'credential']) !== []
+        if (null === $body || [] !== array_diff(array_keys($body), ['ceremony_id', 'credential'])
             || !\is_string($body['ceremony_id'] ?? null) || !\is_array($body['credential'] ?? null)) {
             return self::refusal('invalid_request', 'Completion accepts only a ceremony identifier and WebAuthn response.', 400);
         }
@@ -104,7 +113,9 @@ final readonly class ApprovalController
 
     public function cancel(Request $request, string $id): JsonResponse
     {
-        if (($refused = $this->refuseWithoutToken($request, $id)) !== null) return $refused;
+        if (($refused = $this->refuseWithoutToken($request, $id)) !== null) {
+            return $refused;
+        }
         // Cancelling needs the signed-in person. A phone code opens one review to approve with a passkey;
         // whoever scans it must not be able to call the request off.
         try {
@@ -122,7 +133,7 @@ final readonly class ApprovalController
      */
     public function handoff(Request $request, string $token): Response
     {
-        if ($this->handoff === null || !$this->handoff->peek($token)) {
+        if (null === $this->handoff || !$this->handoff->peek($token)) {
             return new Response($this->twig->render('@VerifiedHumanApproval/handoff_expired.html.twig'), 410);
         }
 
@@ -138,7 +149,7 @@ final readonly class ApprovalController
             return new Response($this->twig->render('@VerifiedHumanApproval/handoff_expired.html.twig'), 410);
         }
         $id = $this->handoff?->redeem($token, $request->getSession());
-        if ($id === null) {
+        if (null === $id) {
             return new Response($this->twig->render('@VerifiedHumanApproval/handoff_expired.html.twig'), 410);
         }
 
@@ -167,14 +178,14 @@ final readonly class ApprovalController
         return self::refusal('csrf_invalid', 'This page expired. Reload it, then approve again.', 403);
     }
 
-    /** @return null|array<string, mixed> the JSON object sent, or null when it is not one */
+    /** @return array<string, mixed>|null the JSON object sent, or null when it is not one */
     private function body(Request $request): ?array
     {
         if (\strlen($request->getContent()) > 65_536) {
             return null;
         }
         try {
-            $body = json_decode($request->getContent(), true, 32, JSON_THROW_ON_ERROR);
+            $body = json_decode($request->getContent(), true, 32, \JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
             return null;
         }
@@ -200,7 +211,9 @@ final readonly class ApprovalController
     {
         // One account budget covers all proposal IDs, so changing the URL cannot reset it.
         $limit = $this->limiter->create(hash('sha256', $actor->tenantId."\0".$actor->userId))->consume();
-        if ($limit->isAccepted()) return null;
+        if ($limit->isAccepted()) {
+            return null;
+        }
 
         return new JsonResponse([
             'status' => 'rate_limited', 'message' => 'Too many approval attempts. Wait a minute before starting a fresh review.',

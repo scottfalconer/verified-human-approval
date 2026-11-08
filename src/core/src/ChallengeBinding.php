@@ -8,9 +8,10 @@ final class ChallengeBinding
 {
     public static function challenge(string $proposalDigest, string $nonce): string
     {
-        if (!preg_match('/^[0-9a-f]{64}$/D', $proposalDigest) || strlen($nonce) !== 32) {
+        if (!preg_match('/^[0-9a-f]{64}$/D', $proposalDigest) || 32 !== \strlen($nonce)) {
             throw new \InvalidArgumentException('A binding needs a SHA-256 digest and a 32-byte random nonce.');
         }
+
         return hash('sha256', "VerifiedHumanApproval/WebAuthn/v1\0".hex2bin($proposalDigest).$nonce, true);
     }
 
@@ -25,9 +26,10 @@ final class ChallengeBinding
             throw new \InvalidArgumentException('Invalid base64url data.');
         }
         $decoded = base64_decode(strtr($encoded, '-_', '+/'), true);
-        if ($decoded === false || self::encode($decoded) !== $encoded) {
+        if (false === $decoded || self::encode($decoded) !== $encoded) {
             throw new \InvalidArgumentException('Non-canonical base64url data.');
         }
+
         return $decoded;
     }
 }

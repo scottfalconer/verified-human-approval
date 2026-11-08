@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\WebAuthn;
 
+use ParagonIE\ConstantTime\Base64UrlSafe;
+use Symfony\Component\Serializer\SerializerInterface;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalVerifier;
 use VerifiedHumanApproval\Core\VerifiedApproval;
-use ParagonIE\ConstantTime\Base64UrlSafe;
-use Symfony\Component\Serializer\SerializerInterface;
 use Webauthn\AttestationStatement\AttestationStatementSupportManager;
 use Webauthn\AttestationStatement\NoneAttestationStatementSupport;
 use Webauthn\AuthenticatorAssertionResponse;
@@ -59,7 +59,7 @@ final class WebAuthnVerifier implements ApprovalVerifier
     {
         $this->assertChallenge($challenge);
         $credentials = $this->credentials->forActor($actor);
-        if ($credentials === []) {
+        if ([] === $credentials) {
             throw new ApprovalException('credential_required', 'Enroll an approval passkey through your trusted account settings first.');
         }
         $records = [];
@@ -75,6 +75,7 @@ final class WebAuthnVerifier implements ApprovalVerifier
 
     /**
      * Called by ApprovalService inside the final business transaction.
+     *
      * @param array<string, mixed> $assertion
      */
     public function verify(Actor $actor, string $challenge, array $assertion): VerifiedApproval
@@ -83,7 +84,7 @@ final class WebAuthnVerifier implements ApprovalVerifier
         $response = $this->parseResponse($assertion);
         $id = Base64UrlSafe::encodeUnpadded($response->rawId);
         $credential = $this->credentials->find($id);
-        if ($credential === null || !$credential->belongsTo($actor) || $credential->revoked) {
+        if (null === $credential || !$credential->belongsTo($actor) || $credential->revoked) {
             throw new ApprovalException('credential_unavailable', 'This passkey is not an active approval credential for this account.');
         }
         $record = $this->recordFor($actor, $credential);
@@ -106,6 +107,7 @@ final class WebAuthnVerifier implements ApprovalVerifier
     /**
      * A read-only historical verification using a separately trusted credential registration.
      * This proves the signature and proposal binding, not the historical live-counter/revocation state.
+     *
      * @param array<string, mixed> $assertion
      */
     public function verifyEvidenceAssertion(
@@ -142,7 +144,7 @@ final class WebAuthnVerifier implements ApprovalVerifier
     public function registrationOptions(Actor $actor, string $challenge, string $displayName): array
     {
         $this->assertChallenge($challenge);
-        if ($displayName === '' || strlen($displayName) > 256) {
+        if ('' === $displayName || \strlen($displayName) > 256) {
             throw new \InvalidArgumentException('The credential account display name must be between one and 256 bytes.');
         }
         $exclude = [];
@@ -172,20 +174,21 @@ final class WebAuthnVerifier implements ApprovalVerifier
     /**
      * Validate and insert a new registration. No existing key is replaced or unrevoked.
      * $savedOptions must come from trusted server-side enrollment state, never the browser.
+     *
      * @param array<string, mixed> $savedOptions
      * @param array<string, mixed> $response
      */
     public function register(Actor $actor, array $savedOptions, array $response, string $label = 'Passkey'): Credential
     {
-        if ($label === '' || strlen($label) > 200) {
+        if ('' === $label || \strlen($label) > 200) {
             throw new \InvalidArgumentException('The passkey label must be between one and 200 bytes.');
         }
         try {
             $options = $this->serializer->deserialize($this->encoded($savedOptions), PublicKeyCredentialCreationOptions::class, 'json');
             if ($options->rp->id !== $this->configuration->rpId
                 || !hash_equals($this->userHandle($actor), $options->user->id)
-                || $options->authenticatorSelection?->userVerification !== AuthenticatorSelectionCriteria::USER_VERIFICATION_REQUIREMENT_REQUIRED
-                || ($options->mediation !== null && $options->mediation !== PublicKeyCredentialCreationOptions::MEDIATION_DEFAULT)
+                || AuthenticatorSelectionCriteria::USER_VERIFICATION_REQUIREMENT_REQUIRED !== $options->authenticatorSelection?->userVerification
+                || (null !== $options->mediation && PublicKeyCredentialCreationOptions::MEDIATION_DEFAULT !== $options->mediation)
             ) {
                 throw new \UnexpectedValueException('Enrollment options do not match the trusted account and RP.');
             }
@@ -242,7 +245,7 @@ final class WebAuthnVerifier implements ApprovalVerifier
     private function assertTopLevel(PublicKeyCredential $response): void
     {
         $data = $response->response->clientDataJSON;
-        if ($data->crossOrigin || $data->topOrigin !== null) {
+        if ($data->crossOrigin || null !== $data->topOrigin) {
             throw new \UnexpectedValueException('Cross-origin and embedded approval ceremonies are not enabled.');
         }
     }
@@ -289,7 +292,7 @@ final class WebAuthnVerifier implements ApprovalVerifier
     private function userHandle(Actor $actor): string
     {
         $handle = $this->userHandles->forActor($actor);
-        if ($handle === '' || strlen($handle) > 64) {
+        if ('' === $handle || \strlen($handle) > 64) {
             throw new \LogicException('The configured user-handle provider must return one to 64 bytes.');
         }
 
@@ -298,7 +301,7 @@ final class WebAuthnVerifier implements ApprovalVerifier
 
     private function assertChallenge(string $challenge): void
     {
-        if (strlen($challenge) < 32 || strlen($challenge) > 1024) {
+        if (\strlen($challenge) < 32 || \strlen($challenge) > 1024) {
             throw new \InvalidArgumentException('Use a server-generated challenge containing at least 32 bytes.');
         }
     }
@@ -306,8 +309,8 @@ final class WebAuthnVerifier implements ApprovalVerifier
     /** @param array<string, mixed> $value */
     private function encoded(array $value): string
     {
-        $json = json_encode($value, JSON_THROW_ON_ERROR);
-        if (strlen($json) > self::MAX_RESPONSE_BYTES) {
+        $json = json_encode($value, \JSON_THROW_ON_ERROR);
+        if (\strlen($json) > self::MAX_RESPONSE_BYTES) {
             throw new \LengthException('The WebAuthn response exceeds the supported size.');
         }
 
@@ -317,11 +320,12 @@ final class WebAuthnVerifier implements ApprovalVerifier
     /** @return array<string, mixed> */
     private function jsonArray(object $value): array
     {
-        return json_decode($this->serializer->serialize($value, 'json'), true, 64, JSON_THROW_ON_ERROR);
+        return json_decode($this->serializer->serialize($value, 'json'), true, 64, \JSON_THROW_ON_ERROR);
     }
 
     /**
      * @param array<string, mixed> $assertion
+     *
      * @return array<string, mixed>
      */
     private function evidence(Actor $actor, array $assertion, string $id, ?int $before, int $after): array

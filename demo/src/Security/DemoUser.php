@@ -16,20 +16,39 @@ final readonly class DemoUser implements UserInterface, PasswordAuthenticatedUse
         private string $passwordHash,
         private array $roles,
         public ?string $delegationId = null,
-    ) {}
+    ) {
+    }
 
     public static function fromRow(array $row, ?string $delegationId = null): self
     {
         $roles = ['ROLE_USER'];
-        if ((bool) $row['can_publish']) $roles[] = 'ROLE_PUBLISHER';
+        if ((bool) $row['can_publish']) {
+            $roles[] = 'ROLE_PUBLISHER';
+        }
         // A personal agent token intentionally never gets account/policy administration roles.
-        if ($delegationId === null && (bool) $row['is_admin']) $roles[] = 'ROLE_ADMIN';
+        if (null === $delegationId && (bool) $row['is_admin']) {
+            $roles[] = 'ROLE_ADMIN';
+        }
 
         return new self($row['id'], $row['tenant_id'], $row['display_name'], $row['password_hash'], $roles, $delegationId);
     }
 
-    public function getUserIdentifier(): string { return $this->id; }
-    public function getRoles(): array { return $this->roles; }
-    public function getPassword(): string { return $this->passwordHash; }
-    public function eraseCredentials(): void {}
+    public function getUserIdentifier(): string
+    {
+        return $this->id;
+    }
+
+    public function getRoles(): array
+    {
+        return $this->roles;
+    }
+
+    public function getPassword(): string
+    {
+        return $this->passwordHash;
+    }
+
+    public function eraseCredentials(): void
+    {
+    }
 }

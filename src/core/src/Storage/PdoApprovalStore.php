@@ -4,7 +4,13 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Core\Storage;
 
-use VerifiedHumanApproval\Core\{Actor, ApprovalException, ApprovalRequest, ApprovalState, ApprovalStore, CanonicalJson, Ceremony};
+use VerifiedHumanApproval\Core\Actor;
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\ApprovalRequest;
+use VerifiedHumanApproval\Core\ApprovalState;
+use VerifiedHumanApproval\Core\ApprovalStore;
+use VerifiedHumanApproval\Core\CanonicalJson;
+use VerifiedHumanApproval\Core\Ceremony;
 
 /** Reference SQLite adapter. All protected application writers must use this same connection. */
 final class PdoApprovalStore implements ApprovalStore
@@ -13,7 +19,7 @@ final class PdoApprovalStore implements ApprovalStore
 
     public function __construct(private readonly \PDO $pdo)
     {
-        if ($pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
+        if ('sqlite' !== $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME)) {
             throw new \InvalidArgumentException('This reference adapter supports SQLite only; supply another transactional adapter for other databases.');
         }
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
@@ -61,6 +67,7 @@ final class PdoApprovalStore implements ApprovalStore
         try {
             $result = $callback();
             $this->pdo->exec('COMMIT');
+
             return $result;
         } catch (\Throwable $error) {
             try {
@@ -79,7 +86,7 @@ final class PdoApprovalStore implements ApprovalStore
         $this->assertTransaction();
         $request = $state->request;
         $this->pdo->prepare('INSERT INTO verified_human_approval_requests (id, actor_key, idempotency_key, fingerprint, proposal, digest, status) VALUES (?, ?, ?, ?, ?, ?, ?)')->execute([
-            $request->id, $request->actor()->key(), $idempotencyKey === null ? null : hash('sha256', $idempotencyKey), $fingerprint, $request->canonical, $request->digest, $state->status,
+            $request->id, $request->actor()->key(), null === $idempotencyKey ? null : hash('sha256', $idempotencyKey), $fingerprint, $request->canonical, $request->digest, $state->status,
         ]);
     }
 
@@ -89,7 +96,7 @@ final class PdoApprovalStore implements ApprovalStore
         $statement->execute([$id]);
         $row = $statement->fetch(\PDO::FETCH_ASSOC);
 
-        return $row === false ? null : self::state($row);
+        return false === $row ? null : self::state($row);
     }
 
     /**
@@ -112,8 +119,8 @@ final class PdoApprovalStore implements ApprovalStore
     /** @param array<string, mixed> $row */
     private static function state(array $row): ApprovalState
     {
-        $decode = static fn (?string $json): ?array => $json === null ? null : CanonicalJson::map(CanonicalJson::decode($json));
-        $receipt = $row['receipt_manifest'] === null ? null : ['manifest' => $row['receipt_manifest'], 'keyId' => $row['receipt_key_id'], 'signature' => $row['receipt_signature']];
+        $decode = static fn (?string $json): ?array => null === $json ? null : CanonicalJson::map(CanonicalJson::decode($json));
+        $receipt = null === $row['receipt_manifest'] ? null : ['manifest' => $row['receipt_manifest'], 'keyId' => $row['receipt_key_id'], 'signature' => $row['receipt_signature']];
 
         return new ApprovalState(new ApprovalRequest($row['id'], $row['proposal'], $row['digest']), $row['status'], $row['reason'], $decode($row['result']), $decode($row['execution']), $decode($row['proof']), $receipt);
     }
@@ -123,7 +130,8 @@ final class PdoApprovalStore implements ApprovalStore
         $statement = $this->pdo->prepare('SELECT id, fingerprint FROM verified_human_approval_requests WHERE actor_key = ? AND idempotency_key = ?');
         $statement->execute([$actor->key(), hash('sha256', $idempotencyKey)]);
         $row = $statement->fetch(\PDO::FETCH_ASSOC);
-        return $row === false ? null : ['state' => $this->get($row['id']), 'fingerprint' => $row['fingerprint']];
+
+        return false === $row ? null : ['state' => $this->get($row['id']), 'fingerprint' => $row['fingerprint']];
     }
 
     public function findPending(Actor $actor, string $fingerprint): ?ApprovalState
@@ -131,30 +139,31 @@ final class PdoApprovalStore implements ApprovalStore
         $statement = $this->pdo->prepare("SELECT id FROM verified_human_approval_requests WHERE actor_key = ? AND fingerprint = ? AND status = 'pending' ORDER BY rowid DESC LIMIT 1");
         $statement->execute([$actor->key(), $fingerprint]);
         $id = $statement->fetchColumn();
-        return $id === false ? null : $this->get((string) $id);
+
+        return false === $id ? null : $this->get((string) $id);
     }
 
     public function save(ApprovalState $state): void
     {
         $this->assertTransaction();
         $current = $this->get($state->request->id) ?? throw new \LogicException('Cannot update a missing approval.');
-        if ($current->request->canonical !== $state->request->canonical || $current->status !== 'pending') {
+        if ($current->request->canonical !== $state->request->canonical || 'pending' !== $current->status) {
             throw new ApprovalException('immutable_approval', 'A frozen proposal or terminal outcome cannot be overwritten.');
         }
-        if ($state->status === 'completed') {
-            if ($state->execution === null || $state->result === null) {
+        if ('completed' === $state->status) {
+            if (null === $state->execution || null === $state->result) {
                 throw new \LogicException('Completion requires a durable result and execution record.');
             }
             $this->pdo->prepare('INSERT INTO verified_human_approval_executions (request_id, record) VALUES (?, ?)')->execute([$state->request->id, CanonicalJson::encode((object) $state->execution)]);
-            if ($state->receipt !== null) {
+            if (null !== $state->receipt) {
                 $this->pdo->prepare('INSERT INTO verified_human_approval_receipts (request_id, key_id, manifest, signature) VALUES (?, ?, ?, ?)')
                     ->execute([$state->request->id, $state->receipt['keyId'], $state->receipt['manifest'], $state->receipt['signature']]);
             }
         }
         $this->pdo->prepare('UPDATE verified_human_approval_requests SET status = ?, reason = ?, result = ?, proof = ? WHERE id = ? AND status = ?')->execute([
             $state->status, $state->reason,
-            $state->result === null ? null : CanonicalJson::encode((object) $state->result),
-            $state->proof === null ? null : CanonicalJson::encode((object) $state->proof),
+            null === $state->result ? null : CanonicalJson::encode((object) $state->result),
+            null === $state->proof ? null : CanonicalJson::encode((object) $state->proof),
             $state->request->id, 'pending',
         ]);
     }
@@ -174,7 +183,8 @@ final class PdoApprovalStore implements ApprovalStore
         $statement = $this->pdo->prepare('SELECT * FROM verified_human_approval_ceremonies WHERE id = ?');
         $statement->execute([$id]);
         $row = $statement->fetch(\PDO::FETCH_ASSOC);
-        return $row === false ? null : new Ceremony($row['id'], $row['request_id'], $row['nonce'], $row['challenge'], $row['expires_at'], CanonicalJson::map(CanonicalJson::decode($row['options'])), (bool) $row['consumed']);
+
+        return false === $row ? null : new Ceremony($row['id'], $row['request_id'], $row['nonce'], $row['challenge'], $row['expires_at'], CanonicalJson::map(CanonicalJson::decode($row['options'])), (bool) $row['consumed']);
     }
 
     public function retireCeremony(string $id): void

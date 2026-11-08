@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Bundle\Mcp;
 
-use VerifiedHumanApproval\Mcp\ApprovalCard;
 use Mcp\Schema\Content\TextResourceContents;
 use Symfony\AI\McpBundle\Attribute\AsMcpApp;
+use VerifiedHumanApproval\Mcp\ApprovalCard;
 
 /**
  * Serves the shared approval card as an MCP App resource and enables the MCP Apps extension.

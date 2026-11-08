@@ -15,7 +15,7 @@ final readonly class Configuration
         public int $timeoutMs = 60000,
     ) {
         $parts = parse_url($origin);
-        if (!is_array($parts) || !isset($parts['scheme'], $parts['host'])
+        if (!\is_array($parts) || !isset($parts['scheme'], $parts['host'])
             || isset($parts['user']) || isset($parts['pass'])
             || isset($parts['path']) || isset($parts['query']) || isset($parts['fragment'])
         ) {
@@ -29,7 +29,7 @@ final readonly class Configuration
         ) {
             throw new \InvalidArgumentException('The RP ID must be the configured origin host or its domain suffix.');
         }
-        if ($parts['scheme'] !== 'https' && !($parts['scheme'] === 'http' && $host === 'localhost' && $rpId === 'localhost')) {
+        if ('https' !== $parts['scheme'] && !('http' === $parts['scheme'] && 'localhost' === $host && 'localhost' === $rpId)) {
             throw new \InvalidArgumentException('WebAuthn requires HTTPS; HTTP localhost is allowed for local development.');
         }
         if ($timeoutMs < 1000 || $timeoutMs > 600000) {

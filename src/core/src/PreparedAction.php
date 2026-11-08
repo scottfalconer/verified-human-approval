@@ -15,11 +15,11 @@ final readonly class PreparedAction
         public array $display,
         public array $placeholders = [],
     ) {
-        if ($actionId === '' || $version === '' || $target === [] || $display === []) {
+        if ('' === $actionId || '' === $version || [] === $target || [] === $display) {
             throw new \InvalidArgumentException('An action needs an identity, version, target and human-readable display.');
         }
         foreach ($placeholders as $name => $value) {
-            if (!is_string($name) || !is_string($value) || !preg_match('/^[a-zA-Z][a-zA-Z0-9_.]*$/D', $name)) {
+            if (!\is_string($name) || !\is_string($value) || !preg_match('/^[a-zA-Z][a-zA-Z0-9_.]*$/D', $name)) {
                 throw new \InvalidArgumentException('Statement placeholders must have simple names and string values.');
             }
         }

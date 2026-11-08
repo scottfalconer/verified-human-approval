@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\Core;
 
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\TestCase;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalState;
 use VerifiedHumanApproval\Core\CanonicalJson;
 use VerifiedHumanApproval\Tests\Support\CoreFixture;
-use PHPUnit\Framework\Attributes\DataProvider;
-use PHPUnit\Framework\TestCase;
 
 final class ApprovalServiceTest extends TestCase
 {
@@ -345,6 +345,7 @@ final class ApprovalServiceTest extends TestCase
             $result = $attempt();
             if ($result instanceof ApprovalState) {
                 self::assertContains($result->status, ['denied', 'invalidated', 'expired', 'cancelled']);
+
                 return;
             }
             self::fail('The unapproved operation did not reject the attempt.');

@@ -22,7 +22,10 @@ final class SecurityHeadersSubscriber implements EventSubscriberInterface
 {
     public const ROUTE_DEFAULT = '_verified_human_approval_headers';
 
-    public static function getSubscribedEvents(): array { return [KernelEvents::RESPONSE => 'onResponse']; }
+    public static function getSubscribedEvents(): array
+    {
+        return [KernelEvents::RESPONSE => 'onResponse'];
+    }
 
     public function onResponse(ResponseEvent $event): void
     {

@@ -10,11 +10,11 @@ final readonly class Actor
     public function __construct(public string $userId, public string $tenantId, public ?string $delegationId = null)
     {
         foreach ([$userId, $tenantId] as $value) {
-            if ($value === '' || strlen($value) > 255) {
+            if ('' === $value || \strlen($value) > 255) {
                 throw new \InvalidArgumentException('Actor identifiers must contain 1–255 bytes.');
             }
         }
-        if ($delegationId !== null && ($delegationId === '' || strlen($delegationId) > 255)) {
+        if (null !== $delegationId && ('' === $delegationId || \strlen($delegationId) > 255)) {
             throw new \InvalidArgumentException('Invalid delegation identifier.');
         }
     }

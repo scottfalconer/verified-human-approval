@@ -10,7 +10,7 @@ final readonly class SodiumEvidenceSigner implements EvidenceSigner
 {
     public function __construct(private string $id, #[\SensitiveParameter] private string $secretKey)
     {
-        if ($id === '' || strlen($secretKey) !== SODIUM_CRYPTO_SIGN_SECRETKEYBYTES) {
+        if ('' === $id || \SODIUM_CRYPTO_SIGN_SECRETKEYBYTES !== \strlen($secretKey)) {
             throw new \InvalidArgumentException('An Ed25519 signer needs a key identifier and a 64-byte secret key.');
         }
     }

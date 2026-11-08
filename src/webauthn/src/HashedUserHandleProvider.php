@@ -12,7 +12,7 @@ final class HashedUserHandleProvider implements UserHandleProvider
     public function forActor(Actor $actor): string
     {
         return hash('sha256', "verified-human-approval.user-handle.v1\0"
-            .pack('N', strlen($actor->tenantId)).$actor->tenantId
-            .pack('N', strlen($actor->userId)).$actor->userId, true);
+            .pack('N', \strlen($actor->tenantId)).$actor->tenantId
+            .pack('N', \strlen($actor->userId)).$actor->userId, true);
     }
 }

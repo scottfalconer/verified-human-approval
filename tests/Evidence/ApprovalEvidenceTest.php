@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\Evidence;
 
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\TestCase;
 use VerifiedHumanApproval\Core\ActionRegistry;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalService;
@@ -22,8 +24,6 @@ use VerifiedHumanApproval\WebAuthn\Configuration;
 use VerifiedHumanApproval\WebAuthn\Credential;
 use VerifiedHumanApproval\WebAuthn\PdoCredentialRepository;
 use VerifiedHumanApproval\WebAuthn\WebAuthnVerifier;
-use PHPUnit\Framework\Attributes\DataProvider;
-use PHPUnit\Framework\TestCase;
 
 /** Runs the actual approval core, SQLite mutation, WebAuthn validator and receipt signatures together. */
 final class ApprovalEvidenceTest extends TestCase
@@ -83,7 +83,7 @@ final class ApprovalEvidenceTest extends TestCase
         $this->verifyHuman($verified);
         [$exit, $stdout, $stderr] = $this->runVerifier($bundle);
         self::assertSame(0, $exit, $stderr);
-        $result = json_decode($stdout, true, flags: JSON_THROW_ON_ERROR);
+        $result = json_decode($stdout, true, flags: \JSON_THROW_ON_ERROR);
         self::assertTrue($result['credentialApprovedExactProposal']);
         self::assertTrue($result['applicationSignedExecutionReport']);
         self::assertSame($completed->request->statement(), $result['statement']);
@@ -200,8 +200,15 @@ final class ApprovalEvidenceTest extends TestCase
     {
         $completed = $this->complete();
         $unavailable = new class implements EvidenceSigner {
-            public function keyId(): string { return 'temporarily-unavailable'; }
-            public function sign(string $manifest): string { throw new \RuntimeException('Injected signer outage.'); }
+            public function keyId(): string
+            {
+                return 'temporarily-unavailable';
+            }
+
+            public function sign(string $manifest): string
+            {
+                throw new \RuntimeException('Injected signer outage.');
+            }
         };
         try {
             (new EvidenceExporter($unavailable))->export($completed);
@@ -227,7 +234,7 @@ final class ApprovalEvidenceTest extends TestCase
         $bundle = $this->exportPersisted($completed);
         [$exit, $stdout, $stderr] = $this->runVerifier($bundle);
         self::assertSame(0, $exit, $stderr);
-        self::assertSame($statement, json_decode($stdout, true, flags: JSON_THROW_ON_ERROR)['statement']);
+        self::assertSame($statement, json_decode($stdout, true, flags: \JSON_THROW_ON_ERROR)['statement']);
     }
 
     public function testUnexpectedPostSaveMutationRollsBackRealCredentialCounterAndBusinessState(): void
@@ -274,8 +281,15 @@ final class ApprovalEvidenceTest extends TestCase
     public function testAReceiptSignerFailureMeansNothingExecutes(): void
     {
         $unavailable = new class implements EvidenceSigner {
-            public function keyId(): string { return 'unavailable'; }
-            public function sign(string $manifest): string { throw new \RuntimeException('Injected signer outage.'); }
+            public function keyId(): string
+            {
+                return 'unavailable';
+            }
+
+            public function sign(string $manifest): string
+            {
+                throw new \RuntimeException('Injected signer outage.');
+            }
         };
         [$service, $actor] = $this->signingService($unavailable);
         $pending = $service->request($actor, 'article.publish', ['id' => 1]);
@@ -349,13 +363,13 @@ final class ApprovalEvidenceTest extends TestCase
                 file_put_contents($directory.'/'.$name, CanonicalJson::encode((object) $contents));
             }
             $process = proc_open([
-                PHP_BINARY,
-                dirname(__DIR__, 2).'/src/core/bin/verify-evidence.php',
+                \PHP_BINARY,
+                \dirname(__DIR__, 2).'/src/core/bin/verify-evidence.php',
                 $directory.'/evidence.json',
                 $directory.'/application.json',
                 $directory.'/credential.json',
             ], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
-            if (!is_resource($process)) {
+            if (!\is_resource($process)) {
                 throw new \RuntimeException('Could not launch the independent verifier process.');
             }
             fclose($pipes[0]);

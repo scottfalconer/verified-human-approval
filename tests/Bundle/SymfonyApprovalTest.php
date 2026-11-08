@@ -4,6 +4,13 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\Bundle;
 
+use Mcp\Client;
+use Mcp\Client\Transport\HttpTransport;
+use Mcp\Schema\Extension\Apps\McpApps;
+use Nyholm\Psr7\Factory\Psr17Factory;
+use PHPUnit\Framework\TestCase;
+use Symfony\Bundle\FrameworkBundle\KernelBrowser;
+use Symfony\Component\Filesystem\Filesystem;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ChallengeBinding;
@@ -13,21 +20,9 @@ use VerifiedHumanApproval\Demo\Action\PublishAnnouncement;
 use VerifiedHumanApproval\Demo\DemoDatabase;
 use VerifiedHumanApproval\Demo\DemoKernel;
 use VerifiedHumanApproval\Demo\DemoSetup;
-use VerifiedHumanApproval\Tests\Support\VirtualAuthenticator;
 use VerifiedHumanApproval\Mcp\ApprovalCard;
 use VerifiedHumanApproval\Mcp\UrlPrompt;
-use Mcp\Schema\Extension\Apps\McpApps;
-use Mcp\Client;
-use Mcp\Client\Transport\HttpTransport;
-use Nyholm\Psr7\Factory\Psr17Factory;
-use Nyholm\Psr7\Response as PsrResponse;
-use PHPUnit\Framework\TestCase;
-use Psr\Http\Client\ClientInterface;
-use Psr\Http\Message\RequestInterface;
-use Psr\Http\Message\ResponseInterface;
-use Symfony\Bundle\FrameworkBundle\KernelBrowser;
-use Symfony\Component\Filesystem\Filesystem;
-use Symfony\Component\HttpFoundation\Request;
+use VerifiedHumanApproval\Tests\Support\VirtualAuthenticator;
 
 /** Actual Symfony kernel, firewall, forms, SDK HTTP transport and WebAuthn cryptography. */
 final class SymfonyApprovalTest extends TestCase
@@ -49,8 +44,12 @@ final class SymfonyApprovalTest extends TestCase
 
     protected function tearDown(): void
     {
-        foreach ($this->clients as $client) $client->disconnect();
-        foreach ($this->browsers as $browser) $browser->getKernel()->shutdown();
+        foreach ($this->clients as $client) {
+            $client->disconnect();
+        }
+        foreach ($this->browsers as $browser) {
+            $browser->getKernel()->shutdown();
+        }
         (new Filesystem())->remove($this->runtime);
     }
 
@@ -58,14 +57,16 @@ final class SymfonyApprovalTest extends TestCase
     {
         $client = $this->mcp();
         $tools = [];
-        foreach ($client->listTools()->tools as $tool) $tools[$tool->name] = $tool;
+        foreach ($client->listTools()->tools as $tool) {
+            $tools[$tool->name] = $tool;
+        }
         self::assertEqualsCanonicalizing(['approval_handoff', 'approval_status', 'publish_alert', 'read_alert'], array_keys($tools));
-        self::assertSame(['app'], json_decode(json_encode($tools['approval_handoff'], JSON_THROW_ON_ERROR), true)['_meta']['ui']['visibility'], 'Only the card can ask for a phone code.');
+        self::assertSame(['app'], json_decode(json_encode($tools['approval_handoff'], \JSON_THROW_ON_ERROR), true)['_meta']['ui']['visibility'], 'Only the card can ask for a phone code.');
         self::assertArrayNotHasKey('actor', $tools['publish_alert']->inputSchema['properties']);
         self::assertArrayNotHasKey('user_id', $tools['publish_alert']->inputSchema['properties']);
         self::assertNotEmpty($tools['publish_alert']->inputSchema['properties']['request_key']['description'] ?? null, 'Parameters are described.');
         foreach ($tools as $name => $tool) {
-            $declared = json_decode(json_encode($tool, JSON_THROW_ON_ERROR), true);
+            $declared = json_decode(json_encode($tool, \JSON_THROW_ON_ERROR), true);
             self::assertNotEmpty($declared['title'] ?? null, $name.' has a title.');
             self::assertIsArray($declared['outputSchema'] ?? null, $name.' declares what its structured result looks like.');
             self::assertFalse($declared['annotations']['openWorldHint'] ?? null, $name.' acts only on this application.');
@@ -100,7 +101,7 @@ final class SymfonyApprovalTest extends TestCase
 
         $browser->request('GET', self::ORIGIN.'/approval/'.$id.'/evidence');
         self::assertSame(200, $browser->getResponse()->getStatusCode());
-        $evidence = json_decode((string) $browser->getResponse()->getContent(), true, 64, JSON_THROW_ON_ERROR);
+        $evidence = json_decode((string) $browser->getResponse()->getContent(), true, 64, \JSON_THROW_ON_ERROR);
         self::assertSame('verified-human-approval/evidence/v1', $evidence['format']);
         self::assertStringContainsString('I approve issuing the public alert', $evidence['proposal']);
         self::assertNotEmpty($evidence['receipt']['signature']);
@@ -248,7 +249,7 @@ final class SymfonyApprovalTest extends TestCase
         self::assertFalse($request->isError);
         $id = $request->structuredContent['requestId'];
         $this->database->pdo->prepare("UPDATE demo_grants SET scopes = ? WHERE id = 'editor-personal'")
-            ->execute([json_encode(['announcement.read', 'announcement.publish'], JSON_THROW_ON_ERROR)]);
+            ->execute([json_encode(['announcement.read', 'announcement.publish'], \JSON_THROW_ON_ERROR)]);
         $status = $client->callTool('approval_status', ['request_id' => $id]);
         self::assertTrue($status->isError);
         self::assertNull($status->structuredContent);
@@ -313,21 +314,21 @@ final class SymfonyApprovalTest extends TestCase
 
     public function testBinaryReceiptKeysCannotBeInterpretedAsContainerParameters(): void
     {
-        $settings = json_decode(file_get_contents($this->runtime.'/settings.json'), true, 32, JSON_THROW_ON_ERROR);
+        $settings = json_decode(file_get_contents($this->runtime.'/settings.json'), true, 32, \JSON_THROW_ON_ERROR);
         $keypair = sodium_crypto_sign_seed_keypair(str_pad('%missing_parameter%', 32, "\0"));
         $secret = sodium_crypto_sign_secretkey($keypair);
         self::assertStringContainsString('%missing_parameter%', $secret);
         $settings['receipt_secret_key'] = ChallengeBinding::encode($secret);
         $settings['receipt_public_key'] = ChallengeBinding::encode(sodium_crypto_sign_publickey($keypair));
-        file_put_contents($this->runtime.'/settings.json', json_encode($settings, JSON_THROW_ON_ERROR));
+        file_put_contents($this->runtime.'/settings.json', json_encode($settings, \JSON_THROW_ON_ERROR));
         self::assertCount(4, $this->mcp()->listTools()->tools);
     }
 
     public function testBrowserApprovalAttemptsAreBoundedAcrossRequestsWithoutExecuting(): void
     {
-        $settings = json_decode(file_get_contents($this->runtime.'/settings.json'), true, 32, JSON_THROW_ON_ERROR);
+        $settings = json_decode(file_get_contents($this->runtime.'/settings.json'), true, 32, \JSON_THROW_ON_ERROR);
         $settings['approval_attempts_per_minute'] = 2;
-        file_put_contents($this->runtime.'/settings.json', json_encode($settings, JSON_THROW_ON_ERROR));
+        file_put_contents($this->runtime.'/settings.json', json_encode($settings, \JSON_THROW_ON_ERROR));
         $id = $this->requestAction();
         $browser = $this->browser('editor');
         $authenticator = $this->enroll($browser);
@@ -346,9 +347,9 @@ final class SymfonyApprovalTest extends TestCase
 
     public function testEnrollmentAttemptsAreBoundedWithoutRegisteringAnything(): void
     {
-        $settings = json_decode(file_get_contents($this->runtime.'/settings.json'), true, 32, JSON_THROW_ON_ERROR);
+        $settings = json_decode(file_get_contents($this->runtime.'/settings.json'), true, 32, \JSON_THROW_ON_ERROR);
         $settings['enrollment_attempts_per_minute'] = 2;
-        file_put_contents($this->runtime.'/settings.json', json_encode($settings, JSON_THROW_ON_ERROR));
+        file_put_contents($this->runtime.'/settings.json', json_encode($settings, \JSON_THROW_ON_ERROR));
         $browser = $this->browser('editor');
         $browser->request('GET', $this->accounts['editor']['passkey_link']);
         $crawler = $browser->request('GET', self::ORIGIN.'/account/passkeys');
@@ -453,17 +454,21 @@ final class SymfonyApprovalTest extends TestCase
     {
         $client = $this->mcp();
         $tools = [];
-        foreach ($client->listTools()->tools as $tool) $tools[$tool->name] = json_decode(json_encode($tool, JSON_THROW_ON_ERROR), true);
+        foreach ($client->listTools()->tools as $tool) {
+            $tools[$tool->name] = json_decode(json_encode($tool, \JSON_THROW_ON_ERROR), true);
+        }
         self::assertSame(ApprovalCard::URI, $tools['publish_alert']['_meta']['ui']['resourceUri']);
         self::assertArrayNotHasKey('ui', $tools['approval_status']['_meta'] ?? []);
         $resources = [];
-        foreach ($client->listResources()->resources as $resource) $resources[$resource->uri] = json_decode(json_encode($resource, JSON_THROW_ON_ERROR), true);
+        foreach ($client->listResources()->resources as $resource) {
+            $resources[$resource->uri] = json_decode(json_encode($resource, \JSON_THROW_ON_ERROR), true);
+        }
         self::assertSame(McpApps::MIME_TYPE, $resources[ApprovalCard::URI]['mimeType']);
-        $card = json_decode(json_encode($client->readResource(ApprovalCard::URI)->contents[0], JSON_THROW_ON_ERROR), true);
+        $card = json_decode(json_encode($client->readResource(ApprovalCard::URI)->contents[0], \JSON_THROW_ON_ERROR), true);
         self::assertSame(McpApps::MIME_TYPE, $card['mimeType']);
         self::assertStringContainsString('ui/open-link', $card['text']);
         self::assertStringNotContainsString('navigator.credentials', $card['text']);
-        $capabilities = json_decode(json_encode($client->getServerCapabilities(), JSON_THROW_ON_ERROR), true);
+        $capabilities = json_decode(json_encode($client->getServerCapabilities(), \JSON_THROW_ON_ERROR), true);
         self::assertArrayHasKey(McpApps::EXTENSION_ID, $capabilities['extensions'] ?? []);
 
         $pending = $client->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
@@ -570,10 +575,12 @@ final class SymfonyApprovalTest extends TestCase
             ->withHeader('Mcp-Method', 'tools/call')
             ->withHeader('Mcp-Name', 'publish_alert')
             ->withHeader('MCP-Protocol-Version', '2026-07-28')
-            ->withBody($factory->createStream(json_encode(['jsonrpc' => '2.0', 'id' => random_int(1, 1_000_000), 'method' => 'tools/call', 'params' => $params], JSON_THROW_ON_ERROR)));
+            ->withBody($factory->createStream(json_encode(['jsonrpc' => '2.0', 'id' => random_int(1, 1_000_000), 'method' => 'tools/call', 'params' => $params], \JSON_THROW_ON_ERROR)));
         $body = (string) (new SymfonyKernelHttpClient($this->runtime))->sendRequest($request)->getBody();
-        if (preg_match('/^data: (.+)$/m', $body, $match) === 1) $body = $match[1];
-        $message = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
+        if (1 === preg_match('/^data: (.+)$/m', $body, $match)) {
+            $body = $match[1];
+        }
+        $message = json_decode($body, true, 512, \JSON_THROW_ON_ERROR);
         self::assertArrayHasKey('result', $message, $body);
 
         return $message['result'];
@@ -655,7 +662,7 @@ final class SymfonyApprovalTest extends TestCase
 
     private function post(KernelBrowser $browser, string $path, string $csrf, array $body): array
     {
-        $browser->request('POST', self::ORIGIN.$path, server: ['CONTENT_TYPE' => 'application/json', 'HTTP_X_CSRF_TOKEN' => $csrf, 'HTTP_ACCEPT' => 'application/json'], content: json_encode((object) $body, JSON_THROW_ON_ERROR));
+        $browser->request('POST', self::ORIGIN.$path, server: ['CONTENT_TYPE' => 'application/json', 'HTTP_X_CSRF_TOKEN' => $csrf, 'HTTP_ACCEPT' => 'application/json'], content: json_encode((object) $body, \JSON_THROW_ON_ERROR));
         $value = json_decode((string) $browser->getResponse()->getContent(), true);
 
         return \is_array($value) ? $value : [];
@@ -675,5 +682,8 @@ final class SymfonyApprovalTest extends TestCase
         return $client;
     }
 
-    private function mutationCount(): int { return (int) $this->database->announcement('riverside-evacuation')['mutation_count']; }
+    private function mutationCount(): int
+    {
+        return (int) $this->database->announcement('riverside-evacuation')['mutation_count'];
+    }
 }

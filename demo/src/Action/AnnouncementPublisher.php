@@ -13,7 +13,9 @@ use VerifiedHumanApproval\Demo\DemoDatabase;
 /** The one supported publication boundary. Every application entry point uses it. */
 final readonly class AnnouncementPublisher
 {
-    public function __construct(private DemoDatabase $database, private ExecutionGuard $guard) {}
+    public function __construct(private DemoDatabase $database, private ExecutionGuard $guard)
+    {
+    }
 
     public function publish(Actor $actor, PreparedAction $action): array
     {
@@ -27,7 +29,9 @@ SQL);
             $action->effect['title'], $action->effect['body'], $action->target['resource'], $actor->tenantId,
             $action->preconditions['revision'], $action->effect['title'], $action->effect['body'], $action->preconditions['published_revision'],
         ]);
-        if ($query->rowCount() !== 1) throw new ApprovalException('stale_resource', 'The announcement changed. Nothing was published.');
+        if (1 !== $query->rowCount()) {
+            throw new ApprovalException('stale_resource', 'The announcement changed. Nothing was published.');
+        }
 
         return ['disposition' => 'published', 'announcement_id' => $action->target['resource'], 'source_revision' => $action->preconditions['revision']];
     }

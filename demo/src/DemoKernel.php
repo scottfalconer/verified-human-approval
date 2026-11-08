@@ -4,6 +4,22 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Demo;
 
+use Mcp\Server\Transport\Http\OAuth\ProtectedResourceMetadata;
+use Symfony\AI\McpBundle\McpBundle;
+use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
+use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
+use Symfony\Bundle\MonologBundle\MonologBundle;
+use Symfony\Bundle\SecurityBundle\SecurityBundle;
+use Symfony\Bundle\TwigBundle\TwigBundle;
+use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
+use Symfony\Component\HttpKernel\Kernel;
+use Symfony\Component\RateLimiter\RateLimiterFactory;
+use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
+use VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp;
+use VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool;
+use VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool;
+use VerifiedHumanApproval\Bundle\SecurityHeadersSubscriber;
+use VerifiedHumanApproval\Bundle\VerifiedHumanApprovalBundle;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
@@ -19,31 +35,15 @@ use VerifiedHumanApproval\Demo\Controller\PublicController;
 use VerifiedHumanApproval\Demo\Mcp\DemoTools;
 use VerifiedHumanApproval\Demo\OAuth\OAuthServer;
 use VerifiedHumanApproval\Demo\Security\DemoActorProvider;
+use VerifiedHumanApproval\Demo\Security\DemoRequesterLabel;
 use VerifiedHumanApproval\Demo\Security\DemoUser;
 use VerifiedHumanApproval\Demo\Security\DemoUserProvider;
-use VerifiedHumanApproval\Demo\Security\DemoRequesterLabel;
 use VerifiedHumanApproval\Demo\Security\PersonalTokenAuthenticator;
-use VerifiedHumanApproval\Bundle\VerifiedHumanApprovalBundle;
-use VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp;
-use VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool;
-use VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool;
-use VerifiedHumanApproval\Bundle\SecurityHeadersSubscriber;
 use VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository;
 use VerifiedHumanApproval\WebAuthn\Configuration;
 use VerifiedHumanApproval\WebAuthn\CredentialRepository;
 use VerifiedHumanApproval\WebAuthn\PdoCredentialRepository;
 use VerifiedHumanApproval\WebAuthn\WebAuthnVerifier;
-use Mcp\Server\Transport\Http\OAuth\ProtectedResourceMetadata;
-use Symfony\AI\McpBundle\McpBundle;
-use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
-use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
-use Symfony\Bundle\MonologBundle\MonologBundle;
-use Symfony\Bundle\SecurityBundle\SecurityBundle;
-use Symfony\Bundle\TwigBundle\TwigBundle;
-use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
-use Symfony\Component\HttpKernel\Kernel;
-use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
-use Symfony\Component\RateLimiter\RateLimiterFactory;
 
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 
@@ -55,8 +55,10 @@ final class DemoKernel extends Kernel
 
     public function __construct(private readonly string $runtimeDirectory, string $environment = 'dev', bool $debug = false)
     {
-        if (!is_file($runtimeDirectory.'/settings.json')) throw new \RuntimeException('Initialize the demo with: php demo/bin/setup.php');
-        $this->settings = json_decode(file_get_contents($runtimeDirectory.'/settings.json'), true, 32, JSON_THROW_ON_ERROR);
+        if (!is_file($runtimeDirectory.'/settings.json')) {
+            throw new \RuntimeException('Initialize the demo with: php demo/bin/setup.php');
+        }
+        $this->settings = json_decode(file_get_contents($runtimeDirectory.'/settings.json'), true, 32, \JSON_THROW_ON_ERROR);
         if (($this->settings['schema'] ?? 1) < DemoSetup::SCHEMA) {
             throw new \RuntimeException('This demo was set up by an older version. Start a fresh one with: php demo/bin/setup.php --reset');
         }
@@ -73,16 +75,27 @@ final class DemoKernel extends Kernel
         yield new VerifiedHumanApprovalBundle();
     }
 
-    public function getProjectDir(): string { return \dirname(__DIR__); }
-    public function getCacheDir(): string { return $this->runtimeDirectory.'/cache/'.$this->environment; }
-    public function getLogDir(): string { return $this->runtimeDirectory.'/log'; }
+    public function getProjectDir(): string
+    {
+        return \dirname(__DIR__);
+    }
+
+    public function getCacheDir(): string
+    {
+        return $this->runtimeDirectory.'/cache/'.$this->environment;
+    }
+
+    public function getLogDir(): string
+    {
+        return $this->runtimeDirectory.'/log';
+    }
 
     protected function configureContainer(ContainerConfigurator $container): void
     {
         $origin = rtrim($this->settings['origin'], '/');
         $container->extension('framework', [
             'secret' => $this->settings['app_secret'],
-            'test' => $this->environment === 'test',
+            'test' => 'test' === $this->environment,
             'router' => ['utf8' => true],
             'http_method_override' => false,
             'handle_all_throwables' => true,
@@ -93,7 +106,7 @@ final class DemoKernel extends Kernel
             'session' => [
                 'handler_id' => null, 'save_path' => $this->runtimeDirectory.'/sessions',
                 'cookie_secure' => 'auto', 'cookie_httponly' => true, 'cookie_samesite' => 'lax',
-                'storage_factory_id' => $this->environment === 'test' ? 'session.storage.factory.mock_file' : 'session.storage.factory.native',
+                'storage_factory_id' => 'test' === $this->environment ? 'session.storage.factory.mock_file' : 'session.storage.factory.native',
             ],
             'csrf_protection' => true,
             'form' => true,
@@ -172,7 +185,9 @@ final class DemoKernel extends Kernel
         $services->set(EvidenceExporter::class)->args([service(SodiumEvidenceSigner::class)]);
         // One description of the protected resource (RFC 9728): served at /.well-known and named in every 401.
         $services->set(ProtectedResourceMetadata::class)->args([$origin.'/mcp', [$origin], OAuthServer::SCOPES, 'Riverside Council public alerts']);
-        foreach ([DemoController::class, AccountController::class, AuditController::class, EvidenceController::class, PublicController::class, OAuthController::class] as $controller) $services->set($controller)->public()->tag('controller.service_arguments');
+        foreach ([DemoController::class, AccountController::class, AuditController::class, EvidenceController::class, PublicController::class, OAuthController::class] as $controller) {
+            $services->set($controller)->public()->tag('controller.service_arguments');
+        }
         $services->set('demo.enrollment_limiter', RateLimiterFactory::class)->args([
             ['id' => 'demo-passkey-enrollment', 'policy' => 'fixed_window', 'limit' => $this->settings['enrollment_attempts_per_minute'] ?? 10, 'interval' => '1 minute'],
             service('verified_human_approval.limiter.storage'), service('verified_human_approval.limiter.lock_factory'),

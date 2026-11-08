@@ -4,13 +4,6 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Demo\Mcp;
 
-use VerifiedHumanApproval\Core\ApprovalException;
-use VerifiedHumanApproval\Core\ApprovalService;
-use VerifiedHumanApproval\Core\ApprovalState;
-use VerifiedHumanApproval\Demo\DemoDatabase;
-use VerifiedHumanApproval\Mcp\ApprovalCard;
-use VerifiedHumanApproval\Mcp\ApprovalFlow;
-use VerifiedHumanApproval\Bundle\ActorProvider;
 use Mcp\Capability\Attribute\McpTool;
 use Mcp\Capability\Attribute\Schema;
 use Mcp\Schema\Content\TextContent;
@@ -19,6 +12,13 @@ use Mcp\Schema\Result\InputRequiredResult;
 use Mcp\Schema\ToolAnnotations;
 use Mcp\Server\Authorization\AccessToken;
 use Mcp\Server\RequestContext;
+use VerifiedHumanApproval\Bundle\ActorProvider;
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\ApprovalService;
+use VerifiedHumanApproval\Core\ApprovalState;
+use VerifiedHumanApproval\Demo\DemoDatabase;
+use VerifiedHumanApproval\Mcp\ApprovalCard;
+use VerifiedHumanApproval\Mcp\ApprovalFlow;
 
 final readonly class DemoTools
 {
@@ -38,7 +38,9 @@ final readonly class DemoTools
         'additionalProperties' => false,
     ];
 
-    public function __construct(private ApprovalService $approvals, private ActorProvider $actors, private DemoDatabase $database, private ApprovalFlow $flow) {}
+    public function __construct(private ApprovalService $approvals, private ActorProvider $actors, private DemoDatabase $database, private ApprovalFlow $flow)
+    {
+    }
 
     #[McpTool(
         name: 'publish_alert',
@@ -67,7 +69,7 @@ final readonly class DemoTools
         } catch (ApprovalException $error) {
             $data = ['status' => 'rejected', 'reason' => $error->reason, 'message' => $error->getMessage()];
 
-            return new CallToolResult([new TextContent(json_encode($data, JSON_THROW_ON_ERROR))], isError: true, structuredContent: $data);
+            return new CallToolResult([new TextContent(json_encode($data, \JSON_THROW_ON_ERROR))], isError: true, structuredContent: $data);
         }
     }
 
@@ -91,14 +93,16 @@ final readonly class DemoTools
             return CallToolResult::error([new TextContent($error->getMessage())]);
         }
         $row = $this->database->announcement($alert_id);
-        if ($row === null || $row['tenant_id'] !== $actor->tenantId) return CallToolResult::error([new TextContent('This alert is unavailable for this account.')]);
+        if (null === $row || $row['tenant_id'] !== $actor->tenantId) {
+            return CallToolResult::error([new TextContent('This alert is unavailable for this account.')]);
+        }
         $alert = [
             'id' => (string) $row['id'], 'revision' => (int) $row['revision'], 'title' => (string) $row['title'], 'body' => (string) $row['body'],
-            'published_revision' => $row['published_revision'] === null ? null : (int) $row['published_revision'],
+            'published_revision' => null === $row['published_revision'] ? null : (int) $row['published_revision'],
             'published_title' => $row['published_title'], 'published_body' => $row['published_body'], 'mutation_count' => (int) $row['mutation_count'],
         ];
 
-        return new CallToolResult([new TextContent(json_encode($alert, JSON_THROW_ON_ERROR))], structuredContent: $alert);
+        return new CallToolResult([new TextContent(json_encode($alert, \JSON_THROW_ON_ERROR))], structuredContent: $alert);
     }
 
     /**

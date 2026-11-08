@@ -13,7 +13,7 @@ final readonly class ApprovalPolicy
         public int $lifetimeSeconds = 600,
         public bool $required = true,
     ) {
-        if ($actionId === '' || $version === '' || trim($statementTemplate) === '' || strlen($statementTemplate) > 8192) {
+        if ('' === $actionId || '' === $version || '' === trim($statementTemplate) || \strlen($statementTemplate) > 8192) {
             throw new \InvalidArgumentException('An approval policy needs an action, version and non-empty statement.');
         }
         if ($lifetimeSeconds < 30 || $lifetimeSeconds > 3600) {
@@ -26,9 +26,10 @@ final readonly class ApprovalPolicy
         $resolved = preg_replace_callback('/\{\{\s*([a-zA-Z][a-zA-Z0-9_.]*)\s*\}\}/', static function (array $match) use ($action): string {
             return $action->placeholders[$match[1]] ?? throw new ApprovalException('invalid_policy', 'The approval statement contains an unknown placeholder.');
         }, $this->statementTemplate);
-        if ($resolved === null || str_contains($resolved, '{{') || str_contains($resolved, '}}')) {
+        if (null === $resolved || str_contains($resolved, '{{') || str_contains($resolved, '}}')) {
             throw new ApprovalException('invalid_policy', 'Only registered text placeholders are allowed in an approval statement.');
         }
+
         return $resolved;
     }
 

@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\WebAuthn;
 
+use ParagonIE\ConstantTime\Base64UrlSafe;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\TestCase;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Tests\Support\VirtualAuthenticator;
@@ -11,9 +14,6 @@ use VerifiedHumanApproval\WebAuthn\Configuration;
 use VerifiedHumanApproval\WebAuthn\Credential;
 use VerifiedHumanApproval\WebAuthn\PdoCredentialRepository;
 use VerifiedHumanApproval\WebAuthn\WebAuthnVerifier;
-use ParagonIE\ConstantTime\Base64UrlSafe;
-use PHPUnit\Framework\Attributes\DataProvider;
-use PHPUnit\Framework\TestCase;
 
 final class WebAuthnVerifierTest extends TestCase
 {
@@ -48,7 +48,7 @@ final class WebAuthnVerifierTest extends TestCase
         self::assertTrue($proof->evidence['user_verified']);
         self::assertSame(0, $proof->evidence['counter_before']);
         self::assertSame(1, $proof->evidence['counter_after']);
-        $stored = json_decode($this->credentials->find($this->authenticator->id())->sourceJson, true, flags: JSON_THROW_ON_ERROR);
+        $stored = json_decode($this->credentials->find($this->authenticator->id())->sourceJson, true, flags: \JSON_THROW_ON_ERROR);
         self::assertSame(1, $stored['counter']);
     }
 
@@ -80,7 +80,7 @@ final class WebAuthnVerifierTest extends TestCase
         yield 'cross origin without top origin' => [['crossOrigin' => true]];
         yield 'cross origin with top origin' => [['crossOrigin' => true, 'topOrigin' => 'https://evil.test']];
         yield 'invalid backup bits' => [['flags' => 0x15]];
-        yield 'changed backup eligibility' => [['flags' => 0x0d]];
+        yield 'changed backup eligibility' => [['flags' => 0x0D]];
     }
 
     public function testKnownUserMayUseNonDiscoverableCredentialWithoutResponseUserHandle(): void
@@ -141,7 +141,7 @@ final class WebAuthnVerifierTest extends TestCase
     {
         $challenge = random_bytes(32);
         $assertion = $this->authenticator->assertion($this->verifier->requestOptions($this->actor, $challenge));
-        self::assertFalse($this->credentials->revoke(new \VerifiedHumanApproval\Core\Actor('mallory', $this->actor->tenantId), $this->authenticator->id()), 'Another account cannot revoke it.');
+        self::assertFalse($this->credentials->revoke(new Actor('mallory', $this->actor->tenantId), $this->authenticator->id()), 'Another account cannot revoke it.');
         self::assertTrue($this->credentials->revoke($this->actor, $this->authenticator->id()));
         $this->expectException(ApprovalException::class);
         $this->verifier->verify($this->actor, $challenge, $assertion);

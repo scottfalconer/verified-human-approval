@@ -4,14 +4,6 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Demo\Controller;
 
-use VerifiedHumanApproval\Core\ApprovalException;
-use VerifiedHumanApproval\Core\ApprovalPolicy;
-use VerifiedHumanApproval\Core\ApprovalService;
-use VerifiedHumanApproval\Demo\Action\ChangeAlertRule;
-use VerifiedHumanApproval\Demo\Action\PublishAnnouncement;
-use VerifiedHumanApproval\Demo\DemoDatabase;
-use VerifiedHumanApproval\Demo\Form\ApprovalPolicyType;
-use VerifiedHumanApproval\Bundle\ActorProvider;
 use Symfony\Bundle\SecurityBundle\Security;
 use Symfony\Component\Form\FormError;
 use Symfony\Component\Form\FormFactoryInterface;
@@ -24,6 +16,14 @@ use Symfony\Component\Security\Core\Exception\AccessDeniedException;
 use Symfony\Component\Security\Csrf\CsrfToken;
 use Symfony\Component\Security\Csrf\CsrfTokenManagerInterface;
 use Twig\Environment;
+use VerifiedHumanApproval\Bundle\ActorProvider;
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\ApprovalPolicy;
+use VerifiedHumanApproval\Core\ApprovalService;
+use VerifiedHumanApproval\Demo\Action\ChangeAlertRule;
+use VerifiedHumanApproval\Demo\Action\PublishAnnouncement;
+use VerifiedHumanApproval\Demo\DemoDatabase;
+use VerifiedHumanApproval\Demo\Form\ApprovalPolicyType;
 
 final readonly class DemoController
 {
@@ -37,7 +37,8 @@ final readonly class DemoController
         private Security $security,
         private Environment $twig,
         private UrlGeneratorInterface $urls,
-    ) {}
+    ) {
+    }
 
     public function home(): Response
     {
@@ -51,7 +52,9 @@ final readonly class DemoController
     public function requestPublication(Request $request, string $id): Response
     {
         $actor = $this->actors->interactive();
-        if (!$this->csrf->isTokenValid(new CsrfToken('publish.'.$id, (string) $request->request->get('_token')))) throw new AccessDeniedException('Invalid CSRF token.');
+        if (!$this->csrf->isTokenValid(new CsrfToken('publish.'.$id, (string) $request->request->get('_token')))) {
+            throw new AccessDeniedException('Invalid CSRF token.');
+        }
         try {
             $state = $this->approvals->request($actor, 'announcement.publish', ['announcement_id' => $id]);
         } catch (ApprovalException $error) {
@@ -64,10 +67,14 @@ final readonly class DemoController
     public function editDraft(Request $request, string $id): Response
     {
         $actor = $this->actors->interactive();
-        if (!$this->security->isGranted('ROLE_PUBLISHER') || !$this->csrf->isTokenValid(new CsrfToken('draft.'.$id, (string) $request->request->get('_token')))) throw new AccessDeniedException();
+        if (!$this->security->isGranted('ROLE_PUBLISHER') || !$this->csrf->isTokenValid(new CsrfToken('draft.'.$id, (string) $request->request->get('_token')))) {
+            throw new AccessDeniedException();
+        }
         $title = $request->request->get('title');
         $body = $request->request->get('body');
-        if (!\is_string($title) || trim($title) === '' || \strlen($title) > 200 || !\is_string($body) || \strlen($body) > 20_000) throw new BadRequestHttpException('Invalid draft content.');
+        if (!\is_string($title) || '' === trim($title) || \strlen($title) > 200 || !\is_string($body) || \strlen($body) > 20_000) {
+            throw new BadRequestHttpException('Invalid draft content.');
+        }
         // Editing a draft cannot update any published field. Pending approvals will become stale.
         $query = $this->database->pdo->prepare('UPDATE demo_announcements SET title = ?, body = ?, revision = revision + 1 WHERE id = ? AND tenant_id = ?');
         $query->execute([$title, $body, $id, $actor->tenantId]);
@@ -82,7 +89,9 @@ final readonly class DemoController
     public function policy(Request $request): Response
     {
         $actor = $this->actors->interactive();
-        if (!$this->security->isGranted('ROLE_ADMIN')) throw new AccessDeniedException('Policy administration requires a human administrator session.');
+        if (!$this->security->isGranted('ROLE_ADMIN')) {
+            throw new AccessDeniedException('Policy administration requires a human administrator session.');
+        }
         $row = $this->database->policy('announcement.publish');
         $modes = ['manager' => $this->database->roleMode('announcement.publish', 'manager') ?? 'denied', 'staff' => $this->database->roleMode('announcement.publish', 'staff') ?? 'denied'];
         $form = $this->forms->create(ApprovalPolicyType::class, $modes + ['statement' => $row['statement'], 'version' => (string) $row['version']]);

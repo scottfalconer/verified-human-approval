@@ -4,23 +4,25 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Bundle\Mcp;
 
-use VerifiedHumanApproval\Core\ApprovalService;
-use VerifiedHumanApproval\Core\ApprovalException;
-use VerifiedHumanApproval\Mcp\ApprovalFlow;
-use VerifiedHumanApproval\Bundle\ActorProvider;
-use VerifiedHumanApproval\Bundle\ApprovalPresenter;
 use Mcp\Capability\Attribute\McpTool;
 use Mcp\Capability\Attribute\Schema;
-use Mcp\Schema\Result\CallToolResult;
 use Mcp\Schema\Content\TextContent;
+use Mcp\Schema\Result\CallToolResult;
 use Mcp\Schema\ToolAnnotations;
 use Symfony\Component\Security\Core\Exception\AccessDeniedException;
+use VerifiedHumanApproval\Bundle\ActorProvider;
+use VerifiedHumanApproval\Bundle\ApprovalPresenter;
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\ApprovalService;
+use VerifiedHumanApproval\Mcp\ApprovalFlow;
 
 final readonly class ApprovalStatusTool
 {
     public const NAME = 'approval_status';
 
-    public function __construct(private ApprovalService $approvals, private ActorProvider $actors, private ApprovalPresenter $presenter) {}
+    public function __construct(private ApprovalService $approvals, private ActorProvider $actors, private ApprovalPresenter $presenter)
+    {
+    }
 
     #[McpTool(
         name: self::NAME,
@@ -37,7 +39,7 @@ final readonly class ApprovalStatusTool
             $this->actors->assertCanReadApproval($state);
 
             return $this->presenter->toolResult($state);
-        } catch (ApprovalException | AccessDeniedException) {
+        } catch (ApprovalException|AccessDeniedException) {
             return CallToolResult::error([new TextContent('This approval result is unavailable for the current account or personal connection.')]);
         }
     }

@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Mcp;
 
-use VerifiedHumanApproval\Core\ApprovalState;
 use Mcp\Schema\Result\CallToolResult;
+use VerifiedHumanApproval\Core\ApprovalState;
 
 /** How one platform shows an approval state as a tool result. */
 interface ResultPresenter

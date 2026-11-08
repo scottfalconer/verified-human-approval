@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Demo\Command;
 
-use VerifiedHumanApproval\Core\Audit\AuditLog;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
+use VerifiedHumanApproval\Core\Audit\AuditLog;
 
 /**
  * The demo operator's reset between recordings: takes the live alert down, so the public page shows
@@ -33,7 +33,7 @@ final class AllClearCommand extends Command
             $this->audit->append($alert['tenant_id'], 'alert.taken_down', $alert['id'], ['by' => 'operator console (demo:all-clear)', 'revision' => (int) $alert['published_revision'], 'title' => $alert['published_title']]);
         }
         $this->pdo->commit();
-        $output->writeln($live !== [] ? 'All clear: the public alerts page shows no active alerts again. The take-down is in the audit log.' : 'Already clear: no alert is live.');
+        $output->writeln([] !== $live ? 'All clear: the public alerts page shows no active alerts again. The take-down is in the audit log.' : 'Already clear: no alert is live.');
 
         return Command::SUCCESS;
     }

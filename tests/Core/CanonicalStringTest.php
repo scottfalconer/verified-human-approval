@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\Core;
 
-use VerifiedHumanApproval\Core\CanonicalJson;
 use PHPUnit\Framework\TestCase;
+use VerifiedHumanApproval\Core\CanonicalJson;
 
 final class CanonicalStringTest extends TestCase
 {

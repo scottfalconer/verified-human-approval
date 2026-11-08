@@ -4,16 +4,16 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\Bundle;
 
-use VerifiedHumanApproval\Demo\DemoDatabase;
-use VerifiedHumanApproval\Demo\DemoKernel;
-use VerifiedHumanApproval\Demo\DemoSetup;
-use VerifiedHumanApproval\Tests\Support\VirtualAuthenticator;
 use Mcp\Client;
 use Mcp\Client\Transport\HttpTransport;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use PHPUnit\Framework\TestCase;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Component\Filesystem\Filesystem;
+use VerifiedHumanApproval\Demo\DemoDatabase;
+use VerifiedHumanApproval\Demo\DemoKernel;
+use VerifiedHumanApproval\Demo\DemoSetup;
+use VerifiedHumanApproval\Tests\Support\VirtualAuthenticator;
 
 /** "Approve on your phone": a one-time code that opens one approval, and nothing else, on another device. */
 final class HandoffTest extends TestCase
@@ -31,7 +31,9 @@ final class HandoffTest extends TestCase
 
     protected function tearDown(): void
     {
-        foreach ($this->browsers as $browser) $browser->getKernel()->shutdown();
+        foreach ($this->browsers as $browser) {
+            $browser->getKernel()->shutdown();
+        }
         (new Filesystem())->remove($this->runtime);
     }
 
@@ -140,7 +142,9 @@ final class HandoffTest extends TestCase
         foreach ($rows as $y => $row) {
             self::assertMatchesRegularExpression('/^[01]{'.$size.'}$/D', $row);
             for ($x = 0; $x < $size; ++$x) {
-                if ($row[$x] === '1') imagefilledrectangle($image, $x * $scale, $y * $scale, ($x + 1) * $scale - 1, ($y + 1) * $scale - 1, $black);
+                if ('1' === $row[$x]) {
+                    imagefilledrectangle($image, $x * $scale, $y * $scale, ($x + 1) * $scale - 1, ($y + 1) * $scale - 1, $black);
+                }
             }
         }
         ob_start();
@@ -176,7 +180,7 @@ final class HandoffTest extends TestCase
 
     private function post(KernelBrowser $browser, string $path, string $csrf, array $body): array
     {
-        $browser->request('POST', self::ORIGIN.$path, server: ['CONTENT_TYPE' => 'application/json', 'HTTP_X_CSRF_TOKEN' => $csrf, 'HTTP_ACCEPT' => 'application/json'], content: json_encode((object) $body, JSON_THROW_ON_ERROR));
+        $browser->request('POST', self::ORIGIN.$path, server: ['CONTENT_TYPE' => 'application/json', 'HTTP_X_CSRF_TOKEN' => $csrf, 'HTTP_ACCEPT' => 'application/json'], content: json_encode((object) $body, \JSON_THROW_ON_ERROR));
         $value = json_decode((string) $browser->getResponse()->getContent(), true);
 
         return \is_array($value) ? $value : [];

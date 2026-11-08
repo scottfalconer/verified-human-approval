@@ -4,17 +4,17 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\Bundle;
 
-use VerifiedHumanApproval\Core\CanonicalJson;
-use VerifiedHumanApproval\Demo\DemoDatabase;
-use VerifiedHumanApproval\Demo\DemoKernel;
-use VerifiedHumanApproval\Demo\DemoSetup;
-use VerifiedHumanApproval\Tests\Support\VirtualAuthenticator;
 use Mcp\Client;
 use Mcp\Client\Transport\HttpTransport;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use PHPUnit\Framework\TestCase;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Component\Filesystem\Filesystem;
+use VerifiedHumanApproval\Core\CanonicalJson;
+use VerifiedHumanApproval\Demo\DemoDatabase;
+use VerifiedHumanApproval\Demo\DemoKernel;
+use VerifiedHumanApproval\Demo\DemoSetup;
+use VerifiedHumanApproval\Tests\Support\VirtualAuthenticator;
 
 /**
  * The root of trust and the administrator's view: who may add a passkey, what revoking does, and how
@@ -37,7 +37,9 @@ final class AccountAndAuditTest extends TestCase
 
     protected function tearDown(): void
     {
-        foreach ($this->browsers as $browser) $browser->getKernel()->shutdown();
+        foreach ($this->browsers as $browser) {
+            $browser->getKernel()->shutdown();
+        }
         (new Filesystem())->remove($this->runtime);
     }
 
@@ -206,7 +208,8 @@ final class AccountAndAuditTest extends TestCase
         $id = $this->mcp($user)->callTool('publish_alert', ['alert_id' => 'riverside-evacuation', 'request_key' => bin2hex(random_bytes(8))])->structuredContent['requestId'];
         $result = $this->approve($this->signedIn($user), $id, $passkey);
         if (($result['status'] ?? null) === 'completed') {
-            $this->database->pdo->exec("UPDATE demo_announcements SET published_revision = NULL, published_title = NULL, published_body = NULL");
+            $this->database->pdo->exec('UPDATE demo_announcements SET published_revision = NULL, published_title = NULL, published_body = NULL');
+
             return true;
         }
 
@@ -217,7 +220,9 @@ final class AccountAndAuditTest extends TestCase
     {
         $csrf = (string) $browser->request('GET', self::ORIGIN.'/approval/'.$id)->filter('[data-passkey-panel]')->attr('data-csrf');
         $ceremony = $this->post($browser, '/approval/'.$id.'/options', $csrf, []);
-        if (!isset($ceremony['ceremony_id'])) return $ceremony;
+        if (!isset($ceremony['ceremony_id'])) {
+            return $ceremony;
+        }
         try {
             $assertion = $passkey->assertion($ceremony['publicKey']);
         } catch (\Throwable) {
@@ -257,7 +262,7 @@ final class AccountAndAuditTest extends TestCase
 
     private function post(KernelBrowser $browser, string $path, string $csrf, array $body): array
     {
-        $browser->request('POST', self::ORIGIN.$path, server: ['CONTENT_TYPE' => 'application/json', 'HTTP_X_CSRF_TOKEN' => $csrf, 'HTTP_ACCEPT' => 'application/json'], content: json_encode((object) $body, JSON_THROW_ON_ERROR));
+        $browser->request('POST', self::ORIGIN.$path, server: ['CONTENT_TYPE' => 'application/json', 'HTTP_X_CSRF_TOKEN' => $csrf, 'HTTP_ACCEPT' => 'application/json'], content: json_encode((object) $body, \JSON_THROW_ON_ERROR));
         $value = json_decode((string) $browser->getResponse()->getContent(), true);
 
         return \is_array($value) ? $value : [];

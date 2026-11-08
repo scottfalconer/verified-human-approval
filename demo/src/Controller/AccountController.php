@@ -4,28 +4,28 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Demo\Controller;
 
-use VerifiedHumanApproval\Core\Actor;
-use VerifiedHumanApproval\Core\ApprovalException;
-use VerifiedHumanApproval\Core\Audit\AuditLog;
-use VerifiedHumanApproval\Core\ChallengeBinding;
-use VerifiedHumanApproval\Demo\DemoDatabase;
-use VerifiedHumanApproval\Demo\Security\Authenticators;
-use VerifiedHumanApproval\Bundle\ActorProvider;
-use VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository;
-use VerifiedHumanApproval\WebAuthn\PdoCredentialRepository;
-use VerifiedHumanApproval\WebAuthn\WebAuthnVerifier;
 use Symfony\Bundle\SecurityBundle\Security;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
+use Symfony\Component\RateLimiter\RateLimiterFactoryInterface;
 use Symfony\Component\Security\Core\Exception\AccessDeniedException;
 use Symfony\Component\Security\Csrf\CsrfToken;
 use Symfony\Component\Security\Csrf\CsrfTokenManagerInterface;
-use Symfony\Component\RateLimiter\RateLimiterFactoryInterface;
 use Symfony\Component\Security\Http\Authentication\AuthenticationUtils;
 use Twig\Environment;
+use VerifiedHumanApproval\Bundle\ActorProvider;
+use VerifiedHumanApproval\Core\Actor;
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\Audit\AuditLog;
+use VerifiedHumanApproval\Core\ChallengeBinding;
+use VerifiedHumanApproval\Demo\DemoDatabase;
+use VerifiedHumanApproval\Demo\Security\Authenticators;
+use VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository;
+use VerifiedHumanApproval\WebAuthn\PdoCredentialRepository;
+use VerifiedHumanApproval\WebAuthn\WebAuthnVerifier;
 
 /**
  * The person's own account: approval passkeys and agent connections. A password session alone cannot
@@ -49,7 +49,8 @@ final readonly class AccountController
         private Environment $twig,
         private Security $security,
         private RateLimiterFactoryInterface $limiter,
-    ) {}
+    ) {
+    }
 
     public function login(AuthenticationUtils $authentication): Response
     {
@@ -73,7 +74,7 @@ final readonly class AccountController
             'passkeys' => $passkeys,
             'connections' => $this->database->grants($actor->tenantId, $actor->userId),
             'authorized' => $this->authorization($request, $actor),
-            'can_confirm' => $anchored !== [],
+            'can_confirm' => [] !== $anchored,
             'csrf' => $this->csrf->getToken('verified_human_approval.enrollment')->getValue(),
             'form_csrf' => $this->csrf->getToken('demo.account')->getValue(),
         ]));
@@ -84,7 +85,7 @@ final readonly class AccountController
     {
         $actor = $this->actors->interactive();
         $link = preg_match('/^[A-Za-z0-9_-]{43}$/D', $token) ? $this->database->passkeyLink($token) : null;
-        if ($link === null || $link['user_id'] !== $actor->userId || $link['tenant_id'] !== $actor->tenantId) {
+        if (null === $link || $link['user_id'] !== $actor->userId || $link['tenant_id'] !== $actor->tenantId) {
             return new Response($this->twig->render('passkey_link_invalid.html.twig'), 410);
         }
         $request->getSession()->set('demo.passkey_link', [
@@ -98,7 +99,9 @@ final readonly class AccountController
     public function confirmOptions(Request $request): JsonResponse
     {
         $this->assertCsrf($request);
-        if (($limited = $this->limit()) !== null) return $limited;
+        if (($limited = $this->limit()) !== null) {
+            return $limited;
+        }
         $actor = $this->actors->interactive();
         $challenge = random_bytes(32);
         try {
@@ -115,7 +118,9 @@ final readonly class AccountController
     public function confirmComplete(Request $request): JsonResponse
     {
         $this->assertCsrf($request);
-        if (($limited = $this->limit()) !== null) return $limited;
+        if (($limited = $this->limit()) !== null) {
+            return $limited;
+        }
         $actor = $this->actors->interactive();
         $body = $this->body($request);
         $saved = $request->getSession()->get('demo.confirm');
@@ -136,11 +141,13 @@ final readonly class AccountController
     public function enrollmentOptions(Request $request): JsonResponse
     {
         $this->assertCsrf($request);
-        if (($limited = $this->limit()) !== null) return $limited;
+        if (($limited = $this->limit()) !== null) {
+            return $limited;
+        }
         $actor = $this->actors->interactive();
         $authorization = $this->authorization($request, $actor);
-        if ($authorization === null) {
-            return new JsonResponse(['status' => 'rejected', 'reason' => 'authorization_required', 'message' => $this->anchored->forActor($actor) === []
+        if (null === $authorization) {
+            return new JsonResponse(['status' => 'rejected', 'reason' => 'authorization_required', 'message' => [] === $this->anchored->forActor($actor)
                 ? 'Your first passkey needs the one-time link your administrator gave you. Open it while signed in.'
                 : 'Confirm with one of your passkeys first.'], 403);
         }
@@ -157,7 +164,9 @@ final readonly class AccountController
     public function enrollmentComplete(Request $request): JsonResponse
     {
         $this->assertCsrf($request);
-        if (($limited = $this->limit()) !== null) return $limited;
+        if (($limited = $this->limit()) !== null) {
+            return $limited;
+        }
         $actor = $this->actors->interactive();
         $body = $this->body($request);
         $saved = $request->getSession()->get('verified_human_approval.enrollment');
@@ -171,7 +180,7 @@ final readonly class AccountController
         $pdo->beginTransaction();
         try {
             $credential = $this->webauthn->register($actor, $saved['options'], $body['credential'], 'Personal passkey');
-            if ($authorization['method'] === 'passkey link' && !$this->database->usePasskeyLink($authorization['link'], $credential->id)) {
+            if ('passkey link' === $authorization['method'] && !$this->database->usePasskeyLink($authorization['link'], $credential->id)) {
                 throw new ApprovalException('link_used', 'This passkey link has already been used or has expired.');
             }
             $this->anchored->anchor($credential, [
@@ -225,7 +234,7 @@ final readonly class AccountController
     private function authorization(Request $request, Actor $actor): ?array
     {
         $confirmed = self::recentConfirmation($request, $actor);
-        if ($confirmed !== null) {
+        if (null !== $confirmed) {
             return ['method' => 'existing passkey', 'authorizedBy' => 'passkey '.$confirmed['credential']];
         }
         $link = $request->getSession()->get('demo.passkey_link');
@@ -248,10 +257,17 @@ final readonly class AccountController
     /** @return array{ceremony_id: string, credential: array<string, mixed>} */
     private function body(Request $request): array
     {
-        if (\strlen($request->getContent()) > 65_536) throw new BadRequestHttpException('Request is too large.');
-        try { $body = json_decode($request->getContent(), true, 32, JSON_THROW_ON_ERROR); }
-        catch (\JsonException) { throw new BadRequestHttpException('Invalid response.'); }
-        if (!\is_array($body) || !\is_string($body['ceremony_id'] ?? null) || !\is_array($body['credential'] ?? null)) throw new BadRequestHttpException('Invalid credential response.');
+        if (\strlen($request->getContent()) > 65_536) {
+            throw new BadRequestHttpException('Request is too large.');
+        }
+        try {
+            $body = json_decode($request->getContent(), true, 32, \JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            throw new BadRequestHttpException('Invalid response.');
+        }
+        if (!\is_array($body) || !\is_string($body['ceremony_id'] ?? null) || !\is_array($body['credential'] ?? null)) {
+            throw new BadRequestHttpException('Invalid credential response.');
+        }
 
         return $body;
     }
@@ -259,19 +275,25 @@ final readonly class AccountController
     private function assertCsrf(Request $request): void
     {
         $this->actors->interactive();
-        if (!$this->csrf->isTokenValid(new CsrfToken('verified_human_approval.enrollment', (string) $request->headers->get('X-CSRF-Token', '')))) throw new AccessDeniedException('Invalid or missing CSRF token.');
+        if (!$this->csrf->isTokenValid(new CsrfToken('verified_human_approval.enrollment', (string) $request->headers->get('X-CSRF-Token', '')))) {
+            throw new AccessDeniedException('Invalid or missing CSRF token.');
+        }
     }
 
     private function assertFormCsrf(Request $request): void
     {
-        if (!$this->csrf->isTokenValid(new CsrfToken('demo.account', (string) $request->request->get('_token', '')))) throw new AccessDeniedException('Invalid or missing CSRF token.');
+        if (!$this->csrf->isTokenValid(new CsrfToken('demo.account', (string) $request->request->get('_token', '')))) {
+            throw new AccessDeniedException('Invalid or missing CSRF token.');
+        }
     }
 
     private function limit(): ?JsonResponse
     {
         $actor = $this->actors->interactive();
         $limit = $this->limiter->create(hash('sha256', $actor->tenantId."\0".$actor->userId))->consume();
-        if ($limit->isAccepted()) return null;
+        if ($limit->isAccepted()) {
+            return null;
+        }
 
         return new JsonResponse(['status' => 'rate_limited', 'message' => 'Too many passkey attempts. Wait before trying again.'], 429,
             ['Retry-After' => (string) max(1, $limit->getRetryAfter()->getTimestamp() - time())]);

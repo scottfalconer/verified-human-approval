@@ -23,11 +23,19 @@ final readonly class ChangeAlertRule implements ActionAdapter
     public const MODES = ['direct' => 'Issue alerts directly', 'approval' => 'Issue alerts only with verified human approval', 'denied' => 'Cannot issue alerts'];
     private const ROLES = ['manager' => 'Emergency manager', 'staff' => 'County staff'];
 
-    public function __construct(private DemoDatabase $database, private ExecutionGuard $guard, private PublishAnnouncement $alerts) {}
+    public function __construct(private DemoDatabase $database, private ExecutionGuard $guard, private PublishAnnouncement $alerts)
+    {
+    }
 
-    public function id(): string { return self::ID; }
+    public function id(): string
+    {
+        return self::ID;
+    }
 
-    public function version(): string { return '1'; }
+    public function version(): string
+    {
+        return '1';
+    }
 
     public function prepare(Actor $actor, array $input): PreparedAction
     {
@@ -36,7 +44,7 @@ final readonly class ChangeAlertRule implements ActionAdapter
             throw new ApprovalException('invalid_input', 'Choose a rule for each role and a statement.');
         }
         $statement = trim($input['statement']);
-        if ($statement === '' || \strlen($statement) > 2000) {
+        if ('' === $statement || \strlen($statement) > 2000) {
             throw new ApprovalException('invalid_input', 'The statement must be 1 to 2000 characters.');
         }
         // The new statement must render for a real alert before anyone can approve it.
@@ -55,7 +63,7 @@ final readonly class ChangeAlertRule implements ActionAdapter
         if ($current['statement'] !== $statement) {
             $changes[] = 'The statement approvers confirm';
         }
-        if ($changes === []) {
+        if ([] === $changes) {
             throw new ApprovalException('no_change', 'Nothing changed.');
         }
 
@@ -83,9 +91,13 @@ final readonly class ChangeAlertRule implements ActionAdapter
         $this->guard->assertExecuting($actor, $action);
         $policy = $this->database->pdo->prepare('UPDATE demo_policies SET version = version + 1, statement = ? WHERE action_id = ? AND version = ?');
         $policy->execute([$action->effect['statement'], PublishAnnouncement::ID, $action->preconditions['version']]);
-        if ($policy->rowCount() !== 1) throw new ApprovalException('stale_resource', 'The rule changed. Nothing was changed.');
+        if (1 !== $policy->rowCount()) {
+            throw new ApprovalException('stale_resource', 'The rule changed. Nothing was changed.');
+        }
         $rule = $this->database->pdo->prepare('UPDATE demo_role_policies SET mode = ? WHERE action_id = ? AND role = ?');
-        foreach (array_keys(self::ROLES) as $role) $rule->execute([$action->effect[$role], PublishAnnouncement::ID, $role]);
+        foreach (array_keys(self::ROLES) as $role) {
+            $rule->execute([$action->effect[$role], PublishAnnouncement::ID, $role]);
+        }
 
         return ['disposition' => 'rule_changed', 'version' => $action->preconditions['version'] + 1];
     }
@@ -93,7 +105,7 @@ final readonly class ChangeAlertRule implements ActionAdapter
     public function assertPostconditions(Actor $actor, PreparedAction $action, array $result): void
     {
         $now = $this->current();
-        if ($now['version'] !== $action->preconditions['version'] + 1 || $now['statement'] !== $action->effect['statement']
+        if ($action->preconditions['version'] + 1 !== $now['version'] || $now['statement'] !== $action->effect['statement']
             || $now['manager'] !== $action->effect['manager'] || $now['staff'] !== $action->effect['staff']) {
             throw new ApprovalException('unexpected_effect', 'The rule did not change as approved; the transaction was rolled back.');
         }

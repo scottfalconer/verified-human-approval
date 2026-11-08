@@ -4,15 +4,17 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Demo\Controller;
 
+use Symfony\Component\HttpFoundation\JsonResponse;
+use VerifiedHumanApproval\Bundle\ActorProvider;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalService;
 use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
-use VerifiedHumanApproval\Bundle\ActorProvider;
-use Symfony\Component\HttpFoundation\JsonResponse;
 
 final readonly class EvidenceController
 {
-    public function __construct(private ApprovalService $approvals, private ActorProvider $actors, private EvidenceExporter $exporter) {}
+    public function __construct(private ApprovalService $approvals, private ActorProvider $actors, private EvidenceExporter $exporter)
+    {
+    }
 
     public function export(string $id): JsonResponse
     {

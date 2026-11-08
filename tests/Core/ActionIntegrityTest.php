@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\Core;
 
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\TestCase;
 use VerifiedHumanApproval\Core\ActionAdapter;
 use VerifiedHumanApproval\Core\ActionRegistry;
 use VerifiedHumanApproval\Core\Actor;
@@ -12,9 +14,6 @@ use VerifiedHumanApproval\Core\ApprovalService;
 use VerifiedHumanApproval\Core\ExecutionGuard;
 use VerifiedHumanApproval\Core\PreparedAction;
 use VerifiedHumanApproval\Tests\Support\CoreFixture;
-use PDO;
-use PHPUnit\Framework\Attributes\DataProvider;
-use PHPUnit\Framework\TestCase;
 
 final class ActionIntegrityTest extends TestCase
 {
@@ -34,9 +33,19 @@ final class ActionIntegrityTest extends TestCase
         $adapter = new class($fixture->pdo, $guard) implements ActionAdapter {
             public string $mutateAt = '';
 
-            public function __construct(private readonly PDO $pdo, private readonly ExecutionGuard $guard) {}
-            public function id(): string { return 'article.publish'; }
-            public function version(): string { return '1'; }
+            public function __construct(private readonly \PDO $pdo, private readonly ExecutionGuard $guard)
+            {
+            }
+
+            public function id(): string
+            {
+                return 'article.publish';
+            }
+
+            public function version(): string
+            {
+                return '1';
+            }
 
             public function prepare(Actor $actor, array $input): PreparedAction
             {
@@ -55,7 +64,7 @@ final class ActionIntegrityTest extends TestCase
                 if ((int) $this->row()['revision'] !== $action->preconditions['revision']) {
                     throw new ApprovalException('stale_resource', 'Revision changed.');
                 }
-                if ($this->mutateAt === 'precondition') {
+                if ('precondition' === $this->mutateAt) {
                     $content = $action->effect['content'];
                     $content->body = 'Unapproved mutation in preconditions.';
                 }
@@ -64,7 +73,7 @@ final class ActionIntegrityTest extends TestCase
             public function execute(Actor $actor, PreparedAction $action): array
             {
                 $this->guard->assertExecuting($actor, $action);
-                if ($this->mutateAt === 'execute') {
+                if ('execute' === $this->mutateAt) {
                     // A mutable object accidentally shared with a hook alters
                     // both the proposed write and a naive postcondition baseline.
                     $content = $action->effect['content'];
@@ -81,7 +90,7 @@ final class ActionIntegrityTest extends TestCase
                 if ($this->row()['body'] !== $action->effect['content']->body) {
                     throw new ApprovalException('postcondition_failed', 'Final content differs from the expected content.');
                 }
-                if ($this->mutateAt === 'postcondition') {
+                if ('postcondition' === $this->mutateAt) {
                     $content = $action->effect['content'];
                     $content->body = 'Changed while inspecting the postcondition.';
                 }
@@ -89,7 +98,7 @@ final class ActionIntegrityTest extends TestCase
 
             private function row(): array
             {
-                return $this->pdo->query('SELECT * FROM test_articles WHERE id = 1')->fetch(PDO::FETCH_ASSOC);
+                return $this->pdo->query('SELECT * FROM test_articles WHERE id = 1')->fetch(\PDO::FETCH_ASSOC);
             }
         };
         $service = new ApprovalService(new ActionRegistry([$adapter]), $fixture->policies, $fixture->authorizer, $fixture->store, $fixture->verifier, $fixture->clock, $guard);

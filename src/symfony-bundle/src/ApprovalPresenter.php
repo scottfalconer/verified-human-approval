@@ -4,14 +4,14 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Bundle;
 
-use VerifiedHumanApproval\Core\ApprovalState;
-use VerifiedHumanApproval\Mcp\ApprovalCard;
-use VerifiedHumanApproval\Mcp\ResultPresenter;
-use VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool;
-use VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool;
 use Mcp\Schema\Content\TextContent;
 use Mcp\Schema\Result\CallToolResult;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
+use VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool;
+use VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool;
+use VerifiedHumanApproval\Core\ApprovalState;
+use VerifiedHumanApproval\Mcp\ApprovalCard;
+use VerifiedHumanApproval\Mcp\ResultPresenter;
 
 /** One result shape for MCP and browser status, with no assertion material. */
 final readonly class ApprovalPresenter implements ResultPresenter
@@ -21,7 +21,7 @@ final readonly class ApprovalPresenter implements ResultPresenter
         $parts = parse_url($publicOrigin);
         if (!\is_array($parts) || !isset($parts['scheme'], $parts['host']) || isset($parts['user']) || isset($parts['pass'])
             || isset($parts['query']) || isset($parts['fragment']) || (isset($parts['path']) && !\in_array($parts['path'], ['', '/'], true))
-            || !($parts['scheme'] === 'https' || ($parts['scheme'] === 'http' && $parts['host'] === 'localhost'))) {
+            || !('https' === $parts['scheme'] || ('http' === $parts['scheme'] && 'localhost' === $parts['host']))) {
             throw new \InvalidArgumentException('public_origin must be an HTTPS origin, or HTTP localhost for development.');
         }
     }
@@ -39,11 +39,11 @@ final readonly class ApprovalPresenter implements ResultPresenter
     public function data(ApprovalState $state, ?string $message = null): array
     {
         $data = $state->toArray();
-        if ($state->status === 'pending') {
+        if ('pending' === $state->status) {
             $data['review_url'] = $this->reviewUrl($state);
             $data['message'] = 'Approval required. Open the review URL in your browser. The application executes only its stored proposal after valid passkey approval. Then call approval_status.';
         }
-        if ($message !== null) {
+        if (null !== $message) {
             $data['message'] = $message;
         }
         // The MCP App card reads these fixed names; it shows only what the application recorded.
@@ -59,7 +59,7 @@ final readonly class ApprovalPresenter implements ResultPresenter
         $data = $this->data($state, $message);
 
         return new CallToolResult(
-            [new TextContent(json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES))],
+            [new TextContent(json_encode($data, \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES))],
             structuredContent: $data,
         );
     }

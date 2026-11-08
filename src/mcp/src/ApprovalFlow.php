@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Mcp;
 
-use VerifiedHumanApproval\Core\Actor;
-use VerifiedHumanApproval\Core\ApprovalService;
-use VerifiedHumanApproval\Core\ApprovalState;
 use Mcp\Schema\Result\CallToolResult;
 use Mcp\Schema\Result\InputRequiredResult;
 use Mcp\Server\RequestContext;
+use VerifiedHumanApproval\Core\Actor;
+use VerifiedHumanApproval\Core\ApprovalService;
+use VerifiedHumanApproval\Core\ApprovalState;
 
 /**
  * How a protected tool presents its approval.
@@ -58,24 +58,26 @@ final readonly class ApprovalFlow
         'additionalProperties' => true,
     ];
 
-    public function __construct(private ApprovalService $approvals, private ResultPresenter $presenter, private UrlPrompt $prompt) {}
+    public function __construct(private ApprovalService $approvals, private ResultPresenter $presenter, private UrlPrompt $prompt)
+    {
+    }
 
     /**
-     * @param array<string, mixed> $arguments the tool's arguments as the client sent them
-     * @param callable(): ApprovalState $request requests or reuses the proposal
+     * @param array<string, mixed>      $arguments the tool's arguments as the client sent them
+     * @param callable(): ApprovalState $request   requests or reuses the proposal
      */
     public function respond(RequestContext $context, Actor $actor, string $tool, array $arguments, callable $request): CallToolResult|InputRequiredResult
     {
         $binding = UrlPrompt::binding($actor, $tool, $arguments);
         $resumed = UrlPrompt::resumed($context->getInputContext(), $binding);
-        if ($resumed !== null) {
+        if (null !== $resumed) {
             $state = $this->approvals->get($actor, $resumed['requestId']);
 
             return $this->presenter->toolResult($state, UrlPrompt::note($resumed['answer'], $state, $this->presenter->statusTool()));
         }
 
         $state = $request();
-        if ($state->status === 'pending' && $this->prompt->allowsContext($context)) {
+        if ('pending' === $state->status && $this->prompt->allowsContext($context)) {
             return $this->prompt->ask($context, $state, $this->presenter->reviewUrl($state), $binding);
         }
 

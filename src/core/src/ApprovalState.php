@@ -15,7 +15,7 @@ final readonly class ApprovalState
         public ?array $proof = null,
         public ?array $receipt = null,
     ) {
-        if (!in_array($status, ['pending', 'completed', 'invalidated', 'expired', 'cancelled', 'denied'], true)) {
+        if (!\in_array($status, ['pending', 'completed', 'invalidated', 'expired', 'cancelled', 'denied'], true)) {
             throw new \InvalidArgumentException('Unknown approval status.');
         }
     }

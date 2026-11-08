@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\Core;
 
+use PHPUnit\Framework\TestCase;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Tests\Support\CoreFixture;
-use PHPUnit\Framework\TestCase;
 
 /** A request key replays its outcome only while the content it named is unchanged. */
 final class RequestKeyTest extends TestCase

@@ -34,7 +34,7 @@ final readonly class PdoCredentialRepository implements CredentialRepository
         $statement->execute(['id' => $id]);
         $row = $statement->fetch(\PDO::FETCH_ASSOC);
 
-        return is_array($row) ? $this->hydrate($row) : null;
+        return \is_array($row) ? $this->hydrate($row) : null;
     }
 
     public function forActor(Actor $actor): array
@@ -61,7 +61,7 @@ final readonly class PdoCredentialRepository implements CredentialRepository
                 'label' => $credential->label,
             ]);
         } catch (\PDOException $exception) {
-            if ((string) $exception->getCode() === '23000') {
+            if ('23000' === (string) $exception->getCode()) {
                 throw new ApprovalException('credential_exists', 'This credential is already registered.');
             }
             throw $exception;
@@ -80,7 +80,7 @@ final readonly class PdoCredentialRepository implements CredentialRepository
             'tenant' => $credential->tenantId,
             'expected' => $expectedSourceJson,
         ]);
-        if ($statement->rowCount() !== 1) {
+        if (1 !== $statement->rowCount()) {
             throw new ApprovalException('credential_changed', 'The approval credential changed or was revoked.');
         }
     }
@@ -108,7 +108,7 @@ final readonly class PdoCredentialRepository implements CredentialRepository
             WHERE credential_id = :id AND user_id = :user AND tenant_id = :tenant AND revoked = 0');
         $statement->execute(['id' => $id, 'user' => $owner->userId, 'tenant' => $owner->tenantId]);
 
-        return $statement->rowCount() === 1;
+        return 1 === $statement->rowCount();
     }
 
     /** @param array<string, mixed> $row */

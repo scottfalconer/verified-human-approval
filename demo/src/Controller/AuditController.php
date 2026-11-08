@@ -4,6 +4,17 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Demo\Controller;
 
+use Symfony\Bundle\SecurityBundle\Security;
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\RedirectResponse;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Symfony\Component\Security\Core\Exception\AccessDeniedException;
+use Symfony\Component\Security\Csrf\CsrfToken;
+use Symfony\Component\Security\Csrf\CsrfTokenManagerInterface;
+use Twig\Environment;
+use VerifiedHumanApproval\Bundle\ActorProvider;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalState;
@@ -15,22 +26,11 @@ use VerifiedHumanApproval\Core\Evidence\ReceiptVerifier;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
 use VerifiedHumanApproval\Core\Storage\PdoApprovalStore;
 use VerifiedHumanApproval\Demo\DemoDatabase;
-use VerifiedHumanApproval\Demo\Security\DemoRequesterLabel;
 use VerifiedHumanApproval\Demo\Security\Authenticators;
-use VerifiedHumanApproval\Bundle\ActorProvider;
+use VerifiedHumanApproval\Demo\Security\DemoRequesterLabel;
 use VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository;
 use VerifiedHumanApproval\WebAuthn\PdoCredentialRepository;
 use VerifiedHumanApproval\WebAuthn\WebAuthnVerifier;
-use Symfony\Bundle\SecurityBundle\Security;
-use Symfony\Component\HttpFoundation\JsonResponse;
-use Symfony\Component\HttpFoundation\RedirectResponse;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
-use Symfony\Component\Security\Core\Exception\AccessDeniedException;
-use Symfony\Component\Security\Csrf\CsrfToken;
-use Symfony\Component\Security\Csrf\CsrfTokenManagerInterface;
-use Twig\Environment;
 
 /**
  * The administrator's view of how every action in their organization happened: who asked, through
@@ -54,7 +54,8 @@ final readonly class AuditController
         private DemoRequesterLabel $requesters,
         private CsrfTokenManagerInterface $csrf,
         private Environment $twig,
-    ) {}
+    ) {
+    }
 
     public function audit(Request $request): Response
     {
@@ -75,7 +76,7 @@ final readonly class AuditController
             ];
         }
         $log = $this->audit->verify();
-        $entries = array_values(array_filter(array_reverse($log['entries']), static fn (array $item): bool => $item['entry'] === null || $item['entry']['tenantId'] === $admin->tenantId));
+        $entries = array_values(array_filter(array_reverse($log['entries']), static fn (array $item): bool => null === $item['entry'] || $item['entry']['tenantId'] === $admin->tenantId));
         $newLink = $request->getSession()->get('demo.new_link');
         $request->getSession()->remove('demo.new_link');
 
@@ -85,7 +86,7 @@ final readonly class AuditController
             'links' => $this->database->passkeyLinks($admin->tenantId), 'users' => $this->database->users($admin->tenantId),
             'log' => $entries, 'log_intact' => $log['intact'], 'log_newest' => $log['newest'],
             'key_id' => $this->signer->keyId(), 'public_key' => $this->signer->publicKey(),
-            'confirmed' => AccountController::recentConfirmation($request, $admin) !== null, 'new_link' => $newLink,
+            'confirmed' => null !== AccountController::recentConfirmation($request, $admin), 'new_link' => $newLink,
             'csrf' => $this->csrf->getToken('verified_human_approval.enrollment')->getValue(),
             'form_csrf' => $this->csrf->getToken('demo.audit')->getValue(),
         ]));
@@ -96,7 +97,9 @@ final readonly class AuditController
     {
         $admin = $this->admin();
         $state = $this->store->get($id);
-        if ($state === null || $state->request->actor()->tenantId !== $admin->tenantId) throw new NotFoundHttpException('No such action in your organization.');
+        if (null === $state || $state->request->actor()->tenantId !== $admin->tenantId) {
+            throw new NotFoundHttpException('No such action in your organization.');
+        }
         try {
             return new JsonResponse($this->exporter->export($state), headers: ['Content-Disposition' => 'attachment; filename="approval-evidence.json"']);
         } catch (ApprovalException $error) {
@@ -109,7 +112,7 @@ final readonly class AuditController
         $admin = $this->admin();
         $this->assertCsrf($request);
         $credential = $this->credentials->find($id);
-        if ($credential !== null && $credential->tenantId === $admin->tenantId) {
+        if (null !== $credential && $credential->tenantId === $admin->tenantId) {
             $this->anchored->revoke(new Actor($credential->userId, $credential->tenantId), $id, ['by' => $admin->userId, 'reason' => 'revoked by an administrator']);
         }
 
@@ -123,7 +126,7 @@ final readonly class AuditController
         $pdo = $this->database->pdo;
         $pdo->beginTransaction();
         $grant = $this->database->grant($id);
-        if ($grant !== null && $this->database->revokeGrant($id, $admin->tenantId)) {
+        if (null !== $grant && $this->database->revokeGrant($id, $admin->tenantId)) {
             $this->audit->append($admin->tenantId, 'connection.revoked', $id, ['userId' => $grant['user_id'], 'by' => $admin->userId]);
         }
         $pdo->commit();
@@ -137,12 +140,14 @@ final readonly class AuditController
         $admin = $this->admin();
         $this->assertCsrf($request);
         $confirmed = AccountController::recentConfirmation($request, $admin);
-        if ($confirmed === null) {
+        if (null === $confirmed) {
             throw new AccessDeniedException('Confirm with your passkey before issuing a passkey link.');
         }
         $userId = (string) $request->request->get('user', '');
         $user = $this->database->user($userId);
-        if ($user === null || $user['tenant_id'] !== $admin->tenantId) throw new NotFoundHttpException('No such person in your organization.');
+        if (null === $user || $user['tenant_id'] !== $admin->tenantId) {
+            throw new NotFoundHttpException('No such person in your organization.');
+        }
         $pdo = $this->database->pdo;
         $pdo->beginTransaction();
         $token = $this->database->issuePasskeyLink($userId, $admin->tenantId, 'administrator '.$admin->userId, 86400);
@@ -169,7 +174,7 @@ final readonly class AuditController
             'verificationRequired' => $payload['policy']->required,
             'executedAt' => $state->execution['recordedAt'] ?? null, 'approval' => null, 'receipt' => null, 'passkey' => null,
         ];
-        if ($state->status !== 'completed') {
+        if ('completed' !== $state->status) {
             return $row;
         }
         try {
@@ -177,16 +182,16 @@ final readonly class AuditController
             (new ReceiptVerifier())->verify($bundle, $this->signer->keyId(), $this->signer->publicKey());
             $row['receipt'] = ['valid' => true, 'signed' => $bundle['receipt']->signed];
         } catch (\Throwable) {
-            $row['receipt'] = ['valid' => false, 'signed' => $state->receipt === null ? 'at_export' : 'at_commit'];
+            $row['receipt'] = ['valid' => false, 'signed' => null === $state->receipt ? 'at_export' : 'at_commit'];
         }
-        if ($state->proof !== null) {
+        if (null !== $state->proof) {
             $credentialId = (string) $state->proof['credentialId'];
             $enrolled = $this->anchored->enrolled($credentialId);
             $row['approval'] = [
                 'credential' => $credentialId, 'verifiedAt' => $state->proof['verifiedAt'] ?? null,
                 'label' => $enrolled?->label, 'authenticator' => Authenticators::name($enrolled?->sourceJson),
             ];
-            $row['passkey'] = $enrolled === null ? ['valid' => false, 'problem' => 'no signed enrollment record vouches for this passkey'] : $this->passkeySigned($state, $requester, $enrolled);
+            $row['passkey'] = null === $enrolled ? ['valid' => false, 'problem' => 'no signed enrollment record vouches for this passkey'] : $this->passkeySigned($state, $requester, $enrolled);
         }
 
         return $row;
@@ -213,13 +218,17 @@ final readonly class AuditController
     private function admin(): Actor
     {
         $actor = $this->actors->interactive();
-        if (!$this->security->isGranted('ROLE_ADMIN')) throw new AccessDeniedException('The audit log is for administrators.');
+        if (!$this->security->isGranted('ROLE_ADMIN')) {
+            throw new AccessDeniedException('The audit log is for administrators.');
+        }
 
         return $actor;
     }
 
     private function assertCsrf(Request $request): void
     {
-        if (!$this->csrf->isTokenValid(new CsrfToken('demo.audit', (string) $request->request->get('_token', '')))) throw new AccessDeniedException('Invalid or missing CSRF token.');
+        if (!$this->csrf->isTokenValid(new CsrfToken('demo.audit', (string) $request->request->get('_token', '')))) {
+            throw new AccessDeniedException('Invalid or missing CSRF token.');
+        }
     }
 }

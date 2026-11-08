@@ -4,19 +4,6 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Bundle;
 
-use VerifiedHumanApproval\Core\ActionAdapter;
-use VerifiedHumanApproval\Core\ActionRegistry;
-use VerifiedHumanApproval\Core\ApprovalService;
-use VerifiedHumanApproval\Core\ExecutionGuard;
-use VerifiedHumanApproval\Bundle\Controller\ApprovalController;
-use VerifiedHumanApproval\Mcp\ApprovalFlow;
-use VerifiedHumanApproval\Mcp\ResultPresenter;
-use VerifiedHumanApproval\Mcp\UrlPrompt;
-use VerifiedHumanApproval\Bundle\Handoff\ApprovalHandoff;
-use VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp;
-use VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool;
-use VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool;
-use VerifiedHumanApproval\Bundle\Security\ReviewRequestMatcher;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
@@ -25,6 +12,19 @@ use Symfony\Component\Lock\LockFactory;
 use Symfony\Component\Lock\Store\FlockStore;
 use Symfony\Component\RateLimiter\RateLimiterFactory;
 use Symfony\Component\RateLimiter\Storage\CacheStorage;
+use VerifiedHumanApproval\Bundle\Controller\ApprovalController;
+use VerifiedHumanApproval\Bundle\Handoff\ApprovalHandoff;
+use VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp;
+use VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool;
+use VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool;
+use VerifiedHumanApproval\Bundle\Security\ReviewRequestMatcher;
+use VerifiedHumanApproval\Core\ActionAdapter;
+use VerifiedHumanApproval\Core\ActionRegistry;
+use VerifiedHumanApproval\Core\ApprovalService;
+use VerifiedHumanApproval\Core\ExecutionGuard;
+use VerifiedHumanApproval\Mcp\ApprovalFlow;
+use VerifiedHumanApproval\Mcp\ResultPresenter;
+use VerifiedHumanApproval\Mcp\UrlPrompt;
 
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\tagged_iterator;
@@ -36,7 +36,10 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\tagged_it
  */
 final class VerifiedHumanApprovalBundle extends AbstractBundle
 {
-    public function getPath(): string { return \dirname(__DIR__); }
+    public function getPath(): string
+    {
+        return \dirname(__DIR__);
+    }
 
     public function configure(DefinitionConfigurator $definition): void
     {

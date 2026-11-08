@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\Support;
 
+use Symfony\Component\Clock\MockClock;
 use VerifiedHumanApproval\Core\ActionAdapter;
 use VerifiedHumanApproval\Core\ActionRegistry;
 use VerifiedHumanApproval\Core\Actor;
@@ -18,9 +19,6 @@ use VerifiedHumanApproval\Core\PolicyProvider;
 use VerifiedHumanApproval\Core\PreparedAction;
 use VerifiedHumanApproval\Core\Storage\PdoApprovalStore;
 use VerifiedHumanApproval\Core\VerifiedApproval;
-use PDO;
-use RuntimeException;
-use Symfony\Component\Clock\MockClock;
 
 /**
  * A real SQLite application boundary for the approval core tests.
@@ -30,7 +28,7 @@ use Symfony\Component\Clock\MockClock;
  */
 final class CoreFixture
 {
-    public readonly PDO $pdo;
+    public readonly \PDO $pdo;
     public readonly PdoApprovalStore $store;
     public readonly MockClock $clock;
     public readonly ExecutionGuard $guard;
@@ -44,7 +42,7 @@ final class CoreFixture
 
     public function __construct(string $database = ':memory:')
     {
-        $this->pdo = new PDO('sqlite:'.$database, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        $this->pdo = new \PDO('sqlite:'.$database, null, null, [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
         $this->pdo->exec('PRAGMA busy_timeout = 15000');
         $this->store = new PdoApprovalStore($this->pdo);
         $this->store->initialize();
@@ -73,9 +71,9 @@ final class CoreFixture
     {
         $query = $this->pdo->prepare('SELECT * FROM test_articles WHERE id = ?');
         $query->execute([$id]);
-        $row = $query->fetch(PDO::FETCH_ASSOC);
-        if (!is_array($row)) {
-            throw new RuntimeException('Missing fixture article.');
+        $row = $query->fetch(\PDO::FETCH_ASSOC);
+        if (!\is_array($row)) {
+            throw new \RuntimeException('Missing fixture article.');
         }
 
         return $row;
@@ -158,7 +156,7 @@ final class CoreFixture
 
 final class FixturePolicies implements PolicyProvider
 {
-    public function __construct(private readonly PDO $pdo)
+    public function __construct(private readonly \PDO $pdo)
     {
     }
 
@@ -166,8 +164,8 @@ final class FixturePolicies implements PolicyProvider
     {
         $query = $this->pdo->prepare('SELECT * FROM test_policies WHERE action_id = ?');
         $query->execute([$actionId]);
-        $row = $query->fetch(PDO::FETCH_ASSOC);
-        if (!is_array($row)) {
+        $row = $query->fetch(\PDO::FETCH_ASSOC);
+        if (!\is_array($row)) {
             throw new ApprovalException('unknown_policy', 'No configured policy.');
         }
 
@@ -179,7 +177,7 @@ final class FixtureAuthorizer implements Authorizer
 {
     public int $checks = 0;
 
-    public function __construct(private readonly PDO $pdo)
+    public function __construct(private readonly \PDO $pdo)
     {
     }
 
@@ -188,15 +186,15 @@ final class FixtureAuthorizer implements Authorizer
         ++$this->checks;
         $query = $this->pdo->prepare('SELECT enabled, can_publish FROM test_users WHERE user_id = ? AND tenant = ?');
         $query->execute([$actor->userId, $actor->tenantId]);
-        $user = $query->fetch(PDO::FETCH_ASSOC);
-        if (!is_array($user) || !(bool) $user['enabled'] || !(bool) $user['can_publish'] || $action->target['tenant'] !== $actor->tenantId) {
+        $user = $query->fetch(\PDO::FETCH_ASSOC);
+        if (!\is_array($user) || !(bool) $user['enabled'] || !(bool) $user['can_publish'] || $action->target['tenant'] !== $actor->tenantId) {
             throw new ApprovalException('permission_denied', 'Current application permission does not permit publication.');
         }
-        if ($actor->delegationId !== null) {
+        if (null !== $actor->delegationId) {
             $query = $this->pdo->prepare('SELECT * FROM test_delegations WHERE id = ? AND user_id = ? AND tenant = ?');
             $query->execute([$actor->delegationId, $actor->userId, $actor->tenantId]);
-            $delegation = $query->fetch(PDO::FETCH_ASSOC);
-            if (!is_array($delegation) || !(bool) $delegation['active']) {
+            $delegation = $query->fetch(\PDO::FETCH_ASSOC);
+            if (!\is_array($delegation) || !(bool) $delegation['active']) {
                 throw new ApprovalException('delegation_revoked', 'The initiating client no longer has an active delegation.');
             }
             if (!(bool) $delegation['can_publish']) {
@@ -213,7 +211,7 @@ final class FixtureAction implements ActionAdapter
     public bool $alterAfterWrite = false;
     public int $executeCalls = 0;
 
-    public function __construct(private readonly PDO $pdo, private readonly ExecutionGuard $guard)
+    public function __construct(private readonly \PDO $pdo, private readonly ExecutionGuard $guard)
     {
     }
 
@@ -229,7 +227,7 @@ final class FixtureAction implements ActionAdapter
 
     public function prepare(Actor $actor, array $input): PreparedAction
     {
-        if (!isset($input['id']) || !is_int($input['id']) || array_diff(array_keys($input), ['id']) !== []) {
+        if (!isset($input['id']) || !\is_int($input['id']) || [] !== array_diff(array_keys($input), ['id'])) {
             throw new ApprovalException('invalid_input', 'An integer article id is required.');
         }
         $row = $this->row($input['id']);
@@ -267,7 +265,7 @@ final class FixtureAction implements ActionAdapter
         ++$this->executeCalls;
         $update = $this->pdo->prepare('UPDATE test_articles SET published = 1, revision = revision + 1, publication_count = publication_count + 1 WHERE id = ? AND tenant = ? AND revision = ?');
         $update->execute([$action->target['resource'], $actor->tenantId, $action->preconditions['revision']]);
-        if ($update->rowCount() !== 1) {
+        if (1 !== $update->rowCount()) {
             throw new ApprovalException('stale_resource', 'Conditional publication failed.');
         }
         if ($this->alterAfterWrite) {
@@ -275,7 +273,7 @@ final class FixtureAction implements ActionAdapter
             $update->execute([$action->target['resource']]);
         }
         if ($this->failAfterWrite) {
-            throw new RuntimeException('Injected failure after the business write and before commit.');
+            throw new \RuntimeException('Injected failure after the business write and before commit.');
         }
 
         return ['resource' => $action->target['resource'], 'source_revision' => $action->preconditions['revision'], 'result_revision' => $action->preconditions['revision'] + 1, 'published' => true];
@@ -296,8 +294,8 @@ final class FixtureAction implements ActionAdapter
     {
         $query = $this->pdo->prepare('SELECT * FROM test_articles WHERE id = ?');
         $query->execute([$id]);
-        $row = $query->fetch(PDO::FETCH_ASSOC);
-        if (!is_array($row)) {
+        $row = $query->fetch(\PDO::FETCH_ASSOC);
+        if (!\is_array($row)) {
             throw new ApprovalException('missing_resource', 'The article does not exist.');
         }
 
@@ -307,7 +305,7 @@ final class FixtureAction implements ActionAdapter
     /** @param array<string, mixed> $row */
     private function contentDigest(array $row): string
     {
-        return hash('sha256', json_encode([$row['title'], $row['body']], JSON_THROW_ON_ERROR));
+        return hash('sha256', json_encode([$row['title'], $row['body']], \JSON_THROW_ON_ERROR));
     }
 }
 
@@ -316,7 +314,7 @@ final class TestProofVerifier implements ApprovalVerifier
 {
     public int $verifyCalls = 0;
 
-    public function __construct(private readonly PDO $pdo)
+    public function __construct(private readonly \PDO $pdo)
     {
     }
 
@@ -324,8 +322,8 @@ final class TestProofVerifier implements ApprovalVerifier
     {
         $query = $this->pdo->prepare('SELECT id FROM test_credentials WHERE user_id = ? AND tenant = ? AND active = 1');
         $query->execute([$actor->userId, $actor->tenantId]);
-        $ids = $query->fetchAll(PDO::FETCH_COLUMN);
-        if ($ids === []) {
+        $ids = $query->fetchAll(\PDO::FETCH_COLUMN);
+        if ([] === $ids) {
             throw new ApprovalException('credential_unavailable', 'No accepted approval credential.');
         }
 
@@ -343,8 +341,8 @@ final class TestProofVerifier implements ApprovalVerifier
         }
         $query = $this->pdo->prepare('SELECT * FROM test_credentials WHERE id = ? AND user_id = ? AND tenant = ? AND active = 1');
         $query->execute([$assertion['credential'] ?? '', $actor->userId, $actor->tenantId]);
-        $credential = $query->fetch(PDO::FETCH_ASSOC);
-        if (!is_array($credential)) {
+        $credential = $query->fetch(\PDO::FETCH_ASSOC);
+        if (!\is_array($credential)) {
             throw new ApprovalException('credential_denied', 'The approval credential is no longer accepted for this person.');
         }
         $update = $this->pdo->prepare('UPDATE test_credentials SET verification_count = verification_count + 1 WHERE id = ?');

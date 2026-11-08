@@ -4,10 +4,6 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Mcp;
 
-use VerifiedHumanApproval\Core\Actor;
-use VerifiedHumanApproval\Core\ApprovalException;
-use VerifiedHumanApproval\Core\ApprovalState;
-use VerifiedHumanApproval\Core\CanonicalJson;
 use Mcp\Schema\Enum\ElicitationMode;
 use Mcp\Schema\Enum\ProtocolVersion;
 use Mcp\Schema\Request\ElicitRequest;
@@ -16,6 +12,10 @@ use Mcp\Schema\Result\InputRequiredResult;
 use Mcp\Server\RequestContext;
 use Mcp\Server\Stateless\InputContext;
 use Mcp\Server\Stateless\RequestMeta;
+use VerifiedHumanApproval\Core\Actor;
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\ApprovalState;
+use VerifiedHumanApproval\Core\CanonicalJson;
 
 /**
  * An optional URL-mode elicitation (MCP 2026-07-28 multi round-trip) for a pending approval.
@@ -37,7 +37,7 @@ final readonly class UrlPrompt
     public function __construct(private bool $enabled = false, private array $clients = [])
     {
         foreach ($clients as $client) {
-            if (!\is_string($client) || $client === '' || \strlen($client) > 128) {
+            if (!\is_string($client) || '' === $client || \strlen($client) > 128) {
                 throw new \InvalidArgumentException('Each URL elicitation client must be a clientInfo name of 1–128 bytes.');
             }
         }
@@ -58,7 +58,7 @@ final readonly class UrlPrompt
             return false;
         }
 
-        return \in_array('*', $this->clients, true) || ($clientName !== null && \in_array($clientName, $this->clients, true));
+        return \in_array('*', $this->clients, true) || (null !== $clientName && \in_array($clientName, $this->clients, true));
     }
 
     public function allowsContext(RequestContext $context): bool
@@ -67,7 +67,7 @@ final readonly class UrlPrompt
 
         return $this->allows(
             $context->getProtocolVersion(),
-            $context->getClientCapabilities()?->elicitationUrl === true,
+            true === $context->getClientCapabilities()?->elicitationUrl,
             $meta instanceof RequestMeta ? $meta->clientInfo?->name : null,
         );
     }
@@ -93,11 +93,11 @@ final readonly class UrlPrompt
     /**
      * Reads a retry of an asked round. Null when this call is not such a retry.
      *
-     * @return null|array{requestId: string, answer: 'accept'|'decline'|'cancel'|'none'}
+     * @return array{requestId: string, answer: 'accept'|'decline'|'cancel'|'none'}|null
      */
     public static function resumed(?InputContext $input, string $binding): ?array
     {
-        if ($input === null) {
+        if (null === $input) {
             return null;
         }
         $state = $input->requestState();
@@ -120,7 +120,7 @@ final readonly class UrlPrompt
     public static function answer(?ElicitResult $result): string
     {
         return match (true) {
-            $result === null => 'none',
+            null === $result => 'none',
             $result->isAccepted() => 'accept',
             $result->isDeclined() => 'decline',
             default => 'cancel',
@@ -141,9 +141,9 @@ final readonly class UrlPrompt
     public static function note(string $answer, ApprovalState $state, string $statusTool): string
     {
         return match (true) {
-            $state->status === 'completed' => 'Approved on the site with the person\'s passkey. The stored action ran once; this is its recorded result.',
-            $state->status !== 'pending' => 'This request is '.$state->status.'. It did not change anything. Request the action again if it is still wanted.',
-            $answer === 'accept' => 'The person opened the approval page. That is not an approval: the site acts only after its own passkey check. Call '.$statusTool.' with this requestId to read the outcome.',
+            'completed' === $state->status => 'Approved on the site with the person\'s passkey. The stored action ran once; this is its recorded result.',
+            'pending' !== $state->status => 'This request is '.$state->status.'. It did not change anything. Request the action again if it is still wanted.',
+            'accept' === $answer => 'The person opened the approval page. That is not an approval: the site acts only after its own passkey check. Call '.$statusTool.' with this requestId to read the outcome.',
             default => 'The approval prompt was dismissed, so nothing was approved or changed. The request is still open: the person can use the review URL to approve or cancel it on the site.',
         };
     }

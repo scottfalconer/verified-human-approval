@@ -4,17 +4,19 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\Bundle;
 
-use VerifiedHumanApproval\Demo\DemoKernel;
 use Nyholm\Psr7\Response as PsrResponse;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 use Symfony\Component\HttpFoundation\Request;
+use VerifiedHumanApproval\Demo\DemoKernel;
 
 /** Test adapter transports real HTTP messages through a fresh Symfony kernel per request. */
 final readonly class SymfonyKernelHttpClient implements ClientInterface
 {
-    public function __construct(private string $runtime) {}
+    public function __construct(private string $runtime)
+    {
+    }
 
     public function sendRequest(RequestInterface $request): ResponseInterface
     {

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\Core;
 
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\TestCase;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalPolicy;
@@ -11,9 +13,6 @@ use VerifiedHumanApproval\Core\ApprovalRequest;
 use VerifiedHumanApproval\Core\CanonicalJson;
 use VerifiedHumanApproval\Core\ChallengeBinding;
 use VerifiedHumanApproval\Core\PreparedAction;
-use InvalidArgumentException;
-use PHPUnit\Framework\Attributes\DataProvider;
-use PHPUnit\Framework\TestCase;
 
 final class BindingTest extends TestCase
 {
@@ -42,7 +41,7 @@ final class BindingTest extends TestCase
             "\u{f6}" => 'Latin Small Letter O With Diaeresis',
         ];
         self::assertSame(
-            '{"\\r":"Carriage Return","1":"One","' . "\u{80}" . '":"Control","ö":"Latin Small Letter O With Diaeresis","€":"Euro Sign","😀":"Emoji: Grinning Face","דּ":"Hebrew Letter Dalet With Dagesh"}',
+            '{"\\r":"Carriage Return","1":"One","'."\u{80}".'":"Control","ö":"Latin Small Letter O With Diaeresis","€":"Euro Sign","😀":"Emoji: Grinning Face","דּ":"Hebrew Letter Dalet With Dagesh"}',
             CanonicalJson::encode($input),
         );
         self::assertNotSame(CanonicalJson::encode('é'), CanonicalJson::encode("e\u{301}"), 'Approval text is not Unicode-normalized after review.');
@@ -60,8 +59,8 @@ final class BindingTest extends TestCase
     {
         yield 'unsafe integer' => [9007199254740992];
         yield 'decimal' => [0.1];
-        yield 'infinity' => [INF];
-        yield 'nan' => [NAN];
+        yield 'infinity' => [\INF];
+        yield 'nan' => [\NAN];
         yield 'invalid utf8' => ["\xFF"];
         yield 'arbitrary object' => [new \DateTimeImmutable('2026-11-08')];
     }
@@ -69,7 +68,7 @@ final class BindingTest extends TestCase
     #[DataProvider('invalidValues')]
     public function testUnsupportedValuesFailInsteadOfBeingSilentlyNormalized(mixed $value): void
     {
-        $this->expectException(InvalidArgumentException::class);
+        $this->expectException(\InvalidArgumentException::class);
         CanonicalJson::encode($value);
     }
 
@@ -80,7 +79,7 @@ final class BindingTest extends TestCase
         $nonceA = str_repeat('a', 32);
         $nonceB = str_repeat('b', 32);
         $challenge = ChallengeBinding::challenge($digestA, $nonceA);
-        self::assertSame(32, strlen($challenge));
+        self::assertSame(32, \strlen($challenge));
         self::assertNotSame($challenge, ChallengeBinding::challenge($digestB, $nonceA));
         self::assertNotSame($challenge, ChallengeBinding::challenge($digestA, $nonceB));
         self::assertSame($challenge, ChallengeBinding::decode(ChallengeBinding::encode($challenge)));

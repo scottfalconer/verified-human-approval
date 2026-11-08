@@ -18,14 +18,20 @@ final readonly class OAuthServer
     /** However often it is refreshed, a connection ends after this; the person connects again. */
     private const CONNECTION_SECONDS = 30 * 86400;
 
-    public function __construct(private DemoDatabase $database) {}
+    public function __construct(private DemoDatabase $database)
+    {
+    }
 
     /** @return list<string> */
     public static function scopes(?string $requested): array
     {
-        if ($requested === null || trim($requested) === '') return self::SCOPES;
+        if (null === $requested || '' === trim($requested)) {
+            return self::SCOPES;
+        }
         $scopes = array_values(array_unique(preg_split('/\s+/', trim($requested)) ?: []));
-        if (array_diff($scopes, self::SCOPES) !== []) throw new OAuthError('invalid_scope', 'Unknown scope requested.');
+        if ([] !== array_diff($scopes, self::SCOPES)) {
+            throw new OAuthError('invalid_scope', 'Unknown scope requested.');
+        }
 
         return $scopes;
     }
@@ -35,7 +41,7 @@ final readonly class OAuthServer
     {
         $code = self::random();
         $this->database->pdo->prepare('INSERT INTO demo_oauth_codes (code_hash, client_id, redirect_uri, user_id, tenant_id, scopes, code_challenge, expires_at, client_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-            ->execute([hash('sha256', $code), $clientId, $redirectUri, $userId, $tenantId, json_encode($scopes, JSON_THROW_ON_ERROR), $challenge, time() + self::CODE_SECONDS, $clientName]);
+            ->execute([hash('sha256', $code), $clientId, $redirectUri, $userId, $tenantId, json_encode($scopes, \JSON_THROW_ON_ERROR), $challenge, time() + self::CODE_SECONDS, $clientName]);
 
         return $code;
     }
@@ -50,7 +56,7 @@ final readonly class OAuthServer
         $query = $this->database->pdo->prepare('SELECT * FROM demo_oauth_codes WHERE code_hash = ?');
         $query->execute([$hash]);
         $row = $query->fetch();
-        if ($take->rowCount() !== 1 || $row === false || (int) $row['expires_at'] < time() || !hash_equals($row['client_id'], $clientId) || !hash_equals($row['redirect_uri'], $redirectUri)) {
+        if (1 !== $take->rowCount() || false === $row || (int) $row['expires_at'] < time() || !hash_equals($row['client_id'], $clientId) || !hash_equals($row['redirect_uri'], $redirectUri)) {
             throw new OAuthError('invalid_grant', 'The authorization code is invalid, expired, already used or for another client.');
         }
         if (!preg_match('/^[A-Za-z0-9._~-]{43,128}$/D', $verifier) || !hash_equals($row['code_challenge'], self::challenge($verifier))) {
@@ -62,7 +68,7 @@ final readonly class OAuthServer
         $this->database->pdo->prepare('INSERT INTO demo_grants (id, user_id, tenant_id, token_hash, active, scopes, expires_at, client_id, refresh_hash, client_name, created_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)')
             ->execute([$grant, $row['user_id'], $row['tenant_id'], hash('sha256', $access), $row['scopes'], time() + self::TOKEN_SECONDS, $clientId, hash('sha256', $refresh), $row['client_name'] ?? null, time()]);
 
-        return self::tokens($access, $refresh, json_decode($row['scopes'], true, 4, JSON_THROW_ON_ERROR));
+        return self::tokens($access, $refresh, json_decode($row['scopes'], true, 4, \JSON_THROW_ON_ERROR));
     }
 
     /** @return array<string, mixed> the token response; the refresh token rotates, the grant stays the same */
@@ -71,17 +77,21 @@ final readonly class OAuthServer
         $query = $this->database->pdo->prepare('SELECT * FROM demo_grants WHERE refresh_hash = ? AND client_id = ? AND active = 1');
         $query->execute([hash('sha256', $refreshToken), $clientId]);
         $grant = $query->fetch();
-        if ($grant === false) throw new OAuthError('invalid_grant', 'The refresh token is invalid.');
-        if ($grant['created_at'] !== null && (int) $grant['created_at'] + self::CONNECTION_SECONDS < time()) {
+        if (false === $grant) {
+            throw new OAuthError('invalid_grant', 'The refresh token is invalid.');
+        }
+        if (null !== $grant['created_at'] && (int) $grant['created_at'] + self::CONNECTION_SECONDS < time()) {
             throw new OAuthError('invalid_grant', 'This connection has ended. Connect again.');
         }
         $access = self::random();
         $refresh = self::random();
         $update = $this->database->pdo->prepare('UPDATE demo_grants SET token_hash = ?, refresh_hash = ?, expires_at = ? WHERE id = ? AND refresh_hash = ?');
         $update->execute([hash('sha256', $access), hash('sha256', $refresh), time() + self::TOKEN_SECONDS, $grant['id'], hash('sha256', $refreshToken)]);
-        if ($update->rowCount() !== 1) throw new OAuthError('invalid_grant', 'The refresh token was already used.');
+        if (1 !== $update->rowCount()) {
+            throw new OAuthError('invalid_grant', 'The refresh token was already used.');
+        }
 
-        return self::tokens($access, $refresh, json_decode($grant['scopes'], true, 4, JSON_THROW_ON_ERROR));
+        return self::tokens($access, $refresh, json_decode($grant['scopes'], true, 4, \JSON_THROW_ON_ERROR));
     }
 
     public static function challenge(string $verifier): string

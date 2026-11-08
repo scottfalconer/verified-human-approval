@@ -18,11 +18,11 @@ function approvalToolset(): ClientToolset
     $parts = parse_url($endpoint);
     if (!is_array($parts) || !isset($parts['scheme'], $parts['host'])
         || isset($parts['user']) || isset($parts['pass']) || isset($parts['fragment'])
-        || !($parts['scheme'] === 'https' || ($parts['scheme'] === 'http' && $parts['host'] === 'localhost'))) {
+        || !('https' === $parts['scheme'] || ('http' === $parts['scheme'] && 'localhost' === $parts['host']))) {
         throw new InvalidArgumentException('Use an HTTPS MCP URL, or HTTP localhost for development.');
     }
     $token = getenv('VERIFIED_HUMAN_APPROVAL_TOKEN');
-    if (!is_string($token) || $token === '') {
+    if (!is_string($token) || '' === $token) {
         throw new RuntimeException('Set VERIFIED_HUMAN_APPROVAL_TOKEN to your personal demo token.');
     }
     $factory = new Psr17Factory();
@@ -33,5 +33,6 @@ function approvalToolset(): ClientToolset
         requestFactory: $factory,
         streamFactory: $factory,
     );
+
     return new ClientToolset('application', Client::builder()->build(), $transport);
 }

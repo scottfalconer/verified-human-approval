@@ -21,13 +21,15 @@ final readonly class AnchoredCredentialRepository implements CredentialRepositor
     /** The parts of a registration that never change after enrollment; the counter does. */
     private const IDENTITY = ['publicKeyCredentialId', 'credentialPublicKey', 'userHandle'];
 
-    public function __construct(private PdoCredentialRepository $credentials, private AuditLog $audit) {}
+    public function __construct(private PdoCredentialRepository $credentials, private AuditLog $audit)
+    {
+    }
 
     public function find(string $id): ?Credential
     {
         $credential = $this->credentials->find($id);
 
-        return $credential !== null && $this->anchored($credential) ? $credential : null;
+        return null !== $credential && $this->anchored($credential) ? $credential : null;
     }
 
     public function forActor(Actor $actor): array
@@ -79,7 +81,7 @@ final readonly class AnchoredCredentialRepository implements CredentialRepositor
     public function enrolled(string $id): ?Credential
     {
         $record = $this->audit->find(self::ENROLLED, $id);
-        if ($record === null || !\is_string($record['data']->sourceJson ?? null) || !\is_string($record['data']->userId ?? null)) {
+        if (null === $record || !\is_string($record['data']->sourceJson ?? null) || !\is_string($record['data']->userId ?? null)) {
             return null;
         }
 
@@ -95,8 +97,8 @@ final readonly class AnchoredCredentialRepository implements CredentialRepositor
     public function anchored(Credential $credential): bool
     {
         $enrolled = $this->enrolled($credential->id);
-        if ($enrolled === null || !$enrolled->belongsTo(new Actor($credential->userId, $credential->tenantId))
-            || $this->audit->find(self::REVOKED, $credential->id) !== null) {
+        if (null === $enrolled || !$enrolled->belongsTo(new Actor($credential->userId, $credential->tenantId))
+            || null !== $this->audit->find(self::REVOKED, $credential->id)) {
             return false;
         }
         $then = json_decode($enrolled->sourceJson, true);

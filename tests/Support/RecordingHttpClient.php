@@ -14,7 +14,9 @@ final class RecordingHttpClient implements ClientInterface
     /** @var list<array{method: ?string, protocol: string, session: string, status: int, contentType: string, body: string}> */
     public array $exchanges = [];
 
-    public function __construct(private readonly ClientInterface $inner) {}
+    public function __construct(private readonly ClientInterface $inner)
+    {
+    }
 
     public function sendRequest(RequestInterface $request): ResponseInterface
     {
@@ -45,9 +47,9 @@ final class RecordingHttpClient implements ClientInterface
         if (str_contains($exchange['contentType'], 'text/event-stream')) {
             preg_match_all('/^data: (.+)$/m', $exchange['body'], $matches);
 
-            return array_map(static fn (string $line): array => json_decode($line, true, 512, JSON_THROW_ON_ERROR), $matches[1]);
+            return array_map(static fn (string $line): array => json_decode($line, true, 512, \JSON_THROW_ON_ERROR), $matches[1]);
         }
-        $decoded = json_decode($exchange['body'], true, 512, JSON_THROW_ON_ERROR);
+        $decoded = json_decode($exchange['body'], true, 512, \JSON_THROW_ON_ERROR);
 
         return array_is_list($decoded) ? $decoded : [$decoded];
     }

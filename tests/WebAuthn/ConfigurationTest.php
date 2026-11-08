@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\WebAuthn;
 
-use VerifiedHumanApproval\WebAuthn\Configuration;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use VerifiedHumanApproval\WebAuthn\Configuration;
 
 final class ConfigurationTest extends TestCase
 {

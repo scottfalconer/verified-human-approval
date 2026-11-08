@@ -26,7 +26,7 @@ final class Authenticators
     {
         $record = \is_string($sourceJson) ? json_decode($sourceJson, true) : null;
         $aaguid = \is_array($record) && \is_string($record['aaguid'] ?? null) ? strtolower($record['aaguid']) : null;
-        if ($aaguid === null || $aaguid === '00000000-0000-0000-0000-000000000000') {
+        if (null === $aaguid || '00000000-0000-0000-0000-000000000000' === $aaguid) {
             return 'Unknown authenticator';
         }
 

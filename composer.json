@@ -36,10 +36,11 @@
     "web-auth/webauthn-lib": "^5.3"
   },
   "require-dev": {
+    "friendsofphp/php-cs-fixer": "^3.95",
+    "phpstan/phpstan": "^2.1",
     "phpunit/phpunit": "^11.5",
     "symfony/browser-kit": "^7.4",
-    "symfony/css-selector": "^7.4",
-    "phpstan/phpstan": "^2.1"
+    "symfony/css-selector": "^7.4"
   },
   "replace": {
     "verified-human-approval/core": "self.version",
@@ -74,6 +75,8 @@
   },
   "scripts": {
     "test": "@php vendor/bin/phpunit",
-    "analyse": "@php vendor/bin/phpstan analyse --memory-limit=512M"
+    "analyse": "@php vendor/bin/phpstan analyse --memory-limit=512M",
+    "cs": "@php vendor/bin/php-cs-fixer fix --dry-run --diff",
+    "cs:fix": "@php vendor/bin/php-cs-fixer fix"
   }
 }

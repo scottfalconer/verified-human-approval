@@ -4,10 +4,6 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\Bundle;
 
-use VerifiedHumanApproval\Demo\DemoDatabase;
-use VerifiedHumanApproval\Demo\DemoSetup;
-use VerifiedHumanApproval\Mcp\ApprovalCard;
-use VerifiedHumanApproval\Tests\Support\RecordingHttpClient;
 use Mcp\Client;
 use Mcp\Client\Transport\HttpTransport;
 use Mcp\Schema\ClientCapabilities;
@@ -16,6 +12,10 @@ use Mcp\Schema\Extension\Apps\McpApps;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Filesystem\Filesystem;
+use VerifiedHumanApproval\Demo\DemoDatabase;
+use VerifiedHumanApproval\Demo\DemoSetup;
+use VerifiedHumanApproval\Mcp\ApprovalCard;
+use VerifiedHumanApproval\Tests\Support\RecordingHttpClient;
 
 /**
  * The handshake era (MCP 2025-11-25) is what Claude Desktop and claude.ai speak: an initialize
@@ -39,7 +39,9 @@ final class HandshakeEraTest extends TestCase
 
     protected function tearDown(): void
     {
-        foreach ($this->clients as $client) $client->disconnect();
+        foreach ($this->clients as $client) {
+            $client->disconnect();
+        }
         (new Filesystem())->remove($this->runtime);
     }
 
@@ -70,7 +72,7 @@ final class HandshakeEraTest extends TestCase
         self::assertStringNotContainsString('elicitation/create', $call[0]['body'], 'The SDK shim never turned the pending result into a blocking elicitation.');
         self::assertStringNotContainsString('input_required', $call[0]['body']);
 
-        $card = json_decode(json_encode($client->readResource(ApprovalCard::URI)->contents[0], JSON_THROW_ON_ERROR), true);
+        $card = json_decode(json_encode($client->readResource(ApprovalCard::URI)->contents[0], \JSON_THROW_ON_ERROR), true);
         self::assertSame(McpApps::MIME_TYPE, $card['mimeType'], 'Claude Desktop reads the card over this era.');
 
         $status = $client->callTool('approval_status', ['request_id' => $pending->structuredContent['requestId']]);
@@ -82,7 +84,7 @@ final class HandshakeEraTest extends TestCase
         $other = $this->connect(new RecordingHttpClient(new SymfonyKernelHttpClient($this->runtime)), 'claude-desktop', new ClientCapabilities());
         $again = $other->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
         self::assertSame($pending->structuredContent['requestId'], $again->structuredContent['requestId'], 'A keyless retry reuses the pending proposal.');
-        self::assertSame(1, (int) $this->database->pdo->query("SELECT COUNT(*) FROM verified_human_approval_requests")->fetchColumn());
+        self::assertSame(1, (int) $this->database->pdo->query('SELECT COUNT(*) FROM verified_human_approval_requests')->fetchColumn());
     }
 
     private function connect(RecordingHttpClient $wire, string $name, ClientCapabilities $capabilities): Client
@@ -99,5 +101,8 @@ final class HandshakeEraTest extends TestCase
         return $client;
     }
 
-    private function mutationCount(): int { return (int) $this->database->announcement('riverside-evacuation')['mutation_count']; }
+    private function mutationCount(): int
+    {
+        return (int) $this->database->announcement('riverside-evacuation')['mutation_count'];
+    }
 }

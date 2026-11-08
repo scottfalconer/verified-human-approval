@@ -2,8 +2,8 @@
 
 declare(strict_types=1);
 
-use VerifiedHumanApproval\Bundle\SecurityHeadersSubscriber;
 use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
+use VerifiedHumanApproval\Bundle\SecurityHeadersSubscriber;
 
 /*
  * The review pages. The browser script and stylesheet are not routes: they are in the bundle's

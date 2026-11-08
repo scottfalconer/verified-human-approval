@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Core\Audit;
 
+use Psr\Clock\ClockInterface;
 use VerifiedHumanApproval\Core\ApprovalRequest;
 use VerifiedHumanApproval\Core\CanonicalJson;
 use VerifiedHumanApproval\Core\Evidence\EvidenceSigner;
 use VerifiedHumanApproval\Core\Evidence\Receipt;
-use Psr\Clock\ClockInterface;
 
 /**
  * An append-only security log for events outside an approval itself: passkeys enrolled and revoked,
@@ -26,7 +26,8 @@ final readonly class AuditLog
         private EvidenceSigner $signer,
         private string $trustedPublicKey,
         private ClockInterface $clock,
-    ) {}
+    ) {
+    }
 
     public function initialize(): void
     {
@@ -41,6 +42,7 @@ final readonly class AuditLog
      * Appends one entry, inside the caller's transaction if there is one.
      *
      * @param array<string, mixed> $data
+     *
      * @return array<string, mixed> the entry as recorded
      */
     public function append(string $tenantId, string $type, string $subject, array $data): array
@@ -52,11 +54,11 @@ final readonly class AuditLog
         }
         try {
             $last = $this->pdo->query('SELECT seq, hash FROM verified_human_approval_audit ORDER BY seq DESC LIMIT 1')->fetch(\PDO::FETCH_ASSOC) ?: null;
-            $seq = $last === null ? 1 : (int) $last['seq'] + 1;
+            $seq = null === $last ? 1 : (int) $last['seq'] + 1;
             $entry = CanonicalJson::encode([
                 'format' => self::FORMAT, 'seq' => $seq, 'at' => ApprovalRequest::timestamp($this->clock->now()),
                 'tenantId' => $tenantId, 'type' => $type, 'subject' => $subject, 'data' => (object) $data,
-                'previous' => $last === null ? null : $last['hash'],
+                'previous' => null === $last ? null : $last['hash'],
             ]);
             $hash = hash('sha256', $entry);
             $this->pdo->prepare('INSERT INTO verified_human_approval_audit (seq, tenant_id, type, subject, entry, hash, key_id, signature) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
@@ -85,7 +87,7 @@ final readonly class AuditLog
         $query->execute([$type, $subject]);
         foreach ($query->fetchAll(\PDO::FETCH_ASSOC) as $row) {
             $entry = $this->verified($row);
-            if ($entry !== null) {
+            if (null !== $entry) {
                 return $entry;
             }
         }
@@ -107,13 +109,13 @@ final readonly class AuditLog
         foreach ($this->pdo->query('SELECT * FROM verified_human_approval_audit ORDER BY seq')->fetchAll(\PDO::FETCH_ASSOC) as $row) {
             $entry = $this->verified($row);
             $problem = match (true) {
-                $entry === null => 'its signature or hash does not verify',
+                null === $entry => 'its signature or hash does not verify',
                 (int) $row['seq'] !== $expected => 'an entry before it is missing',
                 $entry['previous'] !== $previous => 'it does not follow the entry before it',
                 default => null,
             };
-            $intact = $intact && $problem === null;
-            $entries[] = ['entry' => $entry, 'seq' => (int) $row['seq'], 'valid' => $problem === null, 'problem' => $problem];
+            $intact = $intact && null === $problem;
+            $entries[] = ['entry' => $entry, 'seq' => (int) $row['seq'], 'valid' => null === $problem, 'problem' => $problem];
             $previous = $row['hash'];
             $expected = (int) $row['seq'] + 1;
         }
@@ -123,6 +125,7 @@ final readonly class AuditLog
 
     /**
      * @param array<string, mixed> $row
+     *
      * @return array<string, mixed>|null
      */
     private function verified(array $row): ?array

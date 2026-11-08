@@ -7,13 +7,13 @@ namespace VerifiedHumanApproval\Bundle\Handoff;
 use chillerlan\QRCode\Common\EccLevel;
 use chillerlan\QRCode\QRCode;
 use chillerlan\QRCode\QROptions;
-use VerifiedHumanApproval\Core\Actor;
-use VerifiedHumanApproval\Core\ApprovalState;
 use Psr\Cache\CacheItemPoolInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Session\SessionInterface;
 use Symfony\Component\Lock\LockFactory;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
+use VerifiedHumanApproval\Core\Actor;
+use VerifiedHumanApproval\Core\ApprovalState;
 
 /**
  * "Approve on your phone": a one-time link, shown as a QR code, that opens one pending request's
@@ -32,7 +32,8 @@ final readonly class ApprovalHandoff
         private string $publicOrigin,
         // Makes redemption single use even when two devices fetch the link at the same moment.
         private ?LockFactory $locks = null,
-    ) {}
+    ) {
+    }
 
     /** A phone can only open the site at a public HTTPS address, and passkeys need HTTPS there too. */
     public function reachable(): bool
@@ -69,7 +70,9 @@ final readonly class ApprovalHandoff
     /** Whether a link is still usable, without using it. */
     public function peek(string $token): bool
     {
-        if (!preg_match('/^[A-Za-z0-9_-]{43}$/D', $token)) return false;
+        if (!preg_match('/^[A-Za-z0-9_-]{43}$/D', $token)) {
+            return false;
+        }
         $item = $this->cache->getItem(self::key($token));
         $data = $item->isHit() ? $item->get() : null;
 
@@ -79,18 +82,26 @@ final readonly class ApprovalHandoff
     /** Redeems a link once and scopes this browser session to its request. Returns that request's ID. */
     public function redeem(string $token, SessionInterface $session): ?string
     {
-        if (!preg_match('/^[A-Za-z0-9_-]{43}$/D', $token)) return null;
+        if (!preg_match('/^[A-Za-z0-9_-]{43}$/D', $token)) {
+            return null;
+        }
         $lock = $this->locks?->createLock(self::key($token), 10);
-        if ($lock !== null && !$lock->acquire()) return null;
+        if (null !== $lock && !$lock->acquire()) {
+            return null;
+        }
         try {
             $item = $this->cache->getItem(self::key($token));
-            if (!$item->isHit()) return null;
+            if (!$item->isHit()) {
+                return null;
+            }
             $data = $item->get();
             $this->cache->deleteItem(self::key($token));
         } finally {
             $lock?->release();
         }
-        if (!\is_array($data) || ($data['expires'] ?? 0) < time()) return null;
+        if (!\is_array($data) || ($data['expires'] ?? 0) < time()) {
+            return null;
+        }
         $session->migrate(true);
         $session->set('verified_human_approval.handoff.'.$data['request'], ['userId' => $data['userId'], 'tenantId' => $data['tenantId'], 'expires' => time() + self::SESSION_SECONDS]);
 
@@ -101,9 +112,13 @@ final readonly class ApprovalHandoff
     public function personFor(Request $request, string $requestId): ?Actor
     {
         // Never starts a session just to look: only a browser that already has one can hold a scoped review.
-        if (!$request->hasSession() || (!$request->getSession()->isStarted() && !$request->hasPreviousSession())) return null;
+        if (!$request->hasSession() || (!$request->getSession()->isStarted() && !$request->hasPreviousSession())) {
+            return null;
+        }
         $data = $request->getSession()->get('verified_human_approval.handoff.'.$requestId);
-        if (!\is_array($data) || ($data['expires'] ?? 0) < time()) return null;
+        if (!\is_array($data) || ($data['expires'] ?? 0) < time()) {
+            return null;
+        }
 
         return new Actor((string) $data['userId'], (string) $data['tenantId']);
     }

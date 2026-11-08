@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Core;
 
+use Psr\Clock\ClockInterface;
 use VerifiedHumanApproval\Core\Evidence\EvidenceSigner;
 use VerifiedHumanApproval\Core\Evidence\Receipt;
-use Psr\Clock\ClockInterface;
 
 /** Request -> frozen review -> user verification -> one local atomic execution. */
 final class ApprovalService
@@ -31,33 +31,34 @@ final class ApprovalService
 
     public function request(Actor $actor, string $actionId, array $input, ?string $idempotencyKey = null, string $locale = 'en'): ApprovalState
     {
-        if ($idempotencyKey !== null && (strlen($idempotencyKey) < 1 || strlen($idempotencyKey) > 128)) {
+        if (null !== $idempotencyKey && ('' === $idempotencyKey || \strlen($idempotencyKey) > 128)) {
             throw new ApprovalException('invalid_idempotency_key', 'A request key must contain 1–128 bytes.');
         }
         if (!preg_match('/^[A-Za-z0-9_-]{1,32}$/D', $locale)) {
             throw new ApprovalException('invalid_locale', 'Invalid approval locale.');
         }
         $inputJson = CanonicalJson::encode((object) $input);
-        if (strlen($inputJson) > 262144) {
+        if (\strlen($inputJson) > 262144) {
             throw new ApprovalException('input_too_large', 'The action input exceeds 256 KiB.');
         }
         $fingerprint = hash('sha256', CanonicalJson::encode([$actor->toArray(), $actionId, (object) $input, $locale]));
 
         return $this->store->transaction(function () use ($actor, $actionId, $input, $idempotencyKey, $locale, $fingerprint): ApprovalState {
-            if ($idempotencyKey !== null && ($existing = $this->store->findByKey($actor, $idempotencyKey)) !== null) {
+            if (null !== $idempotencyKey && ($existing = $this->store->findByKey($actor, $idempotencyKey)) !== null) {
                 if (!hash_equals($existing['fingerprint'], $fingerprint)) {
                     throw new ApprovalException('idempotency_conflict', 'This request key already belongs to different arguments. Use a new key for a new action.');
                 }
                 $this->assertOwner($actor, $existing['state']);
                 $this->assertSameContent($existing['state'], $actor, $actionId, $input);
+
                 return $this->expire($existing['state']);
             }
             // A retry without a key (a client re-sending the call, or MCP re-entering the handler
             // after an elicitation) gets the same pending proposal instead of a second review URL.
-            if ($idempotencyKey === null && ($pending = $this->store->findPending($actor, $fingerprint)) !== null) {
+            if (null === $idempotencyKey && ($pending = $this->store->findPending($actor, $fingerprint)) !== null) {
                 $this->assertOwner($actor, $pending);
                 $pending = $this->eligible($pending);
-                if ($pending->status === 'pending') {
+                if ('pending' === $pending->status) {
                     return $pending;
                 }
                 // The earlier proposal expired or lost eligibility, so a fresh one is prepared below.
@@ -92,7 +93,7 @@ final class ApprovalService
     {
         $result = $this->store->transaction(function () use ($reviewer, $requestId): Ceremony|ApprovalException {
             $state = $this->eligible($this->owned($reviewer, $requestId));
-            if ($state->status !== 'pending') {
+            if ('pending' !== $state->status) {
                 return new ApprovalException($state->reason ?? $state->status, 'This proposal is no longer eligible for approval. Request a new action if needed.');
             }
             $nonce = random_bytes(32);
@@ -100,17 +101,19 @@ final class ApprovalService
             $expires = min($state->request->expiresAt(), $this->clock->now()->modify('+5 minutes'));
             $ceremony = new Ceremony('cer_'.bin2hex(random_bytes(16)), $requestId, ChallengeBinding::encode($nonce), ChallengeBinding::encode($challenge), ApprovalRequest::timestamp($expires), $this->verifier->requestOptions($state->request->actor(), $challenge));
             $this->store->putCeremony($ceremony);
+
             return $ceremony;
         });
         if ($result instanceof ApprovalException) {
             throw $result;
         }
+
         return $result;
     }
 
     public function complete(Actor $reviewer, string $ceremonyId, array $assertion): ApprovalState
     {
-        if (strlen(CanonicalJson::encode((object) $assertion)) > 65536) {
+        if (\strlen(CanonicalJson::encode((object) $assertion)) > 65536) {
             throw new ApprovalException('assertion_too_large', 'The passkey response exceeds the allowed size.');
         }
         $executionStarted = false;
@@ -119,12 +122,13 @@ final class ApprovalService
                 $ceremony = $this->store->getCeremony($ceremonyId) ?? throw new ApprovalException('not_found', 'The approval request was not found.');
                 $state = $this->owned($reviewer, $ceremony->requestId);
                 // Ownership is checked before terminal/idempotent responses, including completed results.
-                if ($state->status !== 'pending') {
+                if ('pending' !== $state->status) {
                     return $state;
                 }
                 $state = $this->eligible($state);
-                if ($state->status !== 'pending') {
+                if ('pending' !== $state->status) {
                     $this->store->retireCeremony($ceremonyId);
+
                     return $state;
                 }
                 if ($ceremony->consumed) {
@@ -132,6 +136,7 @@ final class ApprovalService
                 }
                 if ($this->clock->now() >= new \DateTimeImmutable($ceremony->expiresAt)) {
                     $this->store->retireCeremony($ceremonyId);
+
                     return new ApprovalException('ceremony_expired', 'The passkey ceremony expired. Start a fresh review.');
                 }
                 $challenge = ChallengeBinding::challenge($state->request->digest, ChallengeBinding::decode($ceremony->nonce));
@@ -148,6 +153,7 @@ final class ApprovalService
                 $executionStarted = true;
                 $completed = $this->execute($state, $proof);
                 $this->store->retireCeremony($ceremonyId);
+
                 return $completed;
             });
         } catch (\Throwable $error) {
@@ -158,20 +164,21 @@ final class ApprovalService
             try {
                 $recovered = $this->store->transaction(function () use ($reviewer, $ceremonyId): ?ApprovalState {
                     $ceremony = $this->store->getCeremony($ceremonyId);
-                    if ($ceremony === null) {
+                    if (null === $ceremony) {
                         return null;
                     }
                     $state = $this->owned($reviewer, $ceremony->requestId);
-                    if ($state->status === 'completed') {
+                    if ('completed' === $state->status) {
                         return $state;
                     }
                     $this->store->retireCeremony($ceremonyId);
+
                     return null;
                 });
             } catch (\Throwable $recoveryError) {
                 throw new ApprovalException('execution_uncertain', 'The execution outcome could not be confirmed. Read its status before taking further action.', $recoveryError);
             }
-            if ($recovered !== null) {
+            if (null !== $recovered) {
                 return $recovered;
             }
             throw new ApprovalException('execution_failed', 'The local action was not committed. Start a fresh approval ceremony before retrying.', $error);
@@ -179,6 +186,7 @@ final class ApprovalService
         if ($result instanceof ApprovalException) {
             throw $result;
         }
+
         return $result;
     }
 
@@ -186,11 +194,12 @@ final class ApprovalService
     {
         return $this->store->transaction(function () use ($reviewer, $requestId): ApprovalState {
             $state = $this->expire($this->owned($reviewer, $requestId));
-            if ($state->status !== 'pending') {
+            if ('pending' !== $state->status) {
                 return $state;
             }
             $cancelled = $state->stopped('cancelled', 'cancelled_by_user');
             $this->store->save($cancelled);
+
             return $cancelled;
         });
     }
@@ -212,6 +221,7 @@ final class ApprovalService
             $baseline = $request->prepared();
             $adapter->assertPostconditions($actor, $baseline, $result);
             $this->assertUnchanged($baseline, $frozenAction);
+
             return $result;
         });
         $this->assertCurrent($request);
@@ -220,12 +230,13 @@ final class ApprovalService
             'actor' => (object) $actor->toArray(), 'actionId' => $action->actionId, 'actionVersion' => $action->version,
             'target' => (object) $action->target, 'result' => (object) $result,
             'recordedAt' => ApprovalRequest::timestamp($this->clock->now()),
-            'approval' => $proof === null ? 'not_required' : 'user_verified',
+            'approval' => null === $proof ? 'not_required' : 'user_verified',
         ];
         // Signed before commit: if signing fails, nothing executes, so no action goes unrecorded.
-        $receipt = $this->receipts === null ? null : Receipt::sign($this->receipts, $request->digest, $proof, $execution);
+        $receipt = null === $this->receipts ? null : Receipt::sign($this->receipts, $request->digest, $proof, $execution);
         $completed = new ApprovalState($request, 'completed', null, $result, $execution, $proof, $receipt);
         $this->store->save($completed);
+
         return $completed;
     }
 
@@ -233,7 +244,7 @@ final class ApprovalService
     private function eligible(ApprovalState $state): ApprovalState
     {
         $state = $this->expire($state);
-        if ($state->status !== 'pending') {
+        if ('pending' !== $state->status) {
             return $state;
         }
         try {
@@ -243,14 +254,17 @@ final class ApprovalService
             } catch (ApprovalException $error) {
                 $denied = $state->stopped('denied', $error->reason);
                 $this->store->save($denied);
+
                 return $denied;
             }
             $action = $state->request->prepared();
             $this->actions->get($action->actionId)->assertPreconditions($state->request->actor(), $action);
+
             return $state;
         } catch (ApprovalException $error) {
             $stopped = $state->stopped('invalidated', $error->reason);
             $this->store->save($stopped);
+
             return $stopped;
         }
     }
@@ -275,10 +289,11 @@ final class ApprovalService
 
     private function expire(ApprovalState $state): ApprovalState
     {
-        if ($state->status === 'pending' && $this->clock->now() >= $state->request->expiresAt()) {
+        if ('pending' === $state->status && $this->clock->now() >= $state->request->expiresAt()) {
             $state = $state->stopped('expired', 'expired');
             $this->store->save($state);
         }
+
         return $state;
     }
 
@@ -286,6 +301,7 @@ final class ApprovalService
     {
         $state = $this->store->get($requestId) ?? throw new ApprovalException('not_found', 'The approval request was not found.');
         $this->assertOwner($actor, $state);
+
         return $state;
     }
 

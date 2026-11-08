@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\WebAuthn;
 
+use PHPUnit\Framework\TestCase;
+use Symfony\Component\Clock\MockClock;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
@@ -14,8 +16,6 @@ use VerifiedHumanApproval\WebAuthn\Configuration;
 use VerifiedHumanApproval\WebAuthn\Credential;
 use VerifiedHumanApproval\WebAuthn\PdoCredentialRepository;
 use VerifiedHumanApproval\WebAuthn\WebAuthnVerifier;
-use PHPUnit\Framework\TestCase;
-use Symfony\Component\Clock\MockClock;
 
 /** Only a passkey with a signed enrollment record can approve; the database alone cannot add or swap one. */
 final class AnchoredCredentialRepositoryTest extends TestCase

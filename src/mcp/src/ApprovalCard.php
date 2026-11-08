@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Mcp;
 
-use VerifiedHumanApproval\Core\ApprovalState;
 use Mcp\Schema\Content\TextResourceContents;
 use Mcp\Schema\Extension\Apps\McpApps;
 use Mcp\Schema\Extension\Apps\UiResourceContentMeta;
+use VerifiedHumanApproval\Core\ApprovalState;
 
 /**
  * The MCP App (io.modelcontextprotocol/ui) card shown beside a protected tool's result.
@@ -27,7 +27,7 @@ final class ApprovalCard
     public static function html(): string
     {
         $html = file_get_contents(\dirname(__DIR__).'/resources/approval-card.html');
-        if ($html === false) {
+        if (false === $html) {
             throw new \RuntimeException('The approval card template is missing.');
         }
 
