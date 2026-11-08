@@ -2,6 +2,22 @@
 
 Build verification completed on November 8, 2026, using PHP 8.4.24. These results describe the implemented Symfony/PHP slice, not a production certification or physical-device demonstration.
 
+## Update: approval card, native prompt and final-page review (November 8, 2026)
+
+Run on macOS with PHP 8.3.31. The sections after this one keep the first build's record.
+
+| Check | Result |
+| --- | --- |
+| PHPUnit, `composer test` | 150 tests, 743 assertions, all passing. New tests cover keyless retry reuse, the URL prompt and its bound retry, the card, the final-page preview, and the layout binding |
+| PHPStan, `composer analyse` | No errors, now including `packages/mcp` |
+| `tests/http_smoke.py` | Passed |
+| `tests/browser_smoke.py`, with real Chrome and a CDP virtual authenticator | Passed. It covers enrollment and approval through the real page scripts, a 404 before approval, a live page identical to the approved preview, and the stale-draft refusal |
+| `tests/claude_code_host.py`, with Claude Code 2.1.317 and claude-haiku-5-5 | Passed. The URL-mode elicitation reached the host; after the passkey approval and "accept", the retried call returned "completed", with one committed effect |
+| GitHub Actions: PHP 8.3, PHP 8.4 and the Drupal job | Passed |
+| A Claude Desktop chat, through a probe server using the same card mechanism | The card rendered, opened the review page through `ui/open-link`, and switched to approved after approval on the site |
+
+Not yet run: the demo's own card in Claude Desktop with a physical Touch ID approval, and any hosted or phone connection.
+
 ## Automated PHP checks
 
 Command: `php vendor/bin/phpunit --log-junit var/test-results.xml`
