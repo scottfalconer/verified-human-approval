@@ -63,6 +63,10 @@ final readonly class UrlPrompt
 
     public function allowsContext(RequestContext $context): bool
     {
+        // The SDK has no public accessor for clientInfo; RequestContext keeps the request's metadata in the
+        // session under RequestMeta::class, which its own getClientCapabilities() reads. If that changes, no
+        // name is found and no prompt is sent: the card and the link still work, and the Claude Code
+        // integration tests fail loudly.
         $meta = $context->getSession()->get(RequestMeta::class);
 
         return $this->allows(

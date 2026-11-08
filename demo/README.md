@@ -46,7 +46,7 @@ It re-checks every record each time it opens. It also lists passkeys, agent conn
 
 To start over for another run, use `php demo/bin/setup.php --reset`.
 
-On a Mac, `demo/bin/server start` runs the site under launchd instead, so it keeps running when the terminal or Claude quits. It also takes `stop`, `restart` and `status`.
+On a Mac, `demo/bin/server start` runs the site under launchd instead, so it keeps running when the terminal or Claude quits. It also takes `stop`, `restart` and `status`. For local development, `APP_DEBUG=1` turns on Symfony's debug mode (stack traces, and a container that rebuilds when code changes); never set it for the public copy.
 
 ## claude.ai, and approving on your phone
 

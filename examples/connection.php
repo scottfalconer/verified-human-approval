@@ -3,13 +3,16 @@
 declare(strict_types=1);
 
 use Mcp\Client;
+use Mcp\Client\Handler\Request\ElicitationRequestHandler;
 use Mcp\Client\Transport\HttpTransport;
+use Mcp\Schema\ClientCapabilities;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Symfony\AI\Agent\Bridge\Mcp\ClientToolset;
 use Symfony\Component\HttpClient\HttpClient;
 use Symfony\Component\HttpClient\Psr18Client;
 
 require dirname(__DIR__).'/vendor/autoload.php';
+require __DIR__.'/PrintReviewLink.php';
 
 /** The personal development token authenticates the requester; it cannot approve an action. */
 function approvalToolset(): ClientToolset
@@ -34,5 +37,13 @@ function approvalToolset(): ClientToolset
         streamFactory: $factory,
     );
 
-    return new ClientToolset('application', Client::builder()->build(), $transport);
+    // The client names itself, and takes URL-mode prompts: it prints the review link. Printing is not
+    // approving: the person approves on the site with their passkey, and the server reports what it recorded.
+    $client = Client::builder()
+        ->setClientInfo('verified-human-approval-example', '0.1.0')
+        ->setCapabilities(new ClientCapabilities(elicitation: true, elicitationUrl: true))
+        ->addRequestHandler(new ElicitationRequestHandler(new PrintReviewLink()))
+        ->build();
+
+    return new ClientToolset('application', $client, $transport);
 }
