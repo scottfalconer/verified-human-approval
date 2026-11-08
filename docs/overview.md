@@ -2,43 +2,29 @@
 
 The detailed overview. For the short version and the five-minute quickstart, see the [README](../README.md).
 
-## Exact Approval for Symfony, Drupal and MCP
+## Exact approval for Symfony and MCP
 
-**Let an agent request an application action. Let the person approve its exact effect. Execute that stored proposal once, under the person’s current permissions.**
+**Let an agent request an application action. Let the application decide, by its administrator's rule, whether the person must verify it. When they must, let them approve its exact effect with a passkey, and execute that stored proposal once, under their current permissions.**
 
-This repository contains a shared PHP approval library, a Symfony bundle, and a working Drupal module. Both integrations use the same immutable proposal, WebAuthn verification and execution core. The Drupal module consumes that core and the WebAuthn bridge without loading Symfony FrameworkBundle.
+This repository contains a shared PHP approval library, the WebAuthn bridge, the MCP presentation (approval card, URL-mode elicitation and phone code) and a Symfony bundle, with a runnable Symfony reference application: Riverside Council's public alerts site. An early Drupal port of the same core is described at the end.
 
-The supported execution boundary is a **local database transaction**. The business mutation, approval consumption, passkey counter update and execution record share that transaction. Both reference applications are verified on SQLite. The Drupal adapter uses Drupal's own connection and transaction manager; other database backends still need deployment-specific verification.
+The rule is the application's, not the protocol's or the agent's. MCP carries the request and shows the person where to approve. The agent can only ask. The application holds the rule, applies it to every entry point, and runs nothing until a valid passkey assertion over the exact proposal arrives.
 
-## Drupal publish and delete approval
-
-The module in [packages/drupal/exact_approval](../packages/drupal/exact_approval/README.md) adds administrator rules for content types and native permissions, personal passkey enrollment, exact publication/deletion review, storage-boundary enforcement, and a persistent signed evidence log. An optional submodule adds three tools to the existing Drupal MCP endpoint. It does not install a second Symfony kernel or a separate approval service.
-
-Start with the [Drupal example](../examples/drupal/README.md):
-
-```sh
-cd examples/drupal
-composer install
-php setup.php
-cd web
-php -S localhost:8090 .ht.router.php
-```
-
-Use the generated local demo credentials in `examples/drupal/var/demo.json`. Administrator controls are at `/admin/config/people/exact-approval`; personal keys are at `/user/exact-approval/keys`. See [Drupal verification](drupal-verification.md) for the installed-site, HTTP, concurrency and evidence checks.
+The supported execution boundary is a **local database transaction**. The business mutation, approval consumption, passkey counter update and execution record share that transaction. The reference application is verified on SQLite. Other database backends need deployment-specific verification.
 
 ## Try the application
 
-Requirements: PHP 8.3+, Composer, and `pdo_sqlite`, `openssl`, `sodium`, `mbstring`, `dom` and the normal PHP JSON/XML extensions. PHP 8.4.24 is the runtime verified in this build. The lockfile pins the tested dependency set, including Symfony 7.4, the official MCP SDK 0.9.0, Symfony MCP Bundle 1.0.0-BETA1 and WebAuthn Library 5.3.12.
+Requirements: PHP 8.3+, Composer, and `pdo_sqlite`, `openssl`, `sodium`, `mbstring`, `dom` and the normal PHP JSON/XML extensions. CI runs PHP 8.3 and 8.4. The lockfile pins the tested dependency set, including Symfony 7.4, the official MCP SDK 0.9.0, Symfony MCP Bundle 1.0.0-BETA1 and WebAuthn Library 5.3.12.
 
 ```sh
 composer install
 php examples/symfony/bin/setup.php
-php -S localhost:8080 -t examples/symfony/public examples/symfony/public/index.php
+PHP_CLI_SERVER_WORKERS=4 php -S localhost:8080 -t examples/symfony/public examples/symfony/public/index.php
 ```
 
-Setup generates three fictional accounts and separate personal agent tokens. It prints passwords and tokens once; save them privately. The application stores password/token hashes. Setup refuses to overwrite an existing installation. Its database, signing key, sessions and cache stay under ignored `var/demo/`.
+Setup generates four fictional accounts and separate personal agent tokens: `manager` (the emergency manager and administrator, who issues alerts directly), `editor` (county staff, who must approve each exact alert with a passkey), `reader` (read-only) and `other` (another organization). It prints passwords and tokens once; save them privately. The application stores password/token hashes. Setup refuses to overwrite an existing installation. Its database, signing key, sessions and cache stay under ignored `var/demo/`.
 
-Open `http://localhost:8080` and sign in as `editor` using the generated password. Use **Passkeys** to enroll through your browser and operating system. On a suitable Mac this can invoke Touch ID; other devices may use their own passkey provider or PIN. This build has tested cryptographic assertions, not a physical Touch ID or Face ID ceremony.
+Open `http://localhost:8080` and sign in as `editor` using the generated password. Use **Your passkeys** to enroll through your browser and operating system. On a Mac this invokes Touch ID; other devices may use their own passkey provider or PIN. Physical Touch ID has been run end to end from a real Claude Desktop chat; see [verification results](verification.md).
 
 The human account password belongs in the browser account flow. Give the agent only its individual personal token. The MCP firewall does not accept the browser session; the browser approval, enrollment and policy routes do not authenticate an agent bearer token.
 
@@ -52,17 +38,18 @@ In another terminal, provide the `editor` account’s personal token without put
 read -r -s -p 'Personal agent token: ' EXACT_APPROVAL_TOKEN
 export EXACT_APPROVAL_TOKEN
 php examples/clients/mcp.php list
-php examples/clients/mcp.php read flood-update
-php examples/clients/mcp.php publish flood-update my-first-request
+php examples/clients/mcp.php read riverside-evacuation
+php examples/clients/mcp.php publish riverside-evacuation my-first-request
 ```
 
 This client uses the official SDK and HTTP transport. The server is the Symfony MCP Bundle at `/mcp`. It exposes:
 
 | Tool | Behavior |
 | --- | --- |
-| `read_announcement` | Read the current account’s announcement and publication state. |
-| `publish_announcement` | Prepare the exact publication, preserving source revision, content, target and policy. Return a review URL while approval is required. |
+| `read_alert` | Read one alert in the current account’s organization: its draft and the live version. |
+| `publish_alert` | Ask to issue the alert. Under the administrator’s rule this issues directly, prepares the exact proposal and returns a review URL while approval is required, or refuses. |
 | `approval_status` | Read an owned request’s authoritative outcome using a connection with explicit result-read scope. |
+| `approval_handoff` | App-only (hidden from the model): the card asks it for a one-time phone code. |
 
 The pending result resembles:
 
@@ -76,7 +63,7 @@ The pending result resembles:
 }
 ```
 
-Open that URL, review the actual title, body, destination, revision and required statement, then approve with a passkey. The application’s completion endpoint executes the **stored proposal**. The agent never receives a reusable approval token and never resubmits replacement content.
+Open that URL, review the final alerts page rendered from the proposal, its revision and the required statement, then approve with a passkey. The application’s completion endpoint executes the **stored proposal**. The agent never receives a reusable approval token and never resubmits replacement content.
 
 ```sh
 php examples/clients/mcp.php status YOUR_REQUEST_ID
@@ -86,15 +73,21 @@ Reusing `my-first-request` with identical arguments returns the original request
 
 ### Show a refusal
 
-Create another publication request. Open its review page, then edit the draft in a second application tab before approving. The pending request becomes invalid when approval is attempted, and publication is blocked. A new review is needed even when the source revision changes but visible content is identical.
+Create another request. Open its review page, then edit the draft in a second application tab before approving. The pending request becomes invalid when approval is attempted, and the alert is not issued. A new review is needed even when the source revision changes but visible content is identical.
 
-Also try the `reader` account’s token. Its user and delegation lack publication permission. A passkey never supplies missing rights.
+Also try the `reader` account’s token. The rule does not let that role issue alerts, so the request is refused before any review. A passkey never supplies missing rights.
 
 ### Administrator controls
 
-The `editor` demo account is also a human administrator. At `/admin/approval-policy`, change the exact required statement, preview its registered placeholders, and save a versioned policy. Every changed policy invalidates pending requests from the old policy. Unknown placeholders are rejected; templates are plain text and do not execute Twig or expressions.
+`manager` is the human administrator. At `/admin/approval-policy`, **Who can issue public alerts** sets each role’s mode: issue directly, approve each exact alert with a passkey, or not allowed. It also sets the exact required statement, with a preview of its registered placeholders. Saving creates a new policy version, and every changed policy invalidates pending requests made under the old one. Unknown placeholders are rejected; templates are plain text and do not execute Twig or expressions.
 
-The **Require approval** switch has an explicit meaning: when an administrator disables it, new authorized requests can execute without passkey approval. Their execution records say `not_required`; they are not represented as signed human approvals. Old protected proposals cannot use the change to bypass their original approval flow. Agent credentials cannot change this setting.
+"Issue directly" has an explicit meaning: new authorized requests from that role execute without passkey approval. Their execution records say `not_required`; they are not represented as signed human approvals. Old protected proposals cannot use a rule change to bypass their original approval flow. Agent credentials cannot change the rule, and the application applies it the same way to its own **Issue alert** button and to every MCP client.
+
+## Remote clients, claude.ai and the phone
+
+The demo includes a small MCP OAuth authorization server for remote clients such as claude.ai: protected resource metadata (RFC 9728) served with the SDK’s `ProtectedResourceMetadata`, authorization server metadata (RFC 8414), dynamic client registration (RFC 7591) or client ID metadata documents, PKCE with S256, the `iss` response parameter (RFC 9207) and rotating refresh tokens. A `401` from `/mcp` names the metadata in `WWW-Authenticate`. The person signs in and allows access on the site. The resulting token acts for that person and, like the personal token, can ask for actions but never approve one.
+
+`examples/symfony/bin/public start` puts a second copy of the demo on a public HTTPS address through a Cloudflare quick tunnel, under launchd, and prints the connector URL. On that address the approval card also offers **Approve on your phone**: a one-time code (single use, two minutes) that opens only that request’s review on the phone. It is not a sign-in, and approving still takes the person’s own passkey, which reaches the phone through iCloud Keychain or Google Password Manager.
 
 ## Symfony AI example
 
@@ -107,7 +100,7 @@ php examples/clients/agent.php --scripted
 # Optional real model; set your own API key and model explicitly.
 export OPENAI_API_KEY='YOUR_KEY'
 export EXACT_APPROVAL_MODEL='YOUR_SUPPORTED_MODEL'
-php examples/clients/agent.php 'Please publish the flood-update announcement.'
+php examples/clients/agent.php 'Please issue the Riverside Road evacuation alert.'
 ```
 
 The scripted mode is tested and clearly labels itself. No paid model call was made for this build. A model can request the action and return its review link; the approval decision remains in the application. `EXACT_APPROVAL_MCP_URL` changes the endpoint for either client.
@@ -118,10 +111,10 @@ The scripted mode is tested and clearly labels itself. No paid model call was ma
 | --- | --- | --- |
 | `packages/core` | Frozen proposals, policies, current authority, transaction coordination, guarded execution, receipts and evidence verification. | PHP and small supporting libraries; no Symfony kernel or Drupal. |
 | `packages/webauthn` | Existing WebAuthn library integration, trusted credential repository, assertion verification and enrollment methods. | Symfony components used by WebAuthn; no application kernel. |
-| `packages/mcp` | The MCP App approval card, the optional URL-mode elicitation and its bound retry, shared by Symfony and Drupal. | The official MCP SDK; no framework. |
-| `packages/symfony` | Bundle configuration, action autoconfiguration, trusted review routes, CSRF, response headers, rate limits and MCP status tool. | Existing Symfony application and Symfony MCP Bundle. |
+| `packages/mcp` | The MCP App approval card, the optional URL-mode elicitation and its bound retry. | The official MCP SDK; no framework. |
+| `packages/symfony` | Bundle configuration, action autoconfiguration, trusted review routes, CSRF, response headers, rate limits, the card app, the phone code and the MCP status tool. | Existing Symfony application and Symfony MCP Bundle. |
 | `packages/drupal/exact_approval` | Native permission policies, guarded node storage, saved-revision publish/delete actions, passkey UI, durable evidence and optional existing-endpoint MCP tools. | Drupal 11.4+, shared core and WebAuthn; no Symfony FrameworkBundle. |
-| `examples/symfony` | Account/token isolation, application tables, policy form, protected publication service and runnable endpoint. | Reference application, not a required hosting service. |
+| `examples/symfony` | The alerts site: account/token isolation, per-role policy form, protected publication service, MCP OAuth and runnable endpoint. | Reference application, not a required hosting service. |
 
 These package names are local Composer packages, not published Packagist releases. The repository’s path repositories make `composer install` work immediately. Another application can add a Composer path repository pointing at `packages/*`, then require `exact-approval/symfony-bundle` and `exact-approval/webauthn` version `^0.1`.
 
@@ -167,18 +160,38 @@ composer test
 composer analyse
 PHP_BIN=php python3 tests/http_smoke.py
 
-# Optional browser acceptance test; requires Python Playwright and Chromium.
-PHP_BIN=php python3 tests/browser_smoke.py
+# Optional browser acceptance tests; require Python Playwright and Chromium.
+PHP_BIN=php python3 tests/browser_smoke.py   # the passkey flow through the real page scripts
+PHP_BIN=php python3 tests/card_smoke.py      # the card in a scripted MCP Apps host; its QR code decoded
+PHP_BIN=php python3 tests/phone_smoke.py     # a never-signed-in phone browser behind a stand-in HTTPS tunnel
 ```
 
 The PHP suite includes process-level concurrency, real WebAuthn signature and registration validation, real Symfony Security/CSRF/MCP handling, transaction rollback and a separate evidence-verification process. The HTTP smoke test starts the actual application and uses the actual SDK over TCP. Test authenticators and a scripted model are explicitly confined to tests; there is no production “approve anyway” verifier.
 
-Browser, real-device and hosted-client coverage are reported separately in [verification results](verification.md). This release does not claim live Claude, Cowork, ChatGPT.com, Touch ID or Face ID verification.
+Browser, real-device and hosted-client coverage are reported separately in [verification results](verification.md). Claude Code’s native prompt and a Claude Desktop chat with physical Touch ID have been run end to end. claude.ai through the public tunnel and a physical phone with Face ID have not been run yet.
 
 ## What comes next
 
-The Drupal adapter is implemented and verified on a real Drupal 11.4.12 site. The MCP App approval card and the optional URL-mode elicitation are implemented for both Symfony and Drupal and tested with protocol-level requests shaped like Claude Code's. They have not yet been shown in a real Claude or ChatGPT window. The next integration work is physical-device acceptance and hosted agent-client authentication: choose a stable origin, connect the application's real identity provider, reuse or enroll a real approval passkey, and record a full personal-user flow. The Symfony example's personal development token and the Drupal test fixture's personal Basic authentication are development connections, not completed OAuth authorization servers.
+The next checks are claude.ai through the public tunnel, including its OAuth sign-in, and a physical phone approving with Face ID. The demo’s OAuth server and personal tokens are reference implementations: a production deployment connects the application’s real identity provider and keeps the origin, and so the passkeys, stable.
 
 For production adoption, replace the demo identity/persistence setup with the host application’s services, review every supported write path, choose a shared limiter/lock backend when deploying across hosts, and review enrollment/recovery/key management. External effects such as email, remote MCP calls and payments do not gain a local transaction’s exactly-once properties.
+
+## An early Drupal port
+
+The module in [packages/drupal/exact_approval](../packages/drupal/exact_approval/README.md) adds administrator rules for content types and native permissions, personal passkey enrollment, exact publication/deletion review, storage-boundary enforcement, and a persistent signed evidence log. An optional submodule adds three tools to the existing Drupal MCP endpoint. It does not install a second Symfony kernel or a separate approval service.
+
+Start with the [Drupal example](../examples/drupal/README.md):
+
+```sh
+cd examples/drupal
+composer install
+php setup.php
+cd web
+php -S localhost:8090 .ht.router.php
+```
+
+Use the generated local demo credentials in `examples/drupal/var/demo.json`. Administrator controls are at `/admin/config/people/exact-approval`; personal keys are at `/user/exact-approval/keys`. See [Drupal verification](drupal-verification.md) for the installed-site, HTTP, concurrency and evidence checks.
+
+The Drupal port shares the core, the WebAuthn bridge and the MCP card and elicitation. Its rules follow Drupal’s own content types and role permissions. It has not had the Symfony side’s latest work: the final-page preview, MCP OAuth and the phone code.
 
 MIT license. See [LICENSE](../LICENSE).

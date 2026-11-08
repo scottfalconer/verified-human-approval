@@ -25,8 +25,11 @@ URL-mode elicitation is off by default and enabled per client by `clientInfo.nam
 | `reviewUrl` | The application's review page |
 | `statusTool` | The read-only tool the card polls, called with `request_id` |
 | `statement` | The exact statement the person will approve |
+| `handoffTool` | Optional. An app-only tool that returns a one-time phone code, or `null` |
 
 The card never runs WebAuthn. The verifier rejects embedded and cross-origin ceremonies, and MCP App sandboxes cannot request passkeys.
+
+When `handoffTool` is set and the review page is on HTTPS, the card also offers **Approve on your phone**, except inside Claude on a phone. It calls the tool with `request_id` and expects `structuredContent` with `requestId`, `expiresIn` (seconds) and `modules`: the QR code as one string of `0` and `1` per row, quiet zone included. The card draws those modules itself with SVG elements, so it never parses markup from the server, and takes the code down when it expires or the request leaves `pending`. The Symfony bundle supplies such a tool.
 
 ## The URL-mode elicitation and its retry
 

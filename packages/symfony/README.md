@@ -18,12 +18,12 @@ Setup creates private local state under `var/demo` and displays random developme
 
 1. Open `http://localhost:8080/login` and sign in as `editor` using the generated password.
 2. Open **Your passkeys** and register a passkey through the native browser prompt.
-3. Optionally open **Administrator settings** to edit the required statement.
-4. Request publication from the page, or connect an MCP client to `http://localhost:8080/mcp` using the editor's personal bearer token.
-5. Open the returned review URL, inspect the frozen content and statement, and choose **Approve and execute**.
+3. Optionally sign in as `manager`, the administrator, and open **Administrator settings** to choose which roles must verify and to edit the required statement.
+4. Choose **Issue alert** on the page, or connect an MCP client to `http://localhost:8080/mcp` using the editor's personal bearer token.
+5. Open the returned review URL, inspect the final alerts page and the statement, and choose **Approve with your passkey**.
 6. Read `approval_status` using the returned `requestId`. The application has already committed the stored action; this status tool does not execute it.
 
-The demo provides `publish_announcement`, `read_announcement` and `approval_status`. Its announcement ID is `flood-update`. The `reader` account has read access but cannot publish. The `other` account belongs to another tenant and cannot read or approve the first tenant's requests.
+The demo provides `publish_alert`, `read_alert` and `approval_status`, plus the card's app-only `approval_handoff`. Its alert ID is `riverside-evacuation`. Under the starting rule, `manager` issues alerts directly, `editor` must approve each exact alert with a passkey, and `reader` can read but not issue them. The `other` account belongs to another tenant and cannot read or approve the first tenant's requests.
 
 `EXACT_APPROVAL_RUNTIME` selects another private runtime directory. `EXACT_APPROVAL_ORIGIN` sets the initial origin during setup; choose a stable HTTPS origin before enrolling real passkeys for a hosted demonstration. HTTP `localhost` is the development exception. Hostname, WebAuthn origin and RP ID must agree. The bundled PHP development server is for local use.
 
@@ -109,38 +109,39 @@ The MCP integration is ordinary SDK tool code:
 
 ```php
 use ExactApproval\Core\ApprovalService;
+use ExactApproval\Core\ApprovalState;
+use ExactApproval\Mcp\ApprovalCard;
+use ExactApproval\Mcp\ApprovalFlow;
 use ExactApproval\Symfony\ActorProvider;
-use ExactApproval\Symfony\ApprovalPresenter;
 use Mcp\Capability\Attribute\McpTool;
 use Mcp\Schema\Result\CallToolResult;
+use Mcp\Schema\Result\InputRequiredResult;
+use Mcp\Server\RequestContext;
 
-final readonly class PublishAnnouncementTool
+final readonly class PublishAlertTool
 {
     public function __construct(
         private ApprovalService $approvals,
         private ActorProvider $actors,
-        private ApprovalPresenter $presenter,
+        private ApprovalFlow $flow,
     ) {}
 
-    #[McpTool(name: 'publish_announcement')]
-    public function publish(string $announcement_id, string $request_key): CallToolResult
+    #[McpTool(name: 'publish_alert', meta: ApprovalCard::TOOL_META)]
+    public function publish(RequestContext $context, string $alert_id, ?string $request_key = null): CallToolResult|InputRequiredResult
     {
         // Apply the host's delegated scope/read checks here, as in DemoTools.
-        $state = $this->approvals->request(
-            $this->actors->current(),
-            'announcement.publish',
-            ['announcement_id' => $announcement_id],
-            $request_key,
+        $actor = $this->actors->current();
+
+        // The flow returns the card's result, or for an opted-in client a URL-mode elicitation.
+        return $this->flow->respond(
+            $context, $actor, 'publish_alert', ['alert_id' => $alert_id, 'request_key' => $request_key],
+            fn (): ApprovalState => $this->approvals->request($actor, 'announcement.publish', ['announcement_id' => $alert_id], $request_key),
         );
-
-        $this->actors->assertCanReadApproval($state);
-
-        return $this->presenter->toolResult($state);
     }
 }
 ```
 
-The presenter returns `requestId`, `status`, `reason` and `result`. A pending result also has `review_url` and a message explaining the browser handoff. Pending approval is a normal tool outcome, not an HTTP authentication failure. Native URL elicitation is not required by this implementation; client-specific elicitation can later open the same URL without changing the verification boundary.
+The presenter returns `requestId`, `status`, `reason` and `result`, plus the card's view under `approval`. A pending result also has `review_url` and a message explaining the browser handoff. Pending approval is a normal tool outcome, not an HTTP authentication failure. URL-mode elicitation is optional and opt-in per client (see below). It opens the same URL without changing the verification boundary.
 
 The completion route accepts a ceremony identifier and a WebAuthn response only. It does not accept replacement content or an execution token. The original MCP request is not held open while the person reads the page.
 
@@ -167,7 +168,7 @@ The core depends on `ApprovalVerifier`; the separate WebAuthn package supplies `
 
 Credential registration belongs to the application's trusted account process. The demo illustrates this with short-lived, single-use enrollment options held in the browser session, CSRF protection, separate human login and a registration rate limiter. Its MCP token cannot access that flow or policy administration.
 
-The demo administrator form uses Symfony Form and Validator. It permits an approval switch and a plain-text statement template with known placeholders. Saving increments the policy version. A disabled policy allows **new** authorized requests to execute without proof; it cannot make an older pending proposal eligible under its previous policy.
+The demo administrator form uses Symfony Form and Validator. For each role it sets whether that role issues alerts directly, must approve each exact alert with a passkey, or may not issue them, plus a plain-text statement template with known placeholders. Saving increments the policy version. A role set to issue directly lets **new** authorized requests from that role execute without proof. It cannot make an older pending proposal eligible under its previous policy. Your own `PolicyProvider` receives the requesting `Actor`, so the rule can depend on whatever your application knows about the person.
 
 Twig review templates live under `packages/symfony/templates`, and the shared browser asset uses `navigator.credentials.create()` / `navigator.credentials.get()`. The controller emits no-store, frame restrictions and a CSP. Applications can override the templates through normal Twig bundle overrides, while preserving the full frozen action and required statement.
 
@@ -201,3 +202,9 @@ A protected tool takes the SDK's `RequestContext` and returns `ApprovalFlow::res
 ```
 
 It is off by default, applies only under MCP 2026-07-28 or later, and its retry is bound to the same caller, tool and arguments. The demo enables it for Claude Code. See [MCP presentation](../mcp/README.md).
+
+### Approve on your phone
+
+When `public_origin` is HTTPS, the card also offers **Approve on your phone**. It calls the app-only `approval_handoff` tool, which issues a one-time link to `/approval/handoff/{token}` (single use, two minutes) and returns it as QR modules that the card draws itself. Opening the link starts a session scoped to that one request's review, for the same person. It is not a sign-in: the session reaches no other page, and approving still takes the person's passkey.
+
+Your firewall must let `/approval/handoff/{token}` and the review routes through without a sign-in. The controller then requires either the signed-in person or that scoped session; see the demo's `access_control`. Codes are kept in `cache.app`, so several web servers need a shared cache pool.
