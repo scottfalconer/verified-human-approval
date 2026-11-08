@@ -2,22 +2,22 @@
 
 declare(strict_types=1);
 
-namespace ExactApproval\Tests\Support;
+namespace VerifiedHumanApproval\Tests\Support;
 
-use ExactApproval\Core\ActionAdapter;
-use ExactApproval\Core\ActionRegistry;
-use ExactApproval\Core\Actor;
-use ExactApproval\Core\ApprovalException;
-use ExactApproval\Core\ApprovalPolicy;
-use ExactApproval\Core\ApprovalService;
-use ExactApproval\Core\ApprovalVerifier;
-use ExactApproval\Core\Authorizer;
-use ExactApproval\Core\Ceremony;
-use ExactApproval\Core\ExecutionGuard;
-use ExactApproval\Core\PolicyProvider;
-use ExactApproval\Core\PreparedAction;
-use ExactApproval\Core\Storage\PdoApprovalStore;
-use ExactApproval\Core\VerifiedApproval;
+use VerifiedHumanApproval\Core\ActionAdapter;
+use VerifiedHumanApproval\Core\ActionRegistry;
+use VerifiedHumanApproval\Core\Actor;
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\ApprovalPolicy;
+use VerifiedHumanApproval\Core\ApprovalService;
+use VerifiedHumanApproval\Core\ApprovalVerifier;
+use VerifiedHumanApproval\Core\Authorizer;
+use VerifiedHumanApproval\Core\Ceremony;
+use VerifiedHumanApproval\Core\ExecutionGuard;
+use VerifiedHumanApproval\Core\PolicyProvider;
+use VerifiedHumanApproval\Core\PreparedAction;
+use VerifiedHumanApproval\Core\Storage\PdoApprovalStore;
+use VerifiedHumanApproval\Core\VerifiedApproval;
 use PDO;
 use RuntimeException;
 use Symfony\Component\Clock\MockClock;

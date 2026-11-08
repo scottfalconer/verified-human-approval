@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Approval</title>
+<style>
+  :root { --fg: #1f2328; --muted: #59636e; --accent: #0b57d0; --ok: #1a7f37; --stop: #9a6700; --rule: rgba(31, 35, 40, .18); }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --fg: #e6edf3; --muted: #9198a1; --accent: #6ea8fe; --ok: #3fb950; --stop: #d29922; --rule: rgba(230, 237, 243, .2); }
+  }
+  :root[data-theme="dark"] { --fg: #e6edf3; --muted: #9198a1; --accent: #6ea8fe; --ok: #3fb950; --stop: #d29922; --rule: rgba(230, 237, 243, .2); }
+  body { margin: 0; padding: 14px 16px; background: transparent; color: var(--color-text-primary, var(--fg));
+    font-family: var(--font-sans, system-ui, -apple-system, "Segoe UI", sans-serif); font-size: var(--font-text-md-size, 15px); line-height: 1.45; }
+  #site { margin: 0 0 6px; color: var(--color-text-secondary, var(--muted)); font-size: var(--font-text-sm-size, 13px); font-weight: 600; }
+  #statement { margin: 0 0 12px; padding: 0 0 0 12px; border-left: 3px solid var(--rule); }
+  button { font: inherit; font-weight: var(--font-weight-semibold, 600); min-height: 44px; padding: 8px 16px; border: 0; cursor: pointer;
+    border-radius: var(--border-radius-md, 8px); background: var(--color-background-inverse, var(--accent)); color: var(--color-text-inverse, #fff); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.secondary { background: transparent; color: var(--color-text-primary, var(--fg)); border: 1px solid var(--rule); margin-left: 8px; }
+  #phone-code { margin: 12px 0 0; }
+  #qr svg { display: block; width: 180px; height: 180px; border-radius: 6px; }
+  #phone-code figcaption { margin-top: 6px; font-size: var(--font-text-sm-size, 13px); color: var(--color-text-secondary, var(--muted)); }
+  #status { margin: 10px 0 0; color: var(--color-text-secondary, var(--muted)); font-size: var(--font-text-sm-size, 13px); }
+  body[data-status="completed"] #status { color: var(--ok); font-weight: 600; }
+  body[data-status="cancelled"] #status, body[data-status="expired"] #status, body[data-status="invalidated"] #status,
+  body[data-status="denied"] #status, body[data-status="rejected"] #status { color: var(--stop); }
+</style>
+</head>
+<body>
+  <p id="site">Approval</p>
+  <p id="statement" hidden></p>
+  <button id="open" type="button" hidden>Review and approve</button><button id="phone-show" type="button" class="secondary" hidden>Approve on your phone</button>
+  <figure id="phone-code" hidden><div id="qr"></div><figcaption>Scan with your phone’s camera, then approve with your passkey (Face ID or fingerprint). The code works once and expires in two minutes.</figcaption></figure>
+  <p id="status" role="status" aria-live="polite">Waiting for the request…</p>
+<script>
+  // MCP Apps (io.modelcontextprotocol/ui, 2026-01-26): JSON-RPC 2.0 with the host over postMessage.
+  // The passkey ceremony never runs in this card. The button opens the application's own review
+  // page, and the status shown is only what the application recorded, read through its status tool.
+  const $ = (id) => document.getElementById(id);
+  const site = $('site'), statement = $('statement'), open = $('open'), status = $('status');
+  const phoneShow = $('phone-show'), phoneCode = $('phone-code'), qr = $('qr');
+  const TEXT = {
+    pending: 'Waiting for approval on the site. Nothing has changed yet.',
+    completed: 'Approved with a passkey. The site recorded the change.',
+    cancelled: 'Cancelled on the site. Nothing changed.',
+    expired: 'This request expired. Nothing changed.',
+    invalidated: 'The content changed after this request, so it can no longer be approved. Nothing changed.',
+    denied: 'This account can no longer do this. Nothing changed.',
+    rejected: 'The site refused this request. Nothing changed.',
+  };
+  const POLL_MS = 3000, POLL_LIMIT_MS = 15 * 60 * 1000;
+  let nextId = 1, view = null, timer = null, since = 0, host = {}, codeTimer = null;
+  const waiting = new Map();
+
+  function request(method, params) {
+    const id = nextId++;
+    parent.postMessage({ jsonrpc: '2.0', id, method, params }, '*');
+    return new Promise((resolve, reject) => waiting.set(id, { resolve, reject }));
+  }
+  function notify(method, params) { parent.postMessage({ jsonrpc: '2.0', method, params }, '*'); }
+  function resize() { notify('ui/notifications/size-changed', { height: document.documentElement.scrollHeight }); }
+  function applyTheme(context) {
+    if (!context) return;
+    host = { ...host, ...context };
+    if (context.theme === 'light' || context.theme === 'dark') document.documentElement.dataset.theme = context.theme;
+    const variables = context.styles && context.styles.variables;
+    if (variables) for (const [name, value] of Object.entries(variables)) {
+      if (typeof value === 'string') document.documentElement.style.setProperty(name.startsWith('--') ? name : '--' + name, value);
+    }
+  }
+  function reviewUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.protocol === 'https:' || (url.protocol === 'http:' && url.hostname === 'localhost') ? url : null;
+    } catch { return null; }
+  }
+  // Reads the card's fixed view; older results without it still name the request and its link.
+  function read(result) {
+    const data = (result && result.structuredContent) || {};
+    const card = data.approval || {};
+    const found = {
+      requestId: card.requestId || data.requestId, status: card.status || data.status, reason: card.reason ?? data.reason ?? null,
+      reviewUrl: card.reviewUrl || data.reviewUrl || data.review_url, statusTool: card.statusTool || null, statement: card.statement || null,
+      handoffTool: card.handoffTool || null,
+    };
+    return found.requestId && found.status ? found : null;
+  }
+  function render() {
+    if (!view) { site.textContent = 'Approval'; open.hidden = true; status.textContent = 'No approval is waiting.'; resize(); return; }
+    const url = reviewUrl(view.reviewUrl);
+    const pending = view.status === 'pending';
+    site.textContent = pending ? 'Approval needed on ' + (url ? url.host : 'the site') : (url ? url.host : 'Approval');
+    if (view.statement) { statement.textContent = '“' + view.statement + '”'; statement.hidden = false; }
+    open.hidden = !(pending && url);
+    // A phone needs the site on HTTPS, and a host that is already a phone doesn't need a code.
+    phoneShow.hidden = !(pending && url && url.protocol === 'https:' && view.handoffTool && returnTarget() !== 'claude-mobile');
+    if (!pending) hideCode();
+    document.body.dataset.status = view.status;
+    status.textContent = TEXT[view.status] || 'Status: ' + view.status + '.';
+    if (!pending && timer) { clearInterval(timer); timer = null; }
+    resize();
+  }
+  async function poll() {
+    if (!view || view.status !== 'pending' || !view.statusTool) return;
+    if (Date.now() - since > POLL_LIMIT_MS) { clearInterval(timer); timer = null; return; }
+    const result = await request('tools/call', { name: view.statusTool, arguments: { request_id: view.requestId } }).catch(() => null);
+    const next = result && !result.isError ? read(result) : null;
+    if (next && next.requestId === view.requestId && next.status !== view.status) {
+      view = { ...view, status: next.status, reason: next.reason };
+      render();
+    }
+  }
+  // Tells the review page where the person came from, so it can offer the way back after approval.
+  function returnTarget() {
+    const platform = host.platform || (/Electron\//.test(navigator.userAgent) ? 'desktop' : 'web');
+    return platform === 'desktop' || platform === 'mobile' ? 'claude-' + platform : 'claude-web';
+  }
+  function show(result) {
+    view = read(result);
+    since = Date.now();
+    render();
+    if (view && view.status === 'pending' && view.statusTool && !timer) timer = setInterval(poll, POLL_MS);
+  }
+
+  addEventListener('message', (event) => {
+    if (event.source !== parent) return;
+    const message = event.data;
+    if (!message || message.jsonrpc !== '2.0') return;
+    if (message.id !== undefined && waiting.has(message.id) && ('result' in message || 'error' in message)) {
+      const reply = waiting.get(message.id);
+      waiting.delete(message.id);
+      'error' in message ? reply.reject(message.error) : reply.resolve(message.result);
+      return;
+    }
+    if (message.method === 'ui/notifications/tool-result') show(message.params);
+    if (message.method === 'ui/notifications/host-context-changed') applyTheme(message.params);
+  });
+  open.addEventListener('click', async () => {
+    const url = view && reviewUrl(view.reviewUrl);
+    if (!url) return;
+    url.hash = 'return=' + returnTarget();
+    const opened = await request('ui/open-link', { url: url.href }).catch(() => ({ isError: true }));
+    status.textContent = opened && opened.isError
+      ? 'The page did not open. Use the review link in the reply.'
+      : 'Approve on the site with your passkey. This card updates when the site records the result.';
+    resize();
+  });
+  // Draws the code from the server's rows of 0 and 1 (quiet zone included), so no markup is parsed.
+  function drawCode(rows) {
+    const size = Array.isArray(rows) ? rows.length : 0;
+    if (size < 21 || size > 200 || rows.some((row) => typeof row !== 'string' || row.length !== size || /[^01]/.test(row))) return null;
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 ' + size + ' ' + size);
+    svg.setAttribute('shape-rendering', 'crispEdges');
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', 'QR code that opens this approval on your phone');
+    const back = document.createElementNS(NS, 'rect');
+    back.setAttribute('width', size);
+    back.setAttribute('height', size);
+    back.setAttribute('fill', '#fff');
+    let path = '';
+    rows.forEach((row, y) => {
+      for (let x = 0; x < size; x++) {
+        if (row[x] !== '1') continue;
+        let run = 1;
+        while (row[x + run] === '1') run++;
+        path += 'M' + x + ' ' + y + 'h' + run + 'v1h-' + run + 'z';
+        x += run - 1;
+      }
+    });
+    const dark = document.createElementNS(NS, 'path');
+    dark.setAttribute('d', path);
+    dark.setAttribute('fill', '#000');
+    svg.append(back, dark);
+    return svg;
+  }
+  function hideCode() {
+    if (codeTimer) { clearTimeout(codeTimer); codeTimer = null; }
+    phoneCode.hidden = true;
+    qr.replaceChildren();
+  }
+  phoneShow.addEventListener('click', async () => {
+    phoneShow.disabled = true;
+    const result = await request('tools/call', { name: view.handoffTool, arguments: { request_id: view.requestId } }).catch(() => null);
+    const data = result && !result.isError && result.structuredContent;
+    const code = data && data.requestId === view.requestId ? drawCode(data.modules) : null;
+    if (!code) {
+      status.textContent = 'The phone code could not be made. Approve on this device instead.';
+    } else {
+      hideCode();
+      qr.replaceChildren(code);
+      phoneCode.hidden = false;
+      phoneShow.textContent = 'Show a new code';
+      status.textContent = 'Waiting for your approval on your phone. Nothing has changed yet.';
+      const seconds = Number(data.expiresIn) > 0 ? Math.min(Number(data.expiresIn), 600) : 120;
+      codeTimer = setTimeout(() => {
+        hideCode();
+        if (view && view.status === 'pending') status.textContent = 'That code expired. Show a new code to try again.';
+        resize();
+      }, seconds * 1000);
+    }
+    phoneShow.disabled = false;
+    resize();
+  });
+  request('ui/initialize', { protocolVersion: '2026-01-26', appInfo: { name: 'verified-human-approval-card', version: '0.1.0' }, appCapabilities: {} })
+    .then((result) => { applyTheme(result && result.hostContext); notify('ui/notifications/initialized', {}); resize(); })
+    .catch(() => { status.textContent = 'This app did not start the card. Use the review link in the reply.'; resize(); });
+</script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+{% extends '@VerifiedHumanApproval/base.html.twig' %}
+{% block title %}Your passkeys · Verified Human Approval{% endblock %}
+{% block body %}
+<p class="eyebrow">Your application account</p><h1>Passkeys and connected agents</h1>
+<p>Your passkey approves exact actions, one fresh verification each time. Agents you connect can ask for actions; they can never approve one.</p>
+<section class="card" data-csrf="{{ csrf }}">
+<h2>Approval passkeys</h2>
+{% if passkeys %}<ul class="plain">{% for passkey in passkeys %}
+  <li><strong>{{ passkey.label }}</strong> · {{ passkey.authenticator }}{% if passkey.enrolledAt %} · added {{ passkey.enrolledAt|date('j M Y, H:i T') }}{% endif %}{% if passkey.method %} with {{ passkey.method }}{% endif %}
+  {% if not passkey.anchored %}<br><span class="error">Not usable: no signed enrollment record vouches for this passkey.</span>{% endif %}
+  <form method="post" action="{{ path('demo_passkey_revoke', {id: passkey.id}) }}" class="inline"><input type="hidden" name="_token" value="{{ form_csrf }}"><button class="secondary small">Revoke</button></form></li>
+{% endfor %}</ul>{% else %}<p>No passkey is registered for this account.</p>{% endif %}
+{% if authorized %}
+  <div data-passkey-panel data-mode="registration" data-csrf="{{ csrf }}" data-options-url="{{ path('verified_human_approval_enrollment_options') }}" data-complete-url="{{ path('verified_human_approval_enrollment_complete') }}">
+    <p class="muted">{{ authorized.method == 'passkey link' ? 'Your one-time link lets you add a passkey now.' : 'Confirmed with your passkey: you can add another now.' }}</p>
+    <div class="actions"><button type="button" class="primary" data-approve>Register a passkey</button></div><p data-message aria-live="polite"></p>
+  </div>
+{% elseif can_confirm %}
+  <div data-passkey-panel data-mode="confirm" data-csrf="{{ csrf }}" data-options-url="{{ path('demo_confirm_options') }}" data-complete-url="{{ path('demo_confirm_complete') }}">
+    <p class="muted">To add another passkey, first confirm with one you already have. A password alone cannot add one.</p>
+    <div class="actions"><button type="button" data-approve>Confirm with your passkey</button></div><p data-message aria-live="polite"></p>
+  </div>
+{% else %}
+  <p class="muted">Your first passkey needs the one-time link your administrator gave you. Open it while signed in, and you can register here. A password alone cannot add an approval passkey.</p>
+{% endif %}
+</section>
+<section class="card">
+<h2>Connected agents</h2>
+{% if connections %}<ul class="plain">{% for connection in connections %}
+  <li><strong>{{ connection.client_id is null ? 'Personal agent token' : (connection.client_name ?? 'MCP client') }}</strong>{% if connection.created_at %} · connected {{ connection.created_at|date('j M Y, H:i T') }}{% endif %} · {{ connection.active ? 'active' : 'disconnected' }}
+  {% if connection.active %}<form method="post" action="{{ path('demo_connection_revoke', {id: connection.id}) }}" class="inline"><input type="hidden" name="_token" value="{{ form_csrf }}"><button class="secondary small">Disconnect</button></form>{% endif %}</li>
+{% endfor %}</ul>{% else %}<p>No agents are connected.</p>{% endif %}
+</section>
+<p class="muted">Your browser may offer a fingerprint, face, device PIN or another user-verification method. This application requires user verification.</p>
+{% endblock %}

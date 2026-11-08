@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace ExactApproval\Tests\Core;
+namespace VerifiedHumanApproval\Tests\Core;
 
-use ExactApproval\Core\Audit\AuditLog;
-use ExactApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\Audit\AuditLog;
+use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Clock\MockClock;
 
@@ -40,8 +40,8 @@ final class AuditLogTest extends TestCase
 
     public function testAnEditedEntryNoLongerVerifies(): void
     {
-        $entry = $this->pdo->query('SELECT entry FROM exact_approval_audit WHERE seq = 2')->fetchColumn();
-        $this->pdo->prepare('UPDATE exact_approval_audit SET entry = ? WHERE seq = 2')->execute([str_replace('"two"', '"mallory"', $entry)]);
+        $entry = $this->pdo->query('SELECT entry FROM verified_human_approval_audit WHERE seq = 2')->fetchColumn();
+        $this->pdo->prepare('UPDATE verified_human_approval_audit SET entry = ? WHERE seq = 2')->execute([str_replace('"two"', '"mallory"', $entry)]);
         $report = $this->log->verify();
         self::assertFalse($report['intact']);
         self::assertSame('its signature or hash does not verify', $report['entries'][1]['problem']);
@@ -51,15 +51,15 @@ final class AuditLogTest extends TestCase
     public function testAnEntryReSignedWithAnotherKeyDoesNotVerify(): void
     {
         $forger = new SodiumEvidenceSigner('app-key', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
-        $entry = $this->pdo->query('SELECT entry FROM exact_approval_audit WHERE seq = 3')->fetchColumn();
-        $this->pdo->prepare('UPDATE exact_approval_audit SET signature = ? WHERE seq = 3')->execute([$forger->sign($entry)]);
+        $entry = $this->pdo->query('SELECT entry FROM verified_human_approval_audit WHERE seq = 3')->fetchColumn();
+        $this->pdo->prepare('UPDATE verified_human_approval_audit SET signature = ? WHERE seq = 3')->execute([$forger->sign($entry)]);
         self::assertFalse($this->log->verify()['intact']);
         self::assertNull($this->log->find('passkey.enrolled', 'three'));
     }
 
     public function testADeletedEntryBreaksTheChain(): void
     {
-        $this->pdo->exec('DELETE FROM exact_approval_audit WHERE seq = 2');
+        $this->pdo->exec('DELETE FROM verified_human_approval_audit WHERE seq = 2');
         $report = $this->log->verify();
         self::assertFalse($report['intact']);
         self::assertSame('an entry before it is missing', $report['entries'][1]['problem']);

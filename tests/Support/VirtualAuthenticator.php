@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace ExactApproval\Tests\Support;
+namespace VerifiedHumanApproval\Tests\Support;
 
 use CBOR\ByteStringObject;
 use CBOR\MapObject;

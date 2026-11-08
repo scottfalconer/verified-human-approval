@@ -2,26 +2,26 @@
 
 declare(strict_types=1);
 
-namespace ExactApproval\Tests\Evidence;
+namespace VerifiedHumanApproval\Tests\Evidence;
 
-use ExactApproval\Core\ActionRegistry;
-use ExactApproval\Core\ApprovalException;
-use ExactApproval\Core\ApprovalService;
-use ExactApproval\Core\ApprovalState;
-use ExactApproval\Core\CanonicalJson;
-use ExactApproval\Core\ChallengeBinding;
-use ExactApproval\Core\Evidence\EvidenceExporter;
-use ExactApproval\Core\Evidence\EvidenceSigner;
-use ExactApproval\Core\Evidence\ReceiptVerifier;
-use ExactApproval\Core\Evidence\SodiumEvidenceSigner;
-use ExactApproval\Core\ExecutionGuard;
-use ExactApproval\Tests\Support\CoreFixture;
-use ExactApproval\Tests\Support\FixtureAction;
-use ExactApproval\Tests\Support\VirtualAuthenticator;
-use ExactApproval\WebAuthn\Configuration;
-use ExactApproval\WebAuthn\Credential;
-use ExactApproval\WebAuthn\PdoCredentialRepository;
-use ExactApproval\WebAuthn\WebAuthnVerifier;
+use VerifiedHumanApproval\Core\ActionRegistry;
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\ApprovalService;
+use VerifiedHumanApproval\Core\ApprovalState;
+use VerifiedHumanApproval\Core\CanonicalJson;
+use VerifiedHumanApproval\Core\ChallengeBinding;
+use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
+use VerifiedHumanApproval\Core\Evidence\EvidenceSigner;
+use VerifiedHumanApproval\Core\Evidence\ReceiptVerifier;
+use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\ExecutionGuard;
+use VerifiedHumanApproval\Tests\Support\CoreFixture;
+use VerifiedHumanApproval\Tests\Support\FixtureAction;
+use VerifiedHumanApproval\Tests\Support\VirtualAuthenticator;
+use VerifiedHumanApproval\WebAuthn\Configuration;
+use VerifiedHumanApproval\WebAuthn\Credential;
+use VerifiedHumanApproval\WebAuthn\PdoCredentialRepository;
+use VerifiedHumanApproval\WebAuthn\WebAuthnVerifier;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -152,7 +152,7 @@ final class ApprovalEvidenceTest extends TestCase
         $bundle['proof']->proposalDigest = $digest;
         $bundle['proof']->challenge = ChallengeBinding::encode(ChallengeBinding::challenge($digest, ChallengeBinding::decode($bundle['proof']->nonce)));
         $manifest = CanonicalJson::encode([
-            'format' => 'exact-approval/receipt/v1',
+            'format' => 'verified-human-approval/receipt/v1',
             'keyId' => $this->signer->keyId(),
             'proposalDigest' => $digest,
             'proofDigest' => hash('sha256', CanonicalJson::encode($bundle['proof'])),
@@ -242,7 +242,7 @@ final class ApprovalEvidenceTest extends TestCase
             self::assertSame('execution_failed', $exception->reason);
         }
         self::assertSame(0, $this->fixture->effectCount());
-        self::assertSame(0, (int) $this->fixture->pdo->query('SELECT COUNT(*) FROM exact_approval_executions')->fetchColumn());
+        self::assertSame(0, (int) $this->fixture->pdo->query('SELECT COUNT(*) FROM verified_human_approval_executions')->fetchColumn());
         self::assertSame($this->trustedCredential->sourceJson, $this->credentials->find($this->trustedCredential->id)->sourceJson);
         self::assertTrue($this->fixture->store->getCeremony($ceremony->id)->consumed);
         $this->action->alterAfterWrite = false;
@@ -264,9 +264,9 @@ final class ApprovalEvidenceTest extends TestCase
         $this->verifyHuman((new ReceiptVerifier())->verify($bundle, $this->signer->keyId(), $this->signer->publicKey()));
 
         // Someone with database access rewrites when it happened. The receipt signed at commit no longer matches.
-        $record = CanonicalJson::map(CanonicalJson::decode($this->fixture->pdo->query("SELECT record FROM exact_approval_executions WHERE request_id = '$id'")->fetchColumn()));
+        $record = CanonicalJson::map(CanonicalJson::decode($this->fixture->pdo->query("SELECT record FROM verified_human_approval_executions WHERE request_id = '$id'")->fetchColumn()));
         $record['recordedAt'] = '2020-01-01T00:00:00.000000Z';
-        $this->fixture->pdo->prepare('UPDATE exact_approval_executions SET record = ? WHERE request_id = ?')->execute([CanonicalJson::encode((object) $record), $id]);
+        $this->fixture->pdo->prepare('UPDATE verified_human_approval_executions SET record = ? WHERE request_id = ?')->execute([CanonicalJson::encode((object) $record), $id]);
         $this->expectException(ApprovalException::class);
         (new ReceiptVerifier())->verify($export(), $this->signer->keyId(), $this->signer->publicKey());
     }
@@ -289,7 +289,7 @@ final class ApprovalEvidenceTest extends TestCase
         self::assertSame(0, $this->fixture->effectCount(), 'No unrecorded action: the transaction rolled back.');
     }
 
-    /** @return array{ApprovalService, \ExactApproval\Core\Actor} */
+    /** @return array{ApprovalService, \VerifiedHumanApproval\Core\Actor} */
     private function signingService(?EvidenceSigner $signer = null): array
     {
         $guard = new ExecutionGuard();
@@ -327,7 +327,7 @@ final class ApprovalEvidenceTest extends TestCase
     private function runVerifier(array $bundle, ?Credential $credential = null): array
     {
         $credential ??= $this->trustedCredential;
-        $directory = sys_get_temp_dir().'/exact-approval-evidence-'.bin2hex(random_bytes(8));
+        $directory = sys_get_temp_dir().'/verified-human-approval-evidence-'.bin2hex(random_bytes(8));
         mkdir($directory, 0700);
         $files = [
             'evidence.json' => $bundle,
@@ -350,7 +350,7 @@ final class ApprovalEvidenceTest extends TestCase
             }
             $process = proc_open([
                 PHP_BINARY,
-                dirname(__DIR__, 2).'/bin/verify-evidence.php',
+                dirname(__DIR__, 2).'/src/core/bin/verify-evidence.php',
                 $directory.'/evidence.json',
                 $directory.'/application.json',
                 $directory.'/credential.json',

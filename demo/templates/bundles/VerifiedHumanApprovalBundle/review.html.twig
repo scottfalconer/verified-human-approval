@@ -1,0 +1,24 @@
+{# Overrides the bundle's review page for this site: a publication shows the final public page. #}
+{% extends '@!VerifiedHumanApproval/review.html.twig' %}
+{% block stylesheets %}<link rel="stylesheet" href="{{ path('riverside_styles') }}">{% endblock %}
+{% block preview %}
+{% set modes = {direct: 'Issue alerts directly', approval: 'Issue alerts only with verified human approval', denied: 'Cannot issue alerts'} %}
+{% if prepared.actionId == 'announcement.publish' %}
+<p class="muted">{% if state.status == 'completed' %}This is the alerts page residents saw once you approved, drawn from the proposal you approved.{% else %}This is the alerts page every resident sees as soon as you approve. It is drawn from the frozen proposal with the site’s own template, not from the current draft.{% endif %}</p>
+<div class="rc-frame">
+    <div class="rc-frame-bar"><span class="rc-frame-url">{{ url('riverside_alerts') }}</span></div>
+    <div class="riverside rc-frame-page">{% include 'public/_page.html.twig' with {title: prepared.effect.title, body: prepared.effect.body} only %}</div>
+</div>
+{% elseif prepared.actionId == 'policy.change' %}
+<p class="muted">{% if state.status == 'completed' %}This is the rule change you approved.{% else %}This is the rule as it is now and as it will be once you approve. Requests waiting under the current rule can no longer be approved afterwards.{% endif %}</p>
+<table class="rule-change">
+    <thead><tr><th>Role</th><th>Now</th><th>After approval</th></tr></thead>
+    <tbody>
+    {% for role, label in {manager: 'Emergency manager', staff: 'County staff'} %}
+        <tr{% if prepared.preconditions[role] != prepared.effect[role] %} class="changed"{% endif %}><td>{{ label }}</td><td>{{ modes[prepared.preconditions[role]] }}</td><td>{{ modes[prepared.effect[role]] }}</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% if prepared.preconditions.statement != prepared.effect.statement %}<h3>The statement approvers confirm</h3><p class="statement">{{ prepared.effect.statement }}</p>{% endif %}
+{% else %}{{ parent() }}{% endif %}
+{% endblock %}

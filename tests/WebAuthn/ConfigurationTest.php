@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace ExactApproval\Tests\WebAuthn;
+namespace VerifiedHumanApproval\Tests\WebAuthn;
 
-use ExactApproval\WebAuthn\Configuration;
+use VerifiedHumanApproval\WebAuthn\Configuration;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 

@@ -29,6 +29,6 @@ Found by the review, in order of value; none changes what the application enforc
 4. An automated handshake-era (2025-11-25) test, the path Claude Desktop and claude.ai use.
 5. OAuth hygiene: cache Client ID Metadata Documents, require `client_name`, validate `resource` at the token endpoint, add `scope=` to the 401, one shared `ProtectedResourceMetadata`, rate-limit registration.
 6. The card: handle `ui/notifications/tool-cancelled`, answer `ui/resource-teardown`, back off the polling.
-7. Bundle maturity, as Symfony's bundle best practices ask: explicit service definitions with `exact_approval.*` ids, assets in `public/`, php-cs-fixer `@Symfony`, a CI matrix with lowest dependencies, the `ExactApproval\SymfonyBundle` namespace, `LICENSE` and `docs/index.md` in the package, Monolog with an `mcp` channel.
+7. Bundle maturity, as Symfony's bundle best practices ask: explicit service definitions with `verified_human_approval.*` ids, assets in `public/`, php-cs-fixer `@Symfony`, a CI matrix with lowest dependencies, the `VerifiedHumanApproval\BundleBundle` namespace, `LICENSE` and `docs/index.md` in the package, Monolog with an `mcp` channel.
 
 Two upstream suggestions came out of it, to be filed after judging: a public `RequestContext::getClientInfo()` in the SDK (we read the session key the SDK uses internally), and `annotations`/`outputSchema` parameters on the bundle's `#[AsMcpAppTool]`.

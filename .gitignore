@@ -1,9 +1,10 @@
 /vendor/
 /.phpunit.cache/
 /var/
-/examples/symfony/var/
+/demo/var/
 /.env.local
 /.phpstan/
 **/__pycache__/
 *.pyc
 .DS_Store
+/phpunit.xml

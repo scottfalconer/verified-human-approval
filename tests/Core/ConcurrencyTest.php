@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace ExactApproval\Tests\Core;
+namespace VerifiedHumanApproval\Tests\Core;
 
-use ExactApproval\Core\CanonicalJson;
-use ExactApproval\Tests\Support\CoreFixture;
+use VerifiedHumanApproval\Core\CanonicalJson;
+use VerifiedHumanApproval\Tests\Support\CoreFixture;
 use PHPUnit\Framework\TestCase;
 
 /** Fresh OS processes and PDO connections exercise the real SQLite write race. */
@@ -18,7 +18,7 @@ final class ConcurrencyTest extends TestCase
         if (!function_exists('proc_open')) {
             self::markTestSkipped('This test needs process creation; the reference validation environment enables it.');
         }
-        $this->directory = sys_get_temp_dir().'/exact-approval-race-'.bin2hex(random_bytes(8));
+        $this->directory = sys_get_temp_dir().'/verified-human-approval-race-'.bin2hex(random_bytes(8));
         mkdir($this->directory, 0700);
     }
 
@@ -45,7 +45,7 @@ final class ConcurrencyTest extends TestCase
         self::assertCount(1, array_unique(array_map(static fn (array $result): string => CanonicalJson::encode($result['result']), $results)));
         self::assertSame(1, $fixture->effectCount());
         self::assertSame(18, (int) $fixture->article()['revision']);
-        self::assertSame(1, (int) $fixture->pdo->query('SELECT COUNT(*) FROM exact_approval_executions')->fetchColumn());
+        self::assertSame(1, (int) $fixture->pdo->query('SELECT COUNT(*) FROM verified_human_approval_executions')->fetchColumn());
         self::assertSame(1, (int) $fixture->pdo->query("SELECT verification_count FROM test_credentials WHERE id = 'alice-key'")->fetchColumn());
     }
 
@@ -66,7 +66,7 @@ final class ConcurrencyTest extends TestCase
         sort($statuses);
         self::assertSame(['completed', 'invalidated'], $statuses);
         self::assertSame(1, $fixture->effectCount());
-        self::assertSame(1, (int) $fixture->pdo->query('SELECT COUNT(*) FROM exact_approval_executions')->fetchColumn());
+        self::assertSame(1, (int) $fixture->pdo->query('SELECT COUNT(*) FROM verified_human_approval_executions')->fetchColumn());
         self::assertSame(18, (int) $fixture->article()['revision']);
         self::assertSame(1, (int) $fixture->pdo->query("SELECT verification_count FROM test_credentials WHERE id = 'alice-key'")->fetchColumn());
     }
@@ -79,7 +79,7 @@ final class ConcurrencyTest extends TestCase
         $results = $this->race([$payload, $payload, $payload]);
         self::assertSame(['pending', 'pending', 'pending'], array_column($results, 'status'));
         self::assertCount(1, array_unique(array_column($results, 'requestId')));
-        self::assertSame(1, (int) $fixture->pdo->query('SELECT COUNT(*) FROM exact_approval_requests')->fetchColumn());
+        self::assertSame(1, (int) $fixture->pdo->query('SELECT COUNT(*) FROM verified_human_approval_requests')->fetchColumn());
         self::assertSame(0, $fixture->effectCount());
     }
 

@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace ExactApproval\Tests\Mcp;
+namespace VerifiedHumanApproval\Tests\Mcp;
 
-use ExactApproval\Core\Actor;
-use ExactApproval\Core\ApprovalException;
-use ExactApproval\Core\ApprovalState;
-use ExactApproval\Mcp\ApprovalCard;
-use ExactApproval\Mcp\UrlPrompt;
-use ExactApproval\Tests\Support\CoreFixture;
+use VerifiedHumanApproval\Core\Actor;
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\ApprovalState;
+use VerifiedHumanApproval\Mcp\ApprovalCard;
+use VerifiedHumanApproval\Mcp\UrlPrompt;
+use VerifiedHumanApproval\Tests\Support\CoreFixture;
 use Mcp\Schema\Enum\ProtocolVersion;
 use Mcp\Schema\Extension\Apps\McpApps;
 use Mcp\Schema\Extension\Apps\UiToolMeta;
@@ -44,7 +44,7 @@ final class UrlPromptTest extends TestCase
     public function testAResumedRoundYieldsTheBoundRequestAndTheClientAnswer(): void
     {
         $binding = UrlPrompt::binding(new Actor('alice', 'tenant-a'), 'publish', ['id' => 1]);
-        $state = ['format' => 'exact-approval/continuation/v1', 'requestId' => 'apr_1', 'binding' => $binding];
+        $state = ['format' => 'verified-human-approval/continuation/v1', 'requestId' => 'apr_1', 'binding' => $binding];
         self::assertNull(UrlPrompt::resumed(null, $binding));
         self::assertNull(UrlPrompt::resumed(new InputContext(['other' => ['action' => 'accept']], $state), $binding));
         foreach (['accept', 'decline', 'cancel'] as $action) {
@@ -56,7 +56,7 @@ final class UrlPromptTest extends TestCase
     {
         $binding = UrlPrompt::binding(new Actor('alice', 'tenant-a'), 'publish', ['id' => 1]);
         $answer = [UrlPrompt::KEY => ['action' => 'accept']];
-        $changed = ['format' => 'exact-approval/continuation/v1', 'requestId' => 'apr_1', 'binding' => UrlPrompt::binding(new Actor('alice', 'tenant-a'), 'publish', ['id' => 2])];
+        $changed = ['format' => 'verified-human-approval/continuation/v1', 'requestId' => 'apr_1', 'binding' => UrlPrompt::binding(new Actor('alice', 'tenant-a'), 'publish', ['id' => 2])];
         $this->assertReason('continuation_mismatch', fn () => UrlPrompt::resumed(new InputContext($answer, $changed), $binding));
         $this->assertReason('continuation_invalid', fn () => UrlPrompt::resumed(new InputContext($answer, ['id' => 'apr_1']), $binding));
     }

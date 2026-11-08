@@ -16,7 +16,7 @@ A maintainer-level review found two password-only ways around verification, rece
 
 ## Update: claude.ai and a physical phone (November 8, 2026, 17:46 UTC)
 
-Run by Scott through `examples/symfony/bin/public start` (a Cloudflare quick tunnel) and checked on the server.
+Run by Scott through `demo/bin/public start` (a Cloudflare quick tunnel) and checked on the server.
 
 | Check | Result |
 | --- | --- |
@@ -47,7 +47,7 @@ Run on macOS with PHP 8.3.31. The sections after this one keep the first build's
 | Check | Result |
 | --- | --- |
 | PHPUnit, `composer test` | 150 tests, 743 assertions, all passing. New tests cover keyless retry reuse, the URL prompt and its bound retry, the card, the final-page preview, and the layout binding |
-| PHPStan, `composer analyse` | No errors, now including `packages/mcp` |
+| PHPStan, `composer analyse` | No errors, now including `src/mcp` |
 | `tests/http_smoke.py` | Passed |
 | `tests/browser_smoke.py`, with real Chrome and a CDP virtual authenticator | Passed. It covers enrollment and approval through the real page scripts, a 404 before approval, a live page identical to the approved preview, and the stale-draft refusal |
 | `tests/claude_code_host.py`, with Claude Code 2.1.317 and claude-haiku-5-5 | Passed. The URL-mode elicitation reached the host; after the passkey approval and "accept", the retried call returned "completed", with one committed effect |

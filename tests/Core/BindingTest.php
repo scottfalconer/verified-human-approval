@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace ExactApproval\Tests\Core;
+namespace VerifiedHumanApproval\Tests\Core;
 
-use ExactApproval\Core\Actor;
-use ExactApproval\Core\ApprovalException;
-use ExactApproval\Core\ApprovalPolicy;
-use ExactApproval\Core\ApprovalRequest;
-use ExactApproval\Core\CanonicalJson;
-use ExactApproval\Core\ChallengeBinding;
-use ExactApproval\Core\PreparedAction;
+use VerifiedHumanApproval\Core\Actor;
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\ApprovalPolicy;
+use VerifiedHumanApproval\Core\ApprovalRequest;
+use VerifiedHumanApproval\Core\CanonicalJson;
+use VerifiedHumanApproval\Core\ChallengeBinding;
+use VerifiedHumanApproval\Core\PreparedAction;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -85,7 +85,7 @@ final class BindingTest extends TestCase
         self::assertNotSame($challenge, ChallengeBinding::challenge($digestA, $nonceB));
         self::assertSame($challenge, ChallengeBinding::decode(ChallengeBinding::encode($challenge)));
         // Independent recomputation, independent of any proposal/challenge lookup table.
-        self::assertSame(hash('sha256', "ExactApproval/WebAuthn/v1\0".hex2bin($digestA).$nonceA, true), $challenge);
+        self::assertSame(hash('sha256', "VerifiedHumanApproval/WebAuthn/v1\0".hex2bin($digestA).$nonceA, true), $challenge);
     }
 
     public function testFrozenProposalIsNotChangedByLaterMutableObjects(): void

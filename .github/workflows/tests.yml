@@ -1,4 +1,4 @@
-name: PHP approval checks
+name: Tests
 on: [push, pull_request]
 jobs:
   php:
@@ -13,6 +13,8 @@ jobs:
           php-version: '${{ matrix.php }}'
           extensions: pdo_sqlite, openssl, sodium, mbstring, dom, pcntl
           coverage: none
+      - run: composer validate --strict --no-check-publish
+      - run: for manifest in src/*/composer.json; do composer validate --strict --no-check-publish --no-check-lock "$manifest"; done
       - run: composer install --no-interaction --prefer-dist
       - run: composer test
       - run: composer analyse

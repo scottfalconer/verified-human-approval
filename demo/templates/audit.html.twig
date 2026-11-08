@@ -1,0 +1,96 @@
+{% extends '@VerifiedHumanApproval/base.html.twig' %}
+{% block title %}Audit log · Verified Human Approval{% endblock %}
+{% block body %}
+<p class="eyebrow">Administrator · Riverside Council</p><h1>How every change happened</h1>
+<p>Who asked, through which agent, under which rule, and whether a person verified it with their passkey. Each completed action is checked again every time you open this page: its receipt against the signature the application made as it committed, and the person’s passkey signature against the public key recorded when that passkey was enrolled. Database access alone cannot make an edited record pass either check.</p>
+
+<section class="card">
+<h2>Actions</h2>
+{% if actions %}
+<table class="audit">
+  <thead><tr><th>Requested</th><th>Action</th><th>Who, and through what</th><th>Rule</th><th>Outcome</th><th>Checks</th></tr></thead>
+  <tbody>
+  {% for action in actions %}
+    <tr>
+      <td>{{ action.requestedAt|date('j M, H:i:s T') }}</td>
+      <td><strong>{{ action.title }}</strong><br><span class="muted small">{{ action.statement }}</span></td>
+      <td>{{ action.person }}{% if action.role %} ({{ action.role }}){% endif %}<br><span class="muted small">through {{ action.through }}</span></td>
+      <td>{{ action.rule }}<br><span class="muted small">{{ action.verificationRequired ? 'passkey verification required' : 'issued directly, no verification required' }}</span></td>
+      <td>{{ action.status }}{% if action.reason %} <span class="muted small">({{ action.reason }})</span>{% endif %}
+        {% if action.approval %}<br><span class="small">Approved with {{ action.approval.label ?? 'a passkey' }} · {{ action.approval.authenticator }}{% if action.approval.verifiedAt %} at {{ action.approval.verifiedAt|date('H:i:s T') }}{% endif %}</span>{% endif %}
+        {% if action.executedAt %}<br><span class="muted small">Executed {{ action.executedAt|date('H:i:s T') }}</span>{% endif %}</td>
+      <td class="checks">
+        {% if action.receipt %}<span class="{{ action.receipt.valid ? 'ok' : 'error' }}">{{ action.receipt.valid ? '✓' : '✗' }} Receipt{{ action.receipt.signed == 'at_commit' ? ' signed at commit' : ' signed only at export' }}</span>{% endif %}
+        {% if action.passkey %}<br><span class="{{ action.passkey.valid ? 'ok' : 'error' }}">{{ action.passkey.valid ? '✓ Passkey signed this exact proposal' : '✗ Passkey check: ' ~ action.passkey.problem }}</span>{% endif %}
+        {% if action.status == 'completed' %}<br><a class="small" href="{{ path('demo_audit_evidence', {id: action.id}) }}">Evidence</a>{% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}<p>No actions yet.</p>{% endif %}
+</section>
+
+<section class="card">
+<h2>Approval passkeys</h2>
+<table class="audit">
+  <thead><tr><th>Person</th><th>Passkey</th><th>Added</th><th>Status</th><th></th></tr></thead>
+  <tbody>
+  {% for passkey in passkeys %}
+    <tr>
+      <td>{{ passkey.user }}</td>
+      <td>{{ passkey.label }}<br><span class="muted small">{{ passkey.authenticator }}, as the authenticator reports it</span></td>
+      <td>{% if passkey.enrolledAt %}{{ passkey.enrolledAt|date('j M, H:i T') }}<br><span class="muted small">with {{ passkey.method }}; {{ passkey.authorizedBy }}</span>{% else %}<span class="error">No signed enrollment record</span>{% endif %}</td>
+      <td>{% if passkey.revoked %}Revoked{% elseif passkey.anchored %}<span class="ok">Active</span>{% else %}<span class="error">Not usable</span>{% endif %}</td>
+      <td>{% if not passkey.revoked %}<form method="post" action="{{ path('demo_audit_passkey_revoke', {id: passkey.id}) }}" class="inline"><input type="hidden" name="_token" value="{{ form_csrf }}"><button class="secondary small">Revoke</button></form>{% endif %}</td>
+    </tr>
+  {% else %}<tr><td colspan="5">No passkeys yet.</td></tr>{% endfor %}
+  </tbody>
+</table>
+<h3>One-time links for a first passkey</h3>
+<p class="muted">A password alone cannot add an approval passkey. A person’s first passkey needs a one-time link, which you issue after confirming with your own passkey.</p>
+{% if new_link %}<p class="notice">Link for {{ new_link.user }}, valid for 24 hours and shown only now: <code>{{ new_link.url }}</code></p>{% endif %}
+{% if confirmed %}
+  <form method="post" action="{{ path('demo_audit_link') }}" class="inline"><input type="hidden" name="_token" value="{{ form_csrf }}">
+    <label>Person <select name="user">{% for user in users %}<option value="{{ user.id }}">{{ user.display_name }} ({{ user.id }})</option>{% endfor %}</select></label>
+    <button class="primary">Issue a passkey link</button></form>
+{% else %}
+  <div data-passkey-panel data-mode="confirm" data-csrf="{{ csrf }}" data-options-url="{{ path('demo_confirm_options') }}" data-complete-url="{{ path('demo_confirm_complete') }}">
+    <div class="actions"><button type="button" data-approve>Confirm with your passkey to issue a link</button></div><p data-message aria-live="polite"></p>
+  </div>
+{% endif %}
+{% if links %}<ul class="plain small">{% for link in links %}<li>{{ link.user_id }}: issued by {{ link.issued_by }} {{ link.issued_at|date('j M, H:i T') }} · {{ link.used_at ? 'used ' ~ link.used_at|date('j M, H:i T') : (link.expires_at < now ? 'expired' : 'unused, expires ' ~ link.expires_at|date('j M, H:i T')) }}</li>{% endfor %}</ul>{% endif %}
+</section>
+
+<section class="card">
+<h2>Connected agents</h2>
+<table class="audit">
+  <thead><tr><th>Person</th><th>Agent</th><th>Can</th><th>Status</th><th></th></tr></thead>
+  <tbody>
+  {% for connection in connections %}
+    <tr>
+      <td>{{ connection.user_id }}</td>
+      <td>{{ connection.client_id is null ? 'Personal agent token' : (connection.client_name ?? 'MCP client') }}{% if connection.created_at %}<br><span class="muted small">connected {{ connection.created_at|date('j M, H:i T') }}</span>{% endif %}</td>
+      <td class="small">{{ connection.scopes|join(', ') }}</td>
+      <td>{{ connection.active ? 'Active' : 'Disconnected' }}</td>
+      <td>{% if connection.active %}<form method="post" action="{{ path('demo_audit_connection_revoke', {id: connection.id}) }}" class="inline"><input type="hidden" name="_token" value="{{ form_csrf }}"><button class="secondary small">Disconnect</button></form>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="muted small">An agent can ask for actions. It can never approve one, add a passkey or change a rule.</p>
+</section>
+
+<section class="card">
+<h2>Security log</h2>
+<p class="{{ log_intact ? 'ok' : 'error' }}">{{ log_intact ? '✓ All ' ~ log_newest ~ ' entries are signed and in an unbroken chain.' : '✗ The log has been altered: see the entries marked below.' }}</p>
+<p class="muted small">Entries for other organizations are counted but not shown. Each entry is signed with the application key <code>{{ key_id }}</code> and names the entry before it. The newest entry is number {{ log_newest }}: note it, because only entries after the newest one you have seen could be cut off unnoticed.</p>
+<ul class="plain small">
+{% for item in log %}
+  {% if item.entry %}<li class="{{ item.valid ? '' : 'error' }}">#{{ item.seq }} · {{ item.entry.at|date('j M, H:i:s T') }} · {{ item.entry.type }} · {{ item.entry.subject }}{% if item.entry.data.by is defined %} · by {{ item.entry.data.by }}{% elseif item.entry.data.issuedBy is defined %} · by {{ item.entry.data.issuedBy }}{% endif %}{% if item.entry.data.method is defined %} · {{ item.entry.data.method }}{% endif %}{% if not item.valid %} · ✗ {{ item.problem }}{% endif %}</li>
+  {% else %}<li class="error">#{{ item.seq }} · ✗ {{ item.problem }}</li>{% endif %}
+{% endfor %}
+</ul>
+<p class="muted small">Public key for checking signatures and evidence outside this site: <code>{{ public_key }}</code></p>
+</section>
+{% endblock %}

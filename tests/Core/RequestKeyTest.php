@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace ExactApproval\Tests\Core;
+namespace VerifiedHumanApproval\Tests\Core;
 
-use ExactApproval\Core\ApprovalException;
-use ExactApproval\Tests\Support\CoreFixture;
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Tests\Support\CoreFixture;
 use PHPUnit\Framework\TestCase;
 
 /** A request key replays its outcome only while the content it named is unchanged. */

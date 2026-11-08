@@ -34,19 +34,19 @@ ORIGIN = "https://" + HOST
 
 
 def main():
-    with tempfile.TemporaryDirectory(prefix="exact-approval-phone-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="verified-human-approval-phone-") as temporary:
         runtime = Path(temporary) / "runtime"
         with socket.socket() as sock:
             sock.bind(("127.0.0.1", 0))
             port = sock.getsockname()[1]
-        env = {**os.environ, "EXACT_APPROVAL_RUNTIME": str(runtime), "EXACT_APPROVAL_ORIGIN": ORIGIN}
+        env = {**os.environ, "VERIFIED_HUMAN_APPROVAL_RUNTIME": str(runtime), "VERIFIED_HUMAN_APPROVAL_ORIGIN": ORIGIN}
         setup = subprocess.run(
-            [PHP, "-r", 'require $argv[1]; echo json_encode(ExactApproval\\Demo\\DemoSetup::initialize(getenv("EXACT_APPROVAL_RUNTIME"), getenv("EXACT_APPROVAL_ORIGIN")), JSON_THROW_ON_ERROR);', str(ROOT / "vendor/autoload.php")],
+            [PHP, "-r", 'require $argv[1]; echo json_encode(VerifiedHumanApproval\\Demo\\DemoSetup::initialize(getenv("VERIFIED_HUMAN_APPROVAL_RUNTIME"), getenv("VERIFIED_HUMAN_APPROVAL_ORIGIN")), JSON_THROW_ON_ERROR);', str(ROOT / "vendor/autoload.php")],
             env=env, capture_output=True, text=True, check=True,
         )
         accounts = json.loads(setup.stdout)["accounts"]
         log = open(Path(temporary) / "server.log", "w+")
-        server = subprocess.Popen([PHP, "-S", f"127.0.0.1:{port}", "-t", str(ROOT / "examples/symfony/public"), str(ROOT / "examples/symfony/public/index.php")],
+        server = subprocess.Popen([PHP, "-S", f"127.0.0.1:{port}", "-t", str(ROOT / "demo/public"), str(ROOT / "demo/public/index.php")],
                                   env={**env, "PHP_CLI_SERVER_WORKERS": "4"}, stdout=log, stderr=log, start_new_session=True)
 
         def forward(method, path, headers=None, body=None):

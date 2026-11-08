@@ -17,7 +17,7 @@ from playwright.sync_api import sync_playwright, expect
 
 ROOT = Path(__file__).resolve().parents[1]
 PHP = os.environ.get("PHP_BIN", "php")
-CARD = (ROOT / "packages/mcp/resources/approval-card.html").read_text()
+CARD = (ROOT / "src/mcp/resources/approval-card.html").read_text()
 LINK = "https://alerts.example/approval/handoff/" + "Q" * 43
 REVIEW = "https://alerts.example/approval/0b7d5f0e-6a4c-4c1e-9f57-1f3f8b6f2a10"
 
@@ -27,7 +27,7 @@ def php(code, *args):
                           check=True, capture_output=True, text=True).stdout
 
 
-MODULES = json.loads(php("echo json_encode(ExactApproval\\Symfony\\Handoff\\ApprovalHandoff::modules($argv[2]));", LINK))
+MODULES = json.loads(php("echo json_encode(VerifiedHumanApproval\\Bundle\\Handoff\\ApprovalHandoff::modules($argv[2]));", LINK))
 
 # The host page: one sandboxed frame, like a real MCP Apps host, and a scripted server behind it.
 HOST = """<!doctype html><meta charset="utf-8"><body style="margin:0;background:%(background)s">

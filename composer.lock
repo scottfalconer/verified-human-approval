@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "a9d3cb5ffcd4ca5c158c3a59e9987459",
+    "content-hash": "afc72cbfbf5f2fd54fde5e61de1ea9cd",
     "packages": [
         {
             "name": "brick/math",
@@ -275,141 +275,6 @@
                 "source": "https://github.com/doctrine/deprecations/tree/1.1.6"
             },
             "time": "2026-02-07T07:09:04+00:00"
-        },
-        {
-            "name": "exact-approval/core",
-            "version": "0.1.0",
-            "dist": {
-                "type": "path",
-                "url": "packages/core",
-                "reference": "651109567680c3f79272272896d16b010453b91e"
-            },
-            "require": {
-                "ext-json": "*",
-                "ext-mbstring": "*",
-                "php": "^8.3",
-                "psr/clock": "^1.0",
-                "root23/php-json-canonicalization": "^1.0"
-            },
-            "suggest": {
-                "ext-pdo": "Reference SQLite transactional persistence.",
-                "ext-pdo_sqlite": "Reference SQLite transactional persistence.",
-                "ext-sodium": "Signed execution receipts."
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "ExactApproval\\Core\\": "src/"
-                }
-            },
-            "license": [
-                "MIT"
-            ],
-            "description": "Immutable, caller-bound approval and atomic local action execution for PHP.",
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
-        },
-        {
-            "name": "exact-approval/mcp",
-            "version": "0.1.0",
-            "dist": {
-                "type": "path",
-                "url": "packages/mcp",
-                "reference": "2cb576c0aaa22a7de0e491d57d1e892b90f3b359"
-            },
-            "require": {
-                "exact-approval/core": "^0.1",
-                "mcp/sdk": "^0.9",
-                "php": "^8.3"
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "ExactApproval\\Mcp\\": "src/"
-                }
-            },
-            "license": [
-                "MIT"
-            ],
-            "description": "MCP presentation for exact action approval: an MCP App approval card and an optional URL-mode elicitation with a bound continuation.",
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
-        },
-        {
-            "name": "exact-approval/symfony-bundle",
-            "version": "0.1.0",
-            "dist": {
-                "type": "path",
-                "url": "packages/symfony",
-                "reference": "a8e5aa981694c56824b7824815a11c7b69c284a5"
-            },
-            "require": {
-                "chillerlan/php-qrcode": "^5.0",
-                "exact-approval/core": "^0.1",
-                "exact-approval/mcp": "^0.1",
-                "mcp/sdk": "^0.9",
-                "php": "^8.3",
-                "symfony/clock": "^7.4 || ^8.0",
-                "symfony/framework-bundle": "^7.4 || ^8.0",
-                "symfony/lock": "^7.4 || ^8.0",
-                "symfony/mcp-bundle": "^1.0@beta",
-                "symfony/rate-limiter": "^7.4 || ^8.0",
-                "symfony/security-bundle": "^7.4 || ^8.0",
-                "symfony/security-csrf": "^7.4 || ^8.0",
-                "symfony/twig-bundle": "^7.4 || ^8.0"
-            },
-            "type": "symfony-bundle",
-            "autoload": {
-                "psr-4": {
-                    "ExactApproval\\Symfony\\": "src/"
-                }
-            },
-            "license": [
-                "MIT"
-            ],
-            "description": "Symfony Security, browser review and MCP integration for exact action approval.",
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
-        },
-        {
-            "name": "exact-approval/webauthn",
-            "version": "0.1.0",
-            "dist": {
-                "type": "path",
-                "url": "packages/webauthn",
-                "reference": "4204645e249e614698a4c516e19b7318e94b9273"
-            },
-            "require": {
-                "exact-approval/core": "^0.1@dev",
-                "ext-json": "*",
-                "ext-openssl": "*",
-                "php": "^8.3",
-                "web-auth/webauthn-lib": "^5.3"
-            },
-            "suggest": {
-                "ext-pdo": "Use the included transaction-compatible credential repository.",
-                "ext-pdo_sqlite": "Run the SQLite reference implementation."
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "ExactApproval\\WebAuthn\\": "src/"
-                }
-            },
-            "license": [
-                "MIT"
-            ],
-            "description": "WebAuthn user-verification bridge for exact application action approval.",
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
         },
         {
             "name": "mcp/sdk",
@@ -9443,10 +9308,13 @@
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
-        "php": "^8.3",
+        "ext-json": "*",
+        "ext-mbstring": "*",
+        "ext-openssl": "*",
         "ext-pdo": "*",
         "ext-pdo_sqlite": "*",
-        "ext-sodium": "*"
+        "ext-sodium": "*",
+        "php": "^8.3"
     },
     "platform-dev": [],
     "platform-overrides": {

@@ -1,8 +1,8 @@
 # Implemented extension contracts
 
-Namespaces: `ExactApproval\Core`, `ExactApproval\WebAuthn`, `ExactApproval\Symfony`, `ExactApproval\Demo`.
+Namespaces: `VerifiedHumanApproval\Core`, `VerifiedHumanApproval\WebAuthn`, `VerifiedHumanApproval\Bundle`, `VerifiedHumanApproval\Demo`.
 
-Core public value types and interfaces (all in `ExactApproval\Core` unless stated):
+Core public value types and interfaces (all in `VerifiedHumanApproval\Core` unless stated):
 
 - `Actor(string $userId, string $tenantId, ?string $delegationId = null)`: authenticated subject. Reviewer and initiator must match user/tenant; stored initiator delegation is independently rechecked at execution.
 - `PreparedAction(string $actionId, string $version, array $target, array $effect, array $preconditions, array $display, array $placeholders = [])`.

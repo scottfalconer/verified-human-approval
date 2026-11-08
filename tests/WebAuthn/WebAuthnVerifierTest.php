@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace ExactApproval\Tests\WebAuthn;
+namespace VerifiedHumanApproval\Tests\WebAuthn;
 
-use ExactApproval\Core\Actor;
-use ExactApproval\Core\ApprovalException;
-use ExactApproval\Tests\Support\VirtualAuthenticator;
-use ExactApproval\WebAuthn\Configuration;
-use ExactApproval\WebAuthn\Credential;
-use ExactApproval\WebAuthn\PdoCredentialRepository;
-use ExactApproval\WebAuthn\WebAuthnVerifier;
+use VerifiedHumanApproval\Core\Actor;
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Tests\Support\VirtualAuthenticator;
+use VerifiedHumanApproval\WebAuthn\Configuration;
+use VerifiedHumanApproval\WebAuthn\Credential;
+use VerifiedHumanApproval\WebAuthn\PdoCredentialRepository;
+use VerifiedHumanApproval\WebAuthn\WebAuthnVerifier;
 use ParagonIE\ConstantTime\Base64UrlSafe;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -141,7 +141,7 @@ final class WebAuthnVerifierTest extends TestCase
     {
         $challenge = random_bytes(32);
         $assertion = $this->authenticator->assertion($this->verifier->requestOptions($this->actor, $challenge));
-        self::assertFalse($this->credentials->revoke(new \ExactApproval\Core\Actor('mallory', $this->actor->tenantId), $this->authenticator->id()), 'Another account cannot revoke it.');
+        self::assertFalse($this->credentials->revoke(new \VerifiedHumanApproval\Core\Actor('mallory', $this->actor->tenantId), $this->authenticator->id()), 'Another account cannot revoke it.');
         self::assertTrue($this->credentials->revoke($this->actor, $this->authenticator->id()));
         $this->expectException(ApprovalException::class);
         $this->verifier->verify($this->actor, $challenge, $assertion);

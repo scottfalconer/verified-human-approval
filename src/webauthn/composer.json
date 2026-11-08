@@ -1,0 +1,26 @@
+{
+  "name": "verified-human-approval/webauthn",
+  "description": "WebAuthn user-verification bridge for exact application action approval.",
+  "type": "library",
+  "license": "MIT",
+  "require": {
+    "php": "^8.3",
+    "ext-json": "*",
+    "ext-openssl": "*",
+    "verified-human-approval/core": "self.version",
+    "web-auth/webauthn-lib": "^5.3"
+  },
+  "suggest": {
+    "ext-pdo": "Use the included transaction-compatible credential repository.",
+    "ext-pdo_sqlite": "Run the SQLite reference implementation."
+  },
+  "autoload": {
+    "psr-4": {
+      "VerifiedHumanApproval\\WebAuthn\\": "src/"
+    }
+  },
+  "config": {
+    "sort-packages": true
+  },
+  "homepage": "https://github.com/scottfalconer/verified-human-approval"
+}

@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace ExactApproval\Tests\Core;
+namespace VerifiedHumanApproval\Tests\Core;
 
-use ExactApproval\Core\CanonicalJson;
+use VerifiedHumanApproval\Core\CanonicalJson;
 use PHPUnit\Framework\TestCase;
 
 final class CanonicalStringTest extends TestCase

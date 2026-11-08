@@ -2,8 +2,8 @@
 
 declare(strict_types=1);
 
-use ExactApproval\Core\ApprovalException;
-use ExactApproval\Tests\Support\CoreFixture;
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Tests\Support\CoreFixture;
 
 require dirname(__DIR__, 2).'/vendor/autoload.php';
 

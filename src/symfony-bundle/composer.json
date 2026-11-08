@@ -1,0 +1,27 @@
+{
+  "name": "verified-human-approval/symfony-bundle",
+  "description": "Verified Human Approval for Symfony: an agent asks through MCP, the person approves the exact action with a passkey on your site, and the application executes the stored proposal once.",
+  "type": "symfony-bundle",
+  "license": "MIT",
+  "require": {
+    "php": "^8.3",
+    "verified-human-approval/core": "self.version",
+    "verified-human-approval/mcp": "self.version",
+    "chillerlan/php-qrcode": "^5.0",
+    "mcp/sdk": "^0.9",
+    "symfony/mcp-bundle": "^1.0@beta",
+    "symfony/framework-bundle": "^7.4 || ^8.0",
+    "symfony/security-bundle": "^7.4 || ^8.0",
+    "symfony/twig-bundle": "^7.4 || ^8.0",
+    "symfony/security-csrf": "^7.4 || ^8.0",
+    "symfony/rate-limiter": "^7.4 || ^8.0",
+    "symfony/lock": "^7.4 || ^8.0",
+    "symfony/clock": "^7.4 || ^8.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "VerifiedHumanApproval\\Bundle\\": "src/"
+    }
+  },
+  "homepage": "https://github.com/scottfalconer/verified-human-approval"
+}

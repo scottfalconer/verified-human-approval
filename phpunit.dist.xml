@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit bootstrap="vendor/autoload.php" colors="true" cacheDirectory=".phpunit.cache" failOnWarning="true" failOnRisky="true">
+  <!-- Each test boots fresh demo kernels, and PHP keeps every compiled container class loaded. -->
+  <php><ini name="memory_limit" value="512M"/></php>
+  <testsuites><testsuite name="core"><directory>tests/Core</directory></testsuite><testsuite name="webauthn"><directory>tests/WebAuthn</directory></testsuite><testsuite name="symfony"><directory>tests/Bundle</directory></testsuite><testsuite name="evidence"><directory>tests/Evidence</directory></testsuite><testsuite name="mcp"><directory>tests/Mcp</directory></testsuite></testsuites>
+</phpunit>

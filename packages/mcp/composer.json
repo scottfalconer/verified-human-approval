@@ -1,9 +1,0 @@
-{
-  "name": "exact-approval/mcp",
-  "version": "0.1.0",
-  "description": "MCP presentation for exact action approval: an MCP App approval card and an optional URL-mode elicitation with a bound continuation.",
-  "type": "library",
-  "license": "MIT",
-  "require": {"php": "^8.3", "exact-approval/core": "^0.1", "mcp/sdk": "^0.9"},
-  "autoload": {"psr-4": {"ExactApproval\\Mcp\\": "src/"}}
-}

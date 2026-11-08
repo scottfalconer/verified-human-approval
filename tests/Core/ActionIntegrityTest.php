@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace ExactApproval\Tests\Core;
+namespace VerifiedHumanApproval\Tests\Core;
 
-use ExactApproval\Core\ActionAdapter;
-use ExactApproval\Core\ActionRegistry;
-use ExactApproval\Core\Actor;
-use ExactApproval\Core\ApprovalException;
-use ExactApproval\Core\ApprovalService;
-use ExactApproval\Core\ExecutionGuard;
-use ExactApproval\Core\PreparedAction;
-use ExactApproval\Tests\Support\CoreFixture;
+use VerifiedHumanApproval\Core\ActionAdapter;
+use VerifiedHumanApproval\Core\ActionRegistry;
+use VerifiedHumanApproval\Core\Actor;
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\ApprovalService;
+use VerifiedHumanApproval\Core\ExecutionGuard;
+use VerifiedHumanApproval\Core\PreparedAction;
+use VerifiedHumanApproval\Tests\Support\CoreFixture;
 use PDO;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -105,7 +105,7 @@ final class ActionIntegrityTest extends TestCase
         }
         self::assertSame($before, $fixture->article());
         self::assertSame(0, $fixture->effectCount());
-        self::assertSame(0, (int) $fixture->pdo->query('SELECT COUNT(*) FROM exact_approval_executions')->fetchColumn());
+        self::assertSame(0, (int) $fixture->pdo->query('SELECT COUNT(*) FROM verified_human_approval_executions')->fetchColumn());
         self::assertSame($request->request->canonical, $service->get($fixture->actor, $request->request->id)->request->canonical);
     }
 }

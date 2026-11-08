@@ -2,18 +2,18 @@
 
 declare(strict_types=1);
 
-namespace ExactApproval\Tests\WebAuthn;
+namespace VerifiedHumanApproval\Tests\WebAuthn;
 
-use ExactApproval\Core\Actor;
-use ExactApproval\Core\ApprovalException;
-use ExactApproval\Core\Audit\AuditLog;
-use ExactApproval\Core\Evidence\SodiumEvidenceSigner;
-use ExactApproval\Tests\Support\VirtualAuthenticator;
-use ExactApproval\WebAuthn\AnchoredCredentialRepository;
-use ExactApproval\WebAuthn\Configuration;
-use ExactApproval\WebAuthn\Credential;
-use ExactApproval\WebAuthn\PdoCredentialRepository;
-use ExactApproval\WebAuthn\WebAuthnVerifier;
+use VerifiedHumanApproval\Core\Actor;
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\Audit\AuditLog;
+use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Tests\Support\VirtualAuthenticator;
+use VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository;
+use VerifiedHumanApproval\WebAuthn\Configuration;
+use VerifiedHumanApproval\WebAuthn\Credential;
+use VerifiedHumanApproval\WebAuthn\PdoCredentialRepository;
+use VerifiedHumanApproval\WebAuthn\WebAuthnVerifier;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Clock\MockClock;
 
@@ -91,7 +91,7 @@ final class AnchoredCredentialRepositoryTest extends TestCase
         $theirs = json_decode($scratch->register($this->actor, $options, $attacker->registration($options))->sourceJson, true);
         $row = json_decode($credential->sourceJson, true);
         $row['credentialPublicKey'] = $theirs['credentialPublicKey'];
-        $this->pdo->prepare('UPDATE exact_approval_credentials SET source_json = ? WHERE credential_id = ?')->execute([json_encode($row), $credential->id]);
+        $this->pdo->prepare('UPDATE verified_human_approval_credentials SET source_json = ? WHERE credential_id = ?')->execute([json_encode($row), $credential->id]);
 
         self::assertNull($this->anchored->find($credential->id));
         self::assertFalse($this->approves($genuine));

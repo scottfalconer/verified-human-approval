@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace ExactApproval\Tests\Core;
+namespace VerifiedHumanApproval\Tests\Core;
 
-use ExactApproval\Core\ApprovalException;
-use ExactApproval\Core\ApprovalState;
-use ExactApproval\Core\Ceremony;
-use ExactApproval\Tests\Support\CoreFixture;
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\ApprovalState;
+use VerifiedHumanApproval\Core\Ceremony;
+use VerifiedHumanApproval\Tests\Support\CoreFixture;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -31,7 +31,7 @@ final class TransactionTest extends TestCase
         match ($point) {
             'execute' => $fixture->action->failAfterWrite = true,
             'postcondition' => $fixture->action->alterAfterWrite = true,
-            'receipt' => $fixture->pdo->exec("CREATE TRIGGER reject_receipt BEFORE INSERT ON exact_approval_executions BEGIN SELECT RAISE(ABORT, 'injected receipt persistence failure'); END"),
+            'receipt' => $fixture->pdo->exec("CREATE TRIGGER reject_receipt BEFORE INSERT ON verified_human_approval_executions BEGIN SELECT RAISE(ABORT, 'injected receipt persistence failure'); END"),
         };
 
         try {
@@ -42,7 +42,7 @@ final class TransactionTest extends TestCase
         }
         self::assertSame($initial, $fixture->article(), 'The real business row must roll back, including the revision and effect counter.');
         self::assertSame(0, $fixture->effectCount());
-        self::assertSame(0, (int) $fixture->pdo->query('SELECT COUNT(*) FROM exact_approval_executions')->fetchColumn());
+        self::assertSame(0, (int) $fixture->pdo->query('SELECT COUNT(*) FROM verified_human_approval_executions')->fetchColumn());
         self::assertSame(0, (int) $fixture->pdo->query("SELECT verification_count FROM test_credentials WHERE id = 'alice-key'")->fetchColumn());
         $stored = $fixture->service->get($fixture->actor, $request->request->id);
         self::assertSame('pending', $stored->status);
@@ -65,7 +65,7 @@ final class TransactionTest extends TestCase
         $result = $fixture->service->complete($fixture->reviewer, $fresh->id, $fixture->proof($fresh));
         self::assertSame('completed', $result->status);
         self::assertSame(1, $fixture->effectCount());
-        self::assertSame(1, (int) $fixture->pdo->query('SELECT COUNT(*) FROM exact_approval_executions')->fetchColumn());
+        self::assertSame(1, (int) $fixture->pdo->query('SELECT COUNT(*) FROM verified_human_approval_executions')->fetchColumn());
         self::assertSame(1, (int) $fixture->pdo->query("SELECT verification_count FROM test_credentials WHERE id = 'alice-key'")->fetchColumn());
     }
 

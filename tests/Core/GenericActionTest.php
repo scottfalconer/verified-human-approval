@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace ExactApproval\Tests\Core;
+namespace VerifiedHumanApproval\Tests\Core;
 
-use ExactApproval\Core\ActionAdapter;
-use ExactApproval\Core\ActionRegistry;
-use ExactApproval\Core\Actor;
-use ExactApproval\Core\ApprovalException;
-use ExactApproval\Core\ApprovalService;
-use ExactApproval\Core\ExecutionGuard;
-use ExactApproval\Core\PreparedAction;
-use ExactApproval\Tests\Support\CoreFixture;
+use VerifiedHumanApproval\Core\ActionAdapter;
+use VerifiedHumanApproval\Core\ActionRegistry;
+use VerifiedHumanApproval\Core\Actor;
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\ApprovalService;
+use VerifiedHumanApproval\Core\ExecutionGuard;
+use VerifiedHumanApproval\Core\PreparedAction;
+use VerifiedHumanApproval\Tests\Support\CoreFixture;
 use PDO;
 use PHPUnit\Framework\TestCase;
 
@@ -91,6 +91,6 @@ final class GenericActionTest extends TestCase
         self::assertSame('2026-06-20', $fixture->pdo->query('SELECT closing_date FROM test_campaigns WHERE id = 1')->fetchColumn());
         self::assertSame(5, $result->result['revision']);
         self::assertSame(0, $fixture->effectCount(), 'The independent publication action was not invoked.');
-        self::assertSame(1, (int) $fixture->pdo->query('SELECT COUNT(*) FROM exact_approval_executions')->fetchColumn());
+        self::assertSame(1, (int) $fixture->pdo->query('SELECT COUNT(*) FROM verified_human_approval_executions')->fetchColumn());
     }
 }

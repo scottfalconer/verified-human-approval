@@ -1,6 +1,6 @@
 # Verified Human Approval: full overview
 
-The detailed overview. For the short version and the five-minute quickstart, see the [README](../README.md).
+The detailed overview. For the short version, see the [README](../README.md); for the five-minute quickstart, the [demo](../demo/README.md).
 
 ## Exact approval for Symfony and MCP
 
@@ -18,8 +18,8 @@ Requirements: PHP 8.3+, Composer, and `pdo_sqlite`, `openssl`, `sodium`, `mbstri
 
 ```sh
 composer install
-php examples/symfony/bin/setup.php
-PHP_CLI_SERVER_WORKERS=4 php -S localhost:8080 -t examples/symfony/public examples/symfony/public/index.php
+php demo/bin/setup.php
+PHP_CLI_SERVER_WORKERS=4 php -S localhost:8080 -t demo/public demo/public/index.php
 ```
 
 Setup generates four fictional accounts and separate personal agent tokens: `manager` (the emergency manager and administrator, who issues alerts directly), `editor` (county staff, who must approve each exact alert with a passkey), `reader` (read-only) and `other` (another organization). It prints passwords and tokens once; save them privately. The application stores password/token hashes. Setup refuses to overwrite an existing installation. Its database, signing key, sessions and cache stay under ignored `var/demo/`.
@@ -28,18 +28,18 @@ Open `http://localhost:8080` and sign in as `editor` using the generated passwor
 
 The human account password belongs in the browser account flow. Give the agent only its individual personal token. The MCP firewall does not accept the browser session; the browser approval, enrollment and policy routes do not authenticate an agent bearer token.
 
-Use `http://localhost`, not an arbitrary HTTP hostname or `127.0.0.1`, for this reference WebAuthn configuration. For a different deployment, set `EXACT_APPROVAL_ORIGIN` to a stable HTTPS origin **before** setup; use `EXACT_APPROVAL_RUNTIME` to select another private runtime directory. Changing the relying-party domain can require fresh passkey enrollment.
+Use `http://localhost`, not an arbitrary HTTP hostname or `127.0.0.1`, for this reference WebAuthn configuration. For a different deployment, set `VERIFIED_HUMAN_APPROVAL_ORIGIN` to a stable HTTPS origin **before** setup; use `VERIFIED_HUMAN_APPROVAL_RUNTIME` to select another private runtime directory. Changing the relying-party domain can require fresh passkey enrollment.
 
 ## Request an action through real MCP
 
 In another terminal, provide the `editor` account’s personal token without putting it into source files:
 
 ```sh
-read -r -s -p 'Personal agent token: ' EXACT_APPROVAL_TOKEN
-export EXACT_APPROVAL_TOKEN
-php examples/clients/mcp.php list
-php examples/clients/mcp.php read riverside-evacuation
-php examples/clients/mcp.php publish riverside-evacuation my-first-request
+read -r -s -p 'Personal agent token: ' VERIFIED_HUMAN_APPROVAL_TOKEN
+export VERIFIED_HUMAN_APPROVAL_TOKEN
+php examples/mcp.php list
+php examples/mcp.php read riverside-evacuation
+php examples/mcp.php publish riverside-evacuation my-first-request
 ```
 
 This client uses the official SDK and HTTP transport. The server is the Symfony MCP Bundle at `/mcp`. It exposes:
@@ -66,7 +66,7 @@ The pending result resembles:
 Open that URL, review the final alerts page rendered from the proposal, its revision and the required statement, then approve with a passkey. The application’s completion endpoint executes the **stored proposal**. The agent never receives a reusable approval token and never resubmits replacement content.
 
 ```sh
-php examples/clients/mcp.php status YOUR_REQUEST_ID
+php examples/mcp.php status YOUR_REQUEST_ID
 ```
 
 Reusing `my-first-request` with identical arguments returns the original request or result. Changing arguments under that key conflicts. A new intended action needs a new key. Without a key, a retry of the same request through the same connection returns its pending proposal instead of creating another. Once that proposal is completed, cancelled, expired or invalid, a new request prepares a fresh one. Protected execution is at most once per proposal either way.
@@ -95,7 +95,7 @@ It also lists passkeys, one-time passkey links, agent connections and the signed
 
 The demo includes a small MCP OAuth authorization server for remote clients such as claude.ai: protected resource metadata (RFC 9728) served with the SDK’s `ProtectedResourceMetadata`, authorization server metadata (RFC 8414), dynamic client registration (RFC 7591) or client ID metadata documents, PKCE with S256, the `iss` response parameter (RFC 9207) and rotating refresh tokens. A `401` from `/mcp` names the metadata in `WWW-Authenticate`. The person signs in and allows access on the site. The resulting token acts for that person and, like the personal token, can ask for actions but never approve one.
 
-`examples/symfony/bin/public start` puts a second copy of the demo on a public HTTPS address through a Cloudflare quick tunnel, under launchd, and prints the connector URL. On that address the approval card also offers **Approve on your phone**: a one-time code (single use, two minutes) that opens only that request’s review on the phone. It is not a sign-in, and approving still takes the person’s own passkey, which reaches the phone through iCloud Keychain or Google Password Manager.
+`demo/bin/public start` puts a second copy of the demo on a public HTTPS address through a Cloudflare quick tunnel, under launchd, and prints the connector URL. On that address the approval card also offers **Approve on your phone**: a one-time code (single use, two minutes) that opens only that request’s review on the phone. It is not a sign-in, and approving still takes the person’s own passkey, which reaches the phone through iCloud Keychain or Google Password Manager.
 
 ## Symfony AI example
 
@@ -103,27 +103,27 @@ The example uses Symfony AI’s actual `Agent`, `McpToolbox` and the official MC
 
 ```sh
 # Deterministic integration check: scripted model responses, real HTTP MCP calls.
-php examples/clients/agent.php --scripted
+php examples/agent.php --scripted
 
 # Optional real model; set your own API key and model explicitly.
 export OPENAI_API_KEY='YOUR_KEY'
-export EXACT_APPROVAL_MODEL='YOUR_SUPPORTED_MODEL'
-php examples/clients/agent.php 'Please issue the Riverside Road evacuation alert.'
+export VERIFIED_HUMAN_APPROVAL_MODEL='YOUR_SUPPORTED_MODEL'
+php examples/agent.php 'Please issue the Riverside Road evacuation alert.'
 ```
 
-The scripted mode is tested and clearly labels itself. No paid model call was made for this build. A model can request the action and return its review link; the approval decision remains in the application. `EXACT_APPROVAL_MCP_URL` changes the endpoint for either client.
+The scripted mode is tested and clearly labels itself. No paid model call was made for this build. A model can request the action and return its review link; the approval decision remains in the application. `VERIFIED_HUMAN_APPROVAL_MCP_URL` changes the endpoint for either client.
 
 ## Packages and adoption
 
 | Package | Purpose | Framework dependency |
 | --- | --- | --- |
-| `packages/core` | Frozen proposals, policies, current authority, transaction coordination, guarded execution, receipts and evidence verification. | PHP and small supporting libraries; no Symfony kernel. |
-| `packages/webauthn` | Existing WebAuthn library integration, trusted credential repository, assertion verification and enrollment methods. | Symfony components used by WebAuthn; no application kernel. |
-| `packages/mcp` | The MCP App approval card, the optional URL-mode elicitation and its bound retry. | The official MCP SDK; no framework. |
-| `packages/symfony` | Bundle configuration, action autoconfiguration, trusted review routes, CSRF, response headers, rate limits, the card app, the phone code and the MCP status tool. | Existing Symfony application and Symfony MCP Bundle. |
-| `examples/symfony` | The alerts site: account/token isolation, per-role policy form, protected publication service, MCP OAuth and runnable endpoint. | Reference application, not a required hosting service. |
+| `src/core` | Frozen proposals, policies, current authority, transaction coordination, guarded execution, receipts and evidence verification. | PHP and small supporting libraries; no Symfony kernel. |
+| `src/webauthn` | Existing WebAuthn library integration, trusted credential repository, assertion verification and enrollment methods. | Symfony components used by WebAuthn; no application kernel. |
+| `src/mcp` | The MCP App approval card, the optional URL-mode elicitation and its bound retry. | The official MCP SDK; no framework. |
+| `src/symfony-bundle` | Bundle configuration, action autoconfiguration, trusted review routes, CSRF, response headers, rate limits, the card app, the phone code and the MCP status tool. | Existing Symfony application and Symfony MCP Bundle. |
+| `demo` | The alerts site: account/token isolation, per-role policy form, protected publication service, MCP OAuth and runnable endpoint. | Reference application, not a required hosting service. |
 
-These package names are local Composer packages, not published Packagist releases. The repository’s path repositories make `composer install` work immediately. Another application can add a Composer path repository pointing at `packages/*`, then require `exact-approval/symfony-bundle` and `exact-approval/webauthn` version `^0.1`.
+The packages are not published on Packagist yet. The repository’s root `composer.json` replaces them, so `composer install` in a checkout works at once; another application installs them from a path repository pointing at `src/*`, as the README’s install section shows.
 
 An application adopting the component supplies four things:
 
@@ -134,7 +134,7 @@ An application adopting the component supplies four things:
 
 Every supported entry point for the protected mutation must call a service that enforces `ExecutionGuard::assertExecuting()`. The example’s MCP and web publication routes use the same `AnnouncementPublisher`. A decorator cannot automatically protect arbitrary application writes or raw SQL.
 
-See [Symfony integration](../packages/symfony/README.md), [WebAuthn integration](../packages/webauthn/README.md), [extension contracts](integration-contract.md), [security boundary](security-model.md) and [verification results](verification.md).
+See [Symfony integration](../src/symfony-bundle/docs/index.md), [WebAuthn integration](../src/webauthn/README.md), [extension contracts](integration-contract.md), [security boundary](security-model.md) and [verification results](verification.md).
 
 ## Exactness and execution
 
@@ -146,7 +146,7 @@ The WebAuthn challenge commits to a fresh random nonce and the proposal digest. 
 
 The SQLite adapter obtains a write reservation before reading relevant state. All relevant application writers need to preserve the versioning/transaction contract. Competing completions return the existing result; competing proposals for the same source revision cannot both pass a version-changing action. A known failed transaction retires its ceremony. A retry requires a fresh ceremony. An ambiguous outcome is read back before another attempt can be considered.
 
-No queue, additional daemon, new MCP protocol or proprietary destination-tool envelope is required. Protected actions are normal MCP tools; pending approval is a normal business result, not a spurious authentication error. Every pending result carries the review URL and a view for the MCP App approval card, which opens that page and shows only the recorded outcome. An application can also turn on a URL-mode elicitation (MCP 2026-07-28) for the clients it has tested; its retry is bound to the same caller, tool and arguments, and never approves anything. See [MCP presentation](../packages/mcp/README.md).
+No queue, additional daemon, new MCP protocol or proprietary destination-tool envelope is required. Protected actions are normal MCP tools; pending approval is a normal business result, not a spurious authentication error. Every pending result carries the review URL and a view for the MCP App approval card, which opens that page and shows only the recorded outcome. An application can also turn on a URL-mode elicitation (MCP 2026-07-28) for the clients it has tested; its retry is bound to the same caller, tool and arguments, and never approves anything. See [MCP presentation](../src/mcp/README.md).
 
 ## Evidence
 
@@ -155,7 +155,7 @@ After completion, a signed-in owner can download `/approval/REQUEST_ID/evidence`
 An independent command verifies evidence using **separately trusted** application and credential files:
 
 ```sh
-php bin/verify-evidence.php evidence.json trusted-application.json trusted-credential.json
+php src/core/bin/verify-evidence.php evidence.json trusted-application.json trusted-credential.json
 ```
 
 The trust file formats are documented in [evidence verification](evidence.md). The verifier reports two separate claims: the credential approved this proposal, and the application signed this execution report. It does not independently witness the database effect or prove what a person understood. Never trust a key merely because it appears inside the evidence being checked.

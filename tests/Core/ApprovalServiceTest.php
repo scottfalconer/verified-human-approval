@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace ExactApproval\Tests\Core;
+namespace VerifiedHumanApproval\Tests\Core;
 
-use ExactApproval\Core\Actor;
-use ExactApproval\Core\ApprovalException;
-use ExactApproval\Core\ApprovalState;
-use ExactApproval\Core\CanonicalJson;
-use ExactApproval\Tests\Support\CoreFixture;
+use VerifiedHumanApproval\Core\Actor;
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\ApprovalState;
+use VerifiedHumanApproval\Core\CanonicalJson;
+use VerifiedHumanApproval\Tests\Support\CoreFixture;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -279,7 +279,7 @@ final class ApprovalServiceTest extends TestCase
         self::assertSame($first->request->id, $again->request->id);
         self::assertSame($first->request->canonical, $again->request->canonical);
         self::assertSame('pending', $again->status);
-        self::assertSame(1, (int) $this->fixture->pdo->query("SELECT COUNT(*) FROM exact_approval_requests WHERE status = 'pending'")->fetchColumn());
+        self::assertSame(1, (int) $this->fixture->pdo->query("SELECT COUNT(*) FROM verified_human_approval_requests WHERE status = 'pending'")->fetchColumn());
         self::assertSame(0, $this->fixture->effectCount());
     }
 

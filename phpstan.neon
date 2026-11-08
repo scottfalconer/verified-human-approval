@@ -1,10 +1,10 @@
 parameters:
     level: 5
     paths:
-        - packages/core/src
-        - packages/webauthn/src
-        - packages/mcp/src
-        - packages/symfony/src
-        - examples/symfony/src
-        - bin
+        - src/core/src
+        - src/webauthn/src
+        - src/mcp/src
+        - src/symfony-bundle/src
+        - demo/src
+        - src/core/bin
     tmpDir: .phpstan
