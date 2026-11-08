@@ -21,6 +21,43 @@ use Mcp\Server\RequestContext;
  */
 final readonly class ApprovalFlow
 {
+    /**
+     * JSON Schema of the structured result a protected tool and the status tool return: the
+     * presenter's data. Declare it as the tool's `outputSchema`, so clients know what to expect and
+     * can validate it. A refusal is an error result carrying `status: rejected`, `reason` and `message`.
+     */
+    public const OUTPUT_SCHEMA = [
+        'type' => 'object',
+        'properties' => [
+            'requestId' => ['type' => 'string', 'description' => 'The approval request. Read its outcome with the status tool.'],
+            'status' => [
+                'type' => 'string',
+                'enum' => ['pending', 'completed', 'cancelled', 'expired', 'invalidated', 'denied', 'rejected'],
+                'description' => 'What the application recorded. Only "completed" means the action ran; "pending" means a person still has to approve it on the site.',
+            ],
+            'reason' => ['type' => ['string', 'null'], 'description' => 'Why the request stopped, when it did.'],
+            'result' => ['type' => ['object', 'array', 'null'], 'description' => 'What the action recorded when it ran.'],
+            'review_url' => ['type' => 'string', 'description' => 'Where the person reviews and approves, while the request is pending.'],
+            'message' => ['type' => 'string', 'description' => 'What to tell the person, and what to do next.'],
+            'approval' => [
+                'type' => 'object',
+                'description' => 'The approval card’s view, under fixed names.',
+                'properties' => [
+                    'requestId' => ['type' => 'string'],
+                    'status' => ['type' => 'string'],
+                    'reason' => ['type' => ['string', 'null']],
+                    'reviewUrl' => ['type' => 'string'],
+                    'statusTool' => ['type' => 'string', 'description' => 'The read-only tool that reports this request’s outcome.'],
+                    'statement' => ['type' => 'string', 'description' => 'The exact statement the person approves.'],
+                    'handoffTool' => ['type' => ['string', 'null'], 'description' => 'The tool that gives the card a one-time phone code, when a phone could reach the site.'],
+                ],
+                'required' => ['requestId', 'status', 'reviewUrl', 'statusTool', 'statement'],
+            ],
+        ],
+        'required' => ['status'],
+        'additionalProperties' => true,
+    ];
+
     public function __construct(private ApprovalService $approvals, private ResultPresenter $presenter, private UrlPrompt $prompt) {}
 
     /**

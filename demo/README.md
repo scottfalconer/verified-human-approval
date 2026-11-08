@@ -16,7 +16,7 @@ php demo/bin/setup.php
 PHP_CLI_SERVER_WORKERS=4 php -S localhost:8080 -t demo/public demo/public/index.php
 ```
 
-Setup prints fresh passwords, personal agent tokens and one-time passkey links once, plus the exact commands for connecting Claude. The server runs several workers because Claude keeps a connection open while you approve in the browser. If you ran an earlier version, start fresh with `php demo/bin/setup.php --reset`.
+Setup prints fresh passwords, personal agent tokens and one-time passkey links once, plus the exact commands for connecting Claude. The server runs several workers because the card's polling, the model's calls and your browser reach it at the same time. If you ran an earlier version, start fresh with `php demo/bin/setup.php --reset`.
 
 The administrator's rule starts like this:
 

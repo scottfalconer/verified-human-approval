@@ -46,7 +46,8 @@ final class UrlPromptTest extends TestCase
         $binding = UrlPrompt::binding(new Actor('alice', 'tenant-a'), 'publish', ['id' => 1]);
         $state = ['format' => 'verified-human-approval/continuation/v1', 'requestId' => 'apr_1', 'binding' => $binding];
         self::assertNull(UrlPrompt::resumed(null, $binding));
-        self::assertNull(UrlPrompt::resumed(new InputContext(['other' => ['action' => 'accept']], $state), $binding));
+        self::assertSame(['requestId' => 'apr_1', 'answer' => 'none'], UrlPrompt::resumed(new InputContext(['other' => ['action' => 'accept']], $state), $binding), 'A verified state of ours names the request even when our answer is missing; it only reads.');
+        self::assertNull(UrlPrompt::resumed(new InputContext(['other' => ['action' => 'accept']], ['format' => 'another/flow/v1']), $binding), 'Another flow’s state is not ours.');
         foreach (['accept', 'decline', 'cancel'] as $action) {
             self::assertSame(['requestId' => 'apr_1', 'answer' => $action], UrlPrompt::resumed(new InputContext([UrlPrompt::KEY => ['action' => $action]], $state), $binding));
         }

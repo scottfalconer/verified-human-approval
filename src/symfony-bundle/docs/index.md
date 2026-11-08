@@ -78,11 +78,19 @@ mcp:
                 allowed_hosts: ['app.example.com']
             registry:
                 tools:
-                    - App\Mcp\PublishAnnouncementTool
+                    - App\Mcp\PublishAlertTool
                     - VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool
+                    - VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool   # the card's phone code; conforming hosts hide it from the model
+                apps:
+                    - VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp
+            session:
+                lock: { enabled: true }                 # the card polls approval_status while the model calls tools
+            request_state:
+                key: '%env(MCP_REQUEST_STATE_KEY)%'     # signs the URL prompt's retry; its own key, at least 32 bytes
+                ttl: 900                                # longer than your approval lifetime, so a retry after a slow approval still reads the outcome
 ```
 
-Keep your existing MCP route import (`resource: '.', type: mcp`). Register action adapters as autoconfigured services; the bundle collects implementations of `VerifiedHumanApproval\Core\ActionAdapter` into its registry.
+Keep your existing MCP route import (`resource: '.', type: mcp`). Handshake-era clients such as Claude Desktop and claude.ai keep a session, and the card polls it while the model calls tools, so turn the MCP bundle's session lock on. The request-state TTL should outlive your approval lifetime: an expired state makes the retry fail with a protocol error, which the model recovers from by calling `approval_status` with the request id named in the prompt. Register action adapters as autoconfigured services; the bundle collects implementations of `VerifiedHumanApproval\Core\ActionAdapter` into its registry.
 
 The bundled review controller uses a trusted interactive account session and CSRF protection. Put its routes behind the application's normal session firewall. Keep a separate stateless firewall for personally authenticated MCP requests. An agent bearer token must not qualify as an interactive browser account or enroll approval credentials. The reference application's `DemoKernel` shows this separation using standard Symfony Security firewalls and a form login.
 
@@ -201,7 +209,7 @@ Synthetic authenticators prove the protocol and server checks. Real Mac Touch ID
 
 ## Approval card and native prompt
 
-Pending results carry a view for the shared MCP App approval card. To show it, add `VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp` to your MCP server's `registry.apps` list and give each protected tool `meta: ApprovalCard::TOOL_META`. The app serves the card resource and enables the MCP Apps extension through the MCP bundle's `#[AsMcpApp]`.
+Pending results carry a view for the shared MCP App approval card. To show it, add `VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp` to your MCP server's `registry.apps` list, `VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool` to `registry.tools`, and give each protected tool `meta: ApprovalCard::TOOL_META`. The app serves the card resource and enables the MCP Apps extension through the MCP bundle's `#[AsMcpApp]`; the phone-code tool is an ordinary `#[McpTool]` whose `_meta.ui` links it to the card with app-only visibility, so it carries annotations and an output schema like every other tool. Every tool of this bundle declares `title`, `outputSchema` and `openWorldHint: false`; declare them on your protected tools too, with `outputSchema: ApprovalFlow::OUTPUT_SCHEMA`.
 
 A protected tool takes the SDK's `RequestContext` and returns `ApprovalFlow::respond()`. To also send a URL-mode elicitation to clients you have tested:
 

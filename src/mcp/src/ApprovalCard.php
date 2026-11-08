@@ -14,7 +14,8 @@ use Mcp\Schema\Extension\Apps\UiResourceContentMeta;
  *
  * The card only opens the application's own review page and shows the outcome the application
  * recorded. It never runs the passkey ceremony: the WebAuthn verifier refuses embedded and
- * cross-origin ceremonies, and MCP App sandboxes cannot request passkeys anyway.
+ * cross-origin ceremonies, and the card runs on the host's sandbox origin, so no assertion it could
+ * obtain would pass the application's exact-origin check.
  */
 final class ApprovalCard
 {

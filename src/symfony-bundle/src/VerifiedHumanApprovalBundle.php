@@ -14,6 +14,7 @@ use VerifiedHumanApproval\Mcp\ResultPresenter;
 use VerifiedHumanApproval\Mcp\UrlPrompt;
 use VerifiedHumanApproval\Bundle\Handoff\ApprovalHandoff;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp;
+use VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool;
 use Symfony\Component\Clock\NativeClock;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
@@ -88,7 +89,8 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
         $services->set(ApprovalController::class)->arg('$limiter', service($config['rate_limiter']))->public()->tag('controller.service_arguments');
         $services->set(ApprovalStatusTool::class);
         $services->set(ApprovalHandoff::class)->args([service('cache.app'), service('router'), $config['public_origin'], service('verified_human_approval.limiter.lock_factory')]);
-        $services->set(ApprovalCardApp::class)->arg('$limiter', service($config['rate_limiter']));
+        $services->set(ApprovalHandoffTool::class)->arg('$limiter', service($config['rate_limiter']));
+        $services->set(ApprovalCardApp::class);
         $services->set(UrlPrompt::class)->args([$config['url_elicitation']['enabled'], $config['url_elicitation']['clients']]);
         $services->set(ApprovalFlow::class);
         $services->set(SecurityHeadersSubscriber::class);

@@ -87,7 +87,7 @@ What this cannot show:
 - This is a tested initial implementation, not a third-party security audit or a claim of being bulletproof.
 - One local transaction does not cover remote MCP/HTTP calls, emails, payments or nontransactional hooks.
 - Only SQLite is verified. PostgreSQL/MySQL deployments need their own transaction-contract run.
-- The demo's OAuth server and personal tokens are reference implementations. Production deployments connect their own identity provider.
+- The demo's OAuth server and personal tokens are reference implementations: a stand-in for an identity provider, kept minimal (PKCE S256 only, public clients, single-use codes, rotating refresh tokens ending after 30 days, tokens valid only for this server, cached client metadata documents, a budget on open registration). Production deployments connect their own identity provider; the MCP bundle's documentation recommends a dedicated OAuth server such as `omouren/mcp-oauth-bundle`.
 - Without attestation (the demo uses `none`, which iCloud Keychain and Google Password Manager require), the application cannot prove a passkey lives in hardware. A person who deliberately enrolls an automatable software authenticator can approve without being present. The audit view shows each passkey's reported authenticator and how it was enrolled. Deployments that must prevent this can require attestation, at the cost of synced passkeys.
 - User verification does not attest an exact biometric modality.
 - Independent evidence establishes credential approval and an application-signed report, not independent observation of the database or UI.

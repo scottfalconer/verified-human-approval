@@ -12,6 +12,9 @@ use VerifiedHumanApproval\Demo\DemoDatabase;
 
 final readonly class DemoPolicyProvider implements PolicyProvider
 {
+    /** How long a proposal waits for the person. The MCP request state outlives it, so a late retry still reads the outcome. */
+    public const LIFETIME_SECONDS = 600;
+
     public function __construct(private DemoDatabase $database) {}
 
     /** The rule follows the acting person's role. Without a direct rule, verified approval is required. */
@@ -19,13 +22,13 @@ final readonly class DemoPolicyProvider implements PolicyProvider
     {
         if ($actionId === ChangeAlertRule::ID) {
             // Fixed in code, not in the database: no rule change can switch off approval of rule changes.
-            return new ApprovalPolicy(ChangeAlertRule::ID, 'fixed-1', 'I approve changing who can issue public alerts on {{application}}: {{changes}}.', 600, true);
+            return new ApprovalPolicy(ChangeAlertRule::ID, 'fixed-1', 'I approve changing who can issue public alerts on {{application}}: {{changes}}.', self::LIFETIME_SECONDS, true);
         }
         $row = $this->database->policy($actionId);
         if ($row === null) throw new ApprovalException('policy_missing', 'This action has no configured approval policy.');
         $user = $actor === null ? null : $this->database->user($actor->userId);
         $mode = $user === null ? 'approval' : ($this->database->roleMode($actionId, (string) $user['role']) ?? 'denied');
 
-        return new ApprovalPolicy($row['action_id'], (string) $row['version'], $row['statement'], 600, $mode !== 'direct');
+        return new ApprovalPolicy($row['action_id'], (string) $row['version'], $row['statement'], self::LIFETIME_SECONDS, $mode !== 'direct');
     }
 }

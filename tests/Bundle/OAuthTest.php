@@ -45,7 +45,10 @@ final class OAuthTest extends TestCase
         $api = $this->client();
         $api->request('POST', self::ORIGIN.'/mcp', server: ['CONTENT_TYPE' => 'application/json'], content: '{"jsonrpc":"2.0","id":1,"method":"ping"}');
         self::assertSame(401, $api->getResponse()->getStatusCode());
-        self::assertStringContainsString('resource_metadata="'.self::ORIGIN.'/.well-known/oauth-protected-resource"', (string) $api->getResponse()->headers->get('WWW-Authenticate'));
+        $challenge = (string) $api->getResponse()->headers->get('WWW-Authenticate');
+        self::assertStringContainsString('resource_metadata="'.self::ORIGIN.'/.well-known/oauth-protected-resource/mcp"', $challenge, 'The challenge names the metadata URL the SDK derives for the resource (RFC 9728 §3.1).');
+        self::assertStringContainsString('scope="announcement.read announcement.publish approval.read"', $challenge, 'The challenge names the scopes an agent needs.');
+        self::assertSame($this->json($api, 'GET', '/.well-known/oauth-protected-resource'), $this->json($api, 'GET', '/.well-known/oauth-protected-resource/mcp'));
 
         $resource = $this->json($api, 'GET', '/.well-known/oauth-protected-resource');
         self::assertSame(self::ORIGIN.'/mcp', $resource['resource']);
@@ -109,6 +112,56 @@ final class OAuthTest extends TestCase
         self::assertNull((new ClientRegistry($database, new MockHttpClient(new MockResponse('', ['http_code' => 302]))))->find($url));
     }
 
+    public function testAClientIdMetadataDocumentIsCachedAndMustCarryAClientName(): void
+    {
+        $database = new DemoDatabase(DemoDatabase::connect($this->runtime.'/application.sqlite'));
+        $url = 'https://claude.ai/oauth/mcp-oauth-client-metadata';
+        $document = ['client_id' => $url, 'client_name' => 'Claude', 'redirect_uris' => [self::CALLBACK]];
+        $once = new MockHttpClient([new MockResponse(json_encode($document), ['response_headers' => ['Cache-Control' => 'max-age=600']])]);
+        $registry = new ClientRegistry($database, $once);
+        self::assertSame('Claude', $registry->find($url)['client_name']);
+        self::assertSame('Claude', $registry->find($url)['client_name']);
+        self::assertSame(1, $once->getRequestsCount(), 'The document is fetched once and then served from the cache, as the spec asks.');
+
+        $nameless = ['client_id' => $url, 'redirect_uris' => [self::CALLBACK]];
+        self::assertNull((new ClientRegistry($database, new MockHttpClient(new MockResponse(json_encode($nameless)))))->find($url), 'client_name is a required field of the document.');
+
+        $failing = new MockHttpClient([new MockResponse('', ['http_code' => 500])]);
+        $negative = new ClientRegistry($database, $failing);
+        self::assertNull($negative->find($url));
+        self::assertNull($negative->find($url));
+        self::assertSame(1, $failing->getRequestsCount(), 'A failed fetch is remembered too, so a bad client ID cannot make this server fetch on every request.');
+    }
+
+    public function testTheTokenEndpointHonoursTheResourceParameterAndNeedsNoMetadataFetch(): void
+    {
+        $api = $this->client();
+        $registration = $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => [self::CALLBACK], 'client_name' => 'Claude']);
+        [$code, $verifier] = $this->consent($registration['client_id'], 'editor');
+        $exchange = ['grant_type' => 'authorization_code', 'code' => $code, 'redirect_uri' => self::CALLBACK, 'client_id' => $registration['client_id'], 'code_verifier' => $verifier];
+        $elsewhere = $this->token($api, $exchange + ['resource' => 'https://other.example/mcp']);
+        self::assertSame('invalid_target', $elsewhere['error'], 'RFC 8707: this server issues tokens only for its own MCP endpoint, at the token endpoint too.');
+        $tokens = $this->token($api, $exchange + ['resource' => self::ORIGIN.'/mcp']);
+        self::assertSame('Bearer', $tokens['token_type'], 'A refused resource did not use the code up.');
+
+        // A client ID metadata document is bound to the code at authorization; the token endpoint compares, it does not fetch.
+        $unknown = $this->token($api, ['grant_type' => 'authorization_code', 'code' => 'x', 'redirect_uri' => self::CALLBACK, 'client_id' => 'https://claude.ai/oauth/mcp-oauth-client-metadata', 'code_verifier' => str_repeat('c', 43)]);
+        self::assertSame('invalid_grant', $unknown['error']);
+    }
+
+    public function testOpenRegistrationHasABudgetPerAddress(): void
+    {
+        $settings = json_decode((string) file_get_contents($this->runtime.'/settings.json'), true, 32, JSON_THROW_ON_ERROR);
+        $settings['registration_attempts_per_minute'] = 2;
+        file_put_contents($this->runtime.'/settings.json', json_encode($settings, JSON_THROW_ON_ERROR));
+        $api = $this->client();
+        foreach ([201, 201, 429] as $expected) {
+            $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => [self::CALLBACK], 'client_name' => 'Claude']);
+            self::assertSame($expected, $api->getResponse()->getStatusCode());
+        }
+        self::assertGreaterThan(0, (int) $api->getResponse()->headers->get('Retry-After'));
+    }
+
     public function testClientMetadataIsNeverFetchedFromThisServersOwnNetwork(): void
     {
         $database = new DemoDatabase(DemoDatabase::connect($this->runtime.'/application.sqlite'));
@@ -134,6 +187,7 @@ final class OAuthTest extends TestCase
         ]));
         self::assertSame(200, $browser->getResponse()->getStatusCode(), (string) $browser->getResponse()->getContent());
         self::assertStringContainsString('approve each exact alert with your own passkey', (string) $browser->getResponse()->getContent());
+        self::assertStringContainsString('read public alerts, ask to issue public alerts as you, read the outcome of your approvals', (string) $browser->getResponse()->getContent(), 'Consent lists what is being granted.');
         $browser->submit($crawler->selectButton('Allow')->form());
         self::assertSame(302, $browser->getResponse()->getStatusCode());
         $location = (string) $browser->getResponse()->headers->get('Location');

@@ -49,8 +49,8 @@
     denied: 'This account can no longer do this. Nothing changed.',
     rejected: 'The site refused this request. Nothing changed.',
   };
-  const POLL_MS = 3000, POLL_LIMIT_MS = 15 * 60 * 1000;
-  let nextId = 1, view = null, timer = null, since = 0, host = {}, codeTimer = null;
+  const POLL_LIMIT_MS = 15 * 60 * 1000;
+  let nextId = 1, view = null, timer = null, since = 0, host = {}, codeTimer = null, ended = false;
   const waiting = new Map();
 
   function request(method, params) {
@@ -98,19 +98,33 @@
     if (!pending) hideCode();
     document.body.dataset.status = view.status;
     status.textContent = TEXT[view.status] || 'Status: ' + view.status + '.';
-    if (!pending && timer) { clearInterval(timer); timer = null; }
+    if (!pending) stopPolling();
     resize();
   }
+  // Polls the status tool quickly while the person is likely approving, then backs off, and not at all
+  // while the card is hidden or after a quarter of an hour. The site is the only source of the outcome.
+  function pollDelay() {
+    const elapsed = Date.now() - since;
+    return elapsed < 2 * 60 * 1000 ? 3000 : elapsed < 5 * 60 * 1000 ? 10000 : 30000;
+  }
+  function stopPolling() { if (timer) { clearTimeout(timer); timer = null; } }
+  function schedulePoll() {
+    stopPolling();
+    if (ended || !view || view.status !== 'pending' || !view.statusTool || Date.now() - since > POLL_LIMIT_MS) return;
+    timer = setTimeout(poll, pollDelay());
+  }
   async function poll() {
-    if (!view || view.status !== 'pending' || !view.statusTool) return;
-    if (Date.now() - since > POLL_LIMIT_MS) { clearInterval(timer); timer = null; return; }
+    timer = null;
+    if (document.hidden) { schedulePoll(); return; }
     const result = await request('tools/call', { name: view.statusTool, arguments: { request_id: view.requestId } }).catch(() => null);
     const next = result && !result.isError ? read(result) : null;
     if (next && next.requestId === view.requestId && next.status !== view.status) {
       view = { ...view, status: next.status, reason: next.reason };
       render();
     }
+    schedulePoll();
   }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && !timer) schedulePoll(); });
   // Tells the review page where the person came from, so it can offer the way back after approval.
   function returnTarget() {
     const platform = host.platform || (/Electron\//.test(navigator.userAgent) ? 'desktop' : 'web');
@@ -119,8 +133,18 @@
   function show(result) {
     view = read(result);
     since = Date.now();
+    ended = false;
     render();
-    if (view && view.status === 'pending' && view.statusTool && !timer) timer = setInterval(poll, POLL_MS);
+    schedulePoll();
+  }
+  // The host ends this card: the tool call was cancelled, or the view is being torn down.
+  function end(text) {
+    ended = true;
+    stopPolling();
+    hideCode();
+    open.hidden = true;
+    phoneShow.hidden = true;
+    if (text) { status.textContent = text; resize(); }
   }
 
   addEventListener('message', (event) => {
@@ -135,6 +159,14 @@
     }
     if (message.method === 'ui/notifications/tool-result') show(message.params);
     if (message.method === 'ui/notifications/host-context-changed') applyTheme(message.params);
+    if (message.method === 'ui/notifications/tool-cancelled') {
+      const reason = message.params && typeof message.params.reason === 'string' ? ' ' + message.params.reason : '';
+      end('The request was cancelled before the site answered. Nothing changed.' + reason);
+    }
+    if (message.method === 'ui/resource-teardown' && message.id !== undefined) {
+      end(null);
+      parent.postMessage({ jsonrpc: '2.0', id: message.id, result: {} }, '*');
+    }
   });
   open.addEventListener('click', async () => {
     const url = view && reviewUrl(view.reviewUrl);

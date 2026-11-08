@@ -17,6 +17,7 @@ use VerifiedHumanApproval\Demo\Controller\EvidenceController;
 use VerifiedHumanApproval\Demo\Controller\OAuthController;
 use VerifiedHumanApproval\Demo\Controller\PublicController;
 use VerifiedHumanApproval\Demo\Mcp\DemoTools;
+use VerifiedHumanApproval\Demo\OAuth\OAuthServer;
 use VerifiedHumanApproval\Demo\Security\DemoActorProvider;
 use VerifiedHumanApproval\Demo\Security\DemoUser;
 use VerifiedHumanApproval\Demo\Security\DemoUserProvider;
@@ -24,6 +25,7 @@ use VerifiedHumanApproval\Demo\Security\DemoRequesterLabel;
 use VerifiedHumanApproval\Demo\Security\PersonalTokenAuthenticator;
 use VerifiedHumanApproval\Bundle\VerifiedHumanApprovalBundle;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp;
+use VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool;
 use VerifiedHumanApproval\Bundle\RequesterLabel;
 use VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository;
@@ -31,9 +33,11 @@ use VerifiedHumanApproval\WebAuthn\Configuration;
 use VerifiedHumanApproval\WebAuthn\CredentialRepository;
 use VerifiedHumanApproval\WebAuthn\PdoCredentialRepository;
 use VerifiedHumanApproval\WebAuthn\WebAuthnVerifier;
+use Mcp\Server\Transport\Http\OAuth\ProtectedResourceMetadata;
 use Symfony\AI\McpBundle\McpBundle;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
 use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
+use Symfony\Bundle\MonologBundle\MonologBundle;
 use Symfony\Bundle\SecurityBundle\SecurityBundle;
 use Symfony\Bundle\TwigBundle\TwigBundle;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
@@ -64,6 +68,7 @@ final class DemoKernel extends Kernel
         yield new FrameworkBundle();
         yield new SecurityBundle();
         yield new TwigBundle();
+        yield new MonologBundle();
         yield new McpBundle();
         yield new VerifiedHumanApprovalBundle();
     }
@@ -74,6 +79,7 @@ final class DemoKernel extends Kernel
 
     protected function configureContainer(ContainerConfigurator $container): void
     {
+        $origin = rtrim($this->settings['origin'], '/');
         $container->extension('framework', [
             'secret' => $this->settings['app_secret'],
             'test' => $this->environment === 'test',
@@ -94,6 +100,10 @@ final class DemoKernel extends Kernel
             'validation' => ['email_validation_mode' => 'html5'],
         ]);
         $container->extension('twig', ['paths' => [$this->getProjectDir().'/templates'], 'strict_variables' => true]);
+        // The MCP bundle logs to its own "mcp" channel: session-save failures, refused request state and the like land here.
+        $container->extension('monolog', ['channels' => ['mcp'], 'handlers' => [
+            'main' => ['type' => 'stream', 'path' => '%kernel.logs_dir%/%kernel.environment%.log', 'level' => 'info', 'channels' => ['!event']],
+        ]]);
         $container->extension('security', [
             'password_hashers' => [DemoUser::class => ['algorithm' => 'auto']],
             'providers' => ['demo' => ['id' => DemoUserProvider::class]],
@@ -125,12 +135,16 @@ final class DemoKernel extends Kernel
         ]);
         $container->extension('mcp', ['servers' => ['application' => [
             'name' => 'Verified Human Approval demo', 'version' => '0.1.0',
-            'instructions' => 'Riverside Council public alerts. The draft evacuation alert is riverside-evacuation: read it with read_alert, then ask to issue it with publish_alert. If approval is required, show the review URL; only the person’s own passkey on the site can approve. Call approval_status afterwards and never say the alert is live while it is pending.',
+            'instructions' => 'Riverside Council public alerts. The draft evacuation alert is riverside-evacuation: read it with read_alert, then ask to issue it with publish_alert. If approval is required, show the review URL; only the person’s own passkey on the site can approve. Call approval_status afterwards and never say the alert is live while it is pending. If a retried call is refused, call approval_status with the request id instead of asking again.',
             'transports' => ['http' => true, 'stdio' => false],
             'http' => ['path' => '/mcp', 'allowed_hosts' => [$this->settings['rp_id']]],
-            'session' => ['store' => 'file', 'directory' => $this->runtimeDirectory.'/mcp'],
-            'request_state' => ['key' => $this->settings['app_secret']],
-            'registry' => ['tools' => [DemoTools::class, ApprovalStatusTool::class], 'apps' => [ApprovalCardApp::class]],
+            // Handshake-era clients (Claude Desktop, claude.ai) keep a session, and the card polls it while the
+            // model calls tools: the lock serializes those requests so none overwrites what another saved.
+            'session' => ['store' => 'file', 'directory' => $this->runtimeDirectory.'/mcp', 'lock' => ['enabled' => true]],
+            // The signed state a URL-mode elicitation's retry carries. Its own key, derived from the application
+            // secret, and a lifetime past the proposal's, so a retry after a slow approval still reads the outcome.
+            'request_state' => ['key' => hash_hmac('sha256', 'mcp-request-state', $this->settings['app_secret']), 'ttl' => DemoPolicyProvider::LIFETIME_SECONDS + 300],
+            'registry' => ['tools' => [DemoTools::class, ApprovalStatusTool::class, ApprovalHandoffTool::class], 'apps' => [ApprovalCardApp::class]],
         ]]]);
         $container->extension('verified_human_approval', [
             'public_origin' => $this->settings['origin'], 'actor_provider' => DemoActorProvider::class,
@@ -157,14 +171,19 @@ final class DemoKernel extends Kernel
         $services->set(WebAuthnVerifier::class);
         $services->set(SodiumEvidenceSigner::class, SodiumEvidenceSigner::class)->factory([SodiumEvidenceSigner::class, 'fromEncoded'])->args([$this->settings['receipt_key_id'], $this->settings['receipt_secret_key']]);
         $services->set(EvidenceExporter::class)->args([service(SodiumEvidenceSigner::class)]);
+        // One description of the protected resource (RFC 9728): served at /.well-known and named in every 401.
+        $services->set(ProtectedResourceMetadata::class)->args([$origin.'/mcp', [$origin], OAuthServer::SCOPES, 'Riverside Council public alerts']);
         foreach ([DemoController::class, AccountController::class, AuditController::class, EvidenceController::class, PublicController::class, OAuthController::class] as $controller) $services->set($controller)->public()->tag('controller.service_arguments');
         $services->set('demo.enrollment_limiter', RateLimiterFactory::class)->args([
             ['id' => 'demo-passkey-enrollment', 'policy' => 'fixed_window', 'limit' => $this->settings['enrollment_attempts_per_minute'] ?? 10, 'interval' => '1 minute'],
             service('verified_human_approval.limiter.storage'), service('verified_human_approval.limiter.lock_factory'),
         ]);
+        $services->set('demo.registration_limiter', RateLimiterFactory::class)->args([
+            ['id' => 'demo-oauth-registration', 'policy' => 'fixed_window', 'limit' => $this->settings['registration_attempts_per_minute'] ?? 10, 'interval' => '1 minute'],
+            service('verified_human_approval.limiter.storage'), service('verified_human_approval.limiter.lock_factory'),
+        ]);
         $services->get(AccountController::class)->arg('$limiter', service('demo.enrollment_limiter'));
-        $services->get(OAuthController::class)->arg('$origin', rtrim($this->settings['origin'], '/'));
-        $services->get(PersonalTokenAuthenticator::class)->arg('$origin', rtrim($this->settings['origin'], '/'));
+        $services->get(OAuthController::class)->arg('$origin', $origin)->arg('$registrationLimiter', service('demo.registration_limiter'));
     }
 
     protected function configureRoutes(RoutingConfigurator $routes): void

@@ -9,10 +9,10 @@ Nothing here approves anything. The person approves on the application's own rev
 | Client | What it gets |
 | --- | --- |
 | Every client | The pending result at once: request ID, status, review URL, a message for the model, and the card's view under `approval` |
-| A host that renders MCP Apps (`io.modelcontextprotocol/ui`) | The approval card beside the result. Its button opens the review page through `ui/open-link`, and it polls the status tool until the application records an outcome |
+| A host that renders MCP Apps (`io.modelcontextprotocol/ui`) | The approval card beside the result. Its button opens the review page through `ui/open-link`, and it polls the status tool until the application records an outcome: every 3 seconds at first, then every 10, then every 30, not while hidden, and for a quarter of an hour at most. It stops when the host cancels the call (`ui/notifications/tool-cancelled`) and answers `ui/resource-teardown` |
 | A client the application lists, on MCP 2026-07-28 or later, that declares `elicitation.url` | Also a URL-mode elicitation (`InputRequiredResult`) pointing at the review page |
 
-URL-mode elicitation is off by default and enabled per client by `clientInfo.name`. Some clients declare URL mode and then decline, drop or fail on the request, so a declaration alone is not enough. It is never sent under the handshake-era revisions, where the server would hold the call open while the person approves.
+URL-mode elicitation is off by default and enabled per client by `clientInfo.name`. Some clients declare URL mode and then decline, drop or fail on the request, so a declaration alone is not enough. This knowingly departs from the specification's advice not to change server behaviour on `clientInfo`: it is an interoperability allowlist, not a security decision, since the card and the link are always there; `'*'` switches to capability-only gating. It is never sent under the handshake-era revisions, where the server would hold the call open while the person approves: the SDK's `InputRequiredShim` is on by default and would turn the result into a blocking `elicitation/create` there.
 
 ## The card
 
@@ -27,7 +27,7 @@ URL-mode elicitation is off by default and enabled per client by `clientInfo.nam
 | `statement` | The exact statement the person will approve |
 | `handoffTool` | Optional. An app-only tool that returns a one-time phone code, or `null` |
 
-The card never runs WebAuthn. The verifier rejects embedded and cross-origin ceremonies, and MCP App sandboxes cannot request passkeys.
+The card never runs WebAuthn. The verifier rejects embedded and cross-origin ceremonies, and the card runs on the host's sandbox origin, so no assertion it could obtain would pass the application's exact-origin check.
 
 When `handoffTool` is set and the review page is on HTTPS, the card also offers **Approve on your phone**, except inside Claude on a phone. It calls the tool with `request_id` and expects `structuredContent` with `requestId`, `expiresIn` (seconds) and `modules`: the QR code as one string of `0` and `1` per row, quiet zone included. The card draws those modules itself with SVG elements, so it never parses markup from the server, and takes the code down when it expires or the request leaves `pending`. The Symfony bundle supplies such a tool.
 

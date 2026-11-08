@@ -7,7 +7,7 @@ namespace VerifiedHumanApproval\Bundle;
 use VerifiedHumanApproval\Core\ApprovalState;
 use VerifiedHumanApproval\Mcp\ApprovalCard;
 use VerifiedHumanApproval\Mcp\ResultPresenter;
-use VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp;
+use VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool;
 use Mcp\Schema\Content\TextContent;
 use Mcp\Schema\Result\CallToolResult;
@@ -48,7 +48,7 @@ final readonly class ApprovalPresenter implements ResultPresenter
         }
         // The MCP App card reads these fixed names; it shows only what the application recorded.
         // It offers the phone only when a phone could reach the site: a public HTTPS address.
-        $phone = str_starts_with($this->publicOrigin, 'https://') ? ApprovalCardApp::HANDOFF_TOOL : null;
+        $phone = str_starts_with($this->publicOrigin, 'https://') ? ApprovalHandoffTool::NAME : null;
         $data['approval'] = ApprovalCard::view($state, $this->reviewUrl($state), $this->statusTool(), $phone);
 
         return $data;

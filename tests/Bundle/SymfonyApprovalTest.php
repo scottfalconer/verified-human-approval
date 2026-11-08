@@ -63,6 +63,13 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame(['app'], json_decode(json_encode($tools['approval_handoff'], JSON_THROW_ON_ERROR), true)['_meta']['ui']['visibility'], 'Only the card can ask for a phone code.');
         self::assertArrayNotHasKey('actor', $tools['publish_alert']->inputSchema['properties']);
         self::assertArrayNotHasKey('user_id', $tools['publish_alert']->inputSchema['properties']);
+        self::assertNotEmpty($tools['publish_alert']->inputSchema['properties']['request_key']['description'] ?? null, 'Parameters are described.');
+        foreach ($tools as $name => $tool) {
+            $declared = json_decode(json_encode($tool, JSON_THROW_ON_ERROR), true);
+            self::assertNotEmpty($declared['title'] ?? null, $name.' has a title.');
+            self::assertIsArray($declared['outputSchema'] ?? null, $name.' declares what its structured result looks like.');
+            self::assertFalse($declared['annotations']['openWorldHint'] ?? null, $name.' acts only on this application.');
+        }
 
         $pending = $client->callTool('publish_alert', ['alert_id' => 'riverside-evacuation', 'request_key' => 'same-request']);
         self::assertFalse($pending->isError);

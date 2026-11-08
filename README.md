@@ -72,8 +72,14 @@ mcp:
                 tools:
                     - App\Mcp\PublishAlertTool
                     - VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool
+                    - VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool   # the card's phone code; hosts hide it from the model
                 apps:
                     - VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp
+            session:
+                lock: { enabled: true }                 # the card polls while the model calls tools
+            request_state:
+                key: '%env(MCP_REQUEST_STATE_KEY)%'     # signs the URL prompt's retry; its own key, 32+ bytes
+                ttl: 900                                # longer than your approval lifetime, so a late retry still reads the outcome
 ```
 
 Put the review routes (`/approval/…`) behind your normal session firewall, and keep a separate stateless firewall for `/mcp`, authenticated per person with a token from your OAuth server or a personal token. An agent's token must never count as a signed-in person. The demo's [kernel](demo/src/DemoKernel.php) shows the two firewalls.
@@ -197,7 +203,7 @@ This repository holds them together, like `symfony/ai`: the root `composer.json`
 ## Built with
 
 - **The PHP MCP SDK 0.9** serves both protocol eras from one server: the 2025-11-25 handshake and the 2026-07-28 multi round-trip, with signed request state, URL-mode elicitation, the MCP Apps extension and OAuth protected resource metadata.
-- **The Symfony MCP bundle's `#[AsMcpApp]`** serves the approval card, and `#[AsMcpAppTool]` gives it app-only tools that the model never sees. Its `#[McpTool]` tools receive the SDK's `RequestContext`.
+- **The Symfony MCP bundle's `#[AsMcpApp]`** serves the approval card, and `_meta.ui` links ordinary `#[McpTool]` tools to it, including the phone-code tool that conforming hosts hide from the model. Tools receive the SDK's `RequestContext`, with the validated token and its scopes.
 - **Symfony AI's Agent and McpToolbox** drive the same tools in a scripted example: `php examples/agent.php --scripted`.
 - **`web-auth/webauthn-lib`** verifies passkeys with user verification required.
 

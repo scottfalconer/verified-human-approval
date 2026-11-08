@@ -46,6 +46,11 @@ final readonly class UrlPrompt
     /**
      * Prompt only when enabled, only under a revision where the server never holds the call open
      * waiting for a person, only for a client declaring URL mode, and only for a configured client.
+     *
+     * The revision check is load-bearing. The SDK's InputRequiredShim is on by default: on a
+     * handshake-era (2025-11-25) connection it would turn a returned InputRequiredResult into a real
+     * elicitation/create and hold the HTTP request open for up to ten minutes per round. Refusing
+     * non-modern revisions here is what keeps Claude Desktop and claude.ai on the plain pending result.
      */
     public function allows(ProtocolVersion $version, bool $declaresUrlMode, ?string $clientName): bool
     {
@@ -92,10 +97,15 @@ final readonly class UrlPrompt
      */
     public static function resumed(?InputContext $input, string $binding): ?array
     {
-        if ($input === null || !$input->has(self::KEY)) {
+        if ($input === null) {
             return null;
         }
         $state = $input->requestState();
+        $answered = $input->has(self::KEY);
+        // A verified state of ours names the request even when no answer came back with it.
+        if (!$answered && ($state['format'] ?? null) !== self::FORMAT) {
+            return null;
+        }
         if (($state['format'] ?? null) !== self::FORMAT || !\is_string($state['requestId'] ?? null) || !\is_string($state['binding'] ?? null)) {
             throw new ApprovalException('continuation_invalid', 'This continuation does not belong to an approval request. Call the tool again.');
         }
@@ -103,7 +113,7 @@ final readonly class UrlPrompt
             throw new ApprovalException('continuation_mismatch', 'The retried call changed its caller or arguments, so it cannot continue this approval. Call the tool again.');
         }
 
-        return ['requestId' => $state['requestId'], 'answer' => self::answer($input->elicitResult(self::KEY, ElicitationMode::Url))];
+        return ['requestId' => $state['requestId'], 'answer' => $answered ? self::answer($input->elicitResult(self::KEY, ElicitationMode::Url)) : 'none'];
     }
 
     /** @return 'accept'|'decline'|'cancel'|'none' */
@@ -124,7 +134,7 @@ final readonly class UrlPrompt
         $port = parse_url($reviewUrl, \PHP_URL_PORT);
         $site = \is_string($host) ? $host.(\is_int($port) ? ':'.$port : '') : 'the site';
 
-        return 'Approval needed on '.$site.': "'.$state->request->statement().'" Open the page to review the exact change and approve it with your passkey. Nothing changes until you do.';
+        return 'Approval needed on '.$site.': "'.$state->request->statement().'" Open the page to review the exact change and approve it with your passkey. Nothing changes until you do. Request '.$state->request->id.'.';
     }
 
     /** What the model is told after the client answered the prompt. */

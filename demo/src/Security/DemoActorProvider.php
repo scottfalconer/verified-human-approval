@@ -8,12 +8,14 @@ use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalState;
 use VerifiedHumanApproval\Demo\DemoDatabase;
 use VerifiedHumanApproval\Bundle\ActorProvider;
+use Mcp\Server\Authorization\AccessToken;
 use Symfony\Bundle\SecurityBundle\Security;
+use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\Security\Core\Exception\AccessDeniedException;
 
 final readonly class DemoActorProvider implements ActorProvider
 {
-    public function __construct(private Security $security, private DemoDatabase $database) {}
+    public function __construct(private Security $security, private DemoDatabase $database, private RequestStack $requests) {}
 
     public function current(): Actor
     {
@@ -41,9 +43,11 @@ final readonly class DemoActorProvider implements ActorProvider
             throw new AccessDeniedException('This approval is unavailable for your account.');
         }
         if ($actor->delegationId !== null) {
-            $grant = $this->database->grant($actor->delegationId);
-            if ($grant === null || !(bool) $grant['active'] || $grant['user_id'] !== $actor->userId || $grant['tenant_id'] !== $actor->tenantId
-                || !\in_array('approval.read', json_decode($grant['scopes'], true, 8, JSON_THROW_ON_ERROR), true)) {
+            // The firewall validated the connection's token for this request and handed it to the SDK;
+            // its scopes say what the connection may read. The same object reaches tools as
+            // RequestContext::getAccessToken().
+            $token = $this->requests->getCurrentRequest()?->attributes->get(AccessToken::class);
+            if (!$token instanceof AccessToken || $token->getClaim('grant_id') !== $actor->delegationId || !$token->hasScope('approval.read')) {
                 throw new AccessDeniedException('This personal connection is not allowed to read approval results.');
             }
         }

@@ -6,9 +6,11 @@ namespace VerifiedHumanApproval\Bundle\Mcp;
 
 use VerifiedHumanApproval\Core\ApprovalService;
 use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Mcp\ApprovalFlow;
 use VerifiedHumanApproval\Bundle\ActorProvider;
 use VerifiedHumanApproval\Bundle\ApprovalPresenter;
 use Mcp\Capability\Attribute\McpTool;
+use Mcp\Capability\Attribute\Schema;
 use Mcp\Schema\Result\CallToolResult;
 use Mcp\Schema\Content\TextContent;
 use Mcp\Schema\ToolAnnotations;
@@ -22,11 +24,14 @@ final readonly class ApprovalStatusTool
 
     #[McpTool(
         name: self::NAME,
-        description: 'Get the authoritative result of one action approval request belonging to the current user. This never executes or approves an action.',
-        annotations: new ToolAnnotations(readOnlyHint: true, destructiveHint: false, idempotentHint: true),
+        title: 'Approval status',
+        description: 'Get the authoritative result of one action approval request belonging to the current user. This never executes or approves an action. Call it after a pending result, or when a retried call was refused.',
+        annotations: new ToolAnnotations(readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false),
+        outputSchema: ApprovalFlow::OUTPUT_SCHEMA,
     )]
-    public function status(string $request_id): CallToolResult
-    {
+    public function status(
+        #[Schema(description: 'The requestId a protected tool returned, also the last part of its review URL.')] string $request_id,
+    ): CallToolResult {
         try {
             $state = $this->approvals->get($this->actors->current(), $request_id);
             $this->actors->assertCanReadApproval($state);

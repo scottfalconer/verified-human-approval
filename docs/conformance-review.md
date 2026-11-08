@@ -19,16 +19,18 @@ Reviewed 2026-11-08 at commit `e35e60e`. The question was whether this project u
 - **`scopes_supported` lists all three scopes.** The spec wants the minimal set for basic functionality; an agent that issues alerts needs all three.
 - **Tool visibility `["app"]` is a host rule, not a server boundary.** The spec places the MUSTs on hosts; the server protects the phone-code tool with the same read check as `approval_status` and a per-person budget.
 
-## What we are changing next
+## What changed after the review
 
-Found by the review, in order of value; none changes what the application enforces.
+Done the same day; none of it changes what the application enforces.
 
-1. Tool metadata: `outputSchema`, `title`, parameter descriptions and `openWorldHint: false` on every tool; register the phone-code tool so it carries annotations and a schema.
-2. Hand the SDK the validated token (`AccessToken` request attribute) so tools use `hasScope()` instead of four hand-written scope checks.
-3. Turn on the bundle's session lock; tie `request_state.ttl` to the approval lifetime with its own key; tell the model to call `approval_status` if a retry fails.
-4. An automated handshake-era (2025-11-25) test, the path Claude Desktop and claude.ai use.
-5. OAuth hygiene: cache Client ID Metadata Documents, require `client_name`, validate `resource` at the token endpoint, add `scope=` to the 401, one shared `ProtectedResourceMetadata`, rate-limit registration.
-6. The card: handle `ui/notifications/tool-cancelled`, answer `ui/resource-teardown`, back off the polling.
-7. Bundle maturity, as Symfony's bundle best practices ask: explicit service definitions with `verified_human_approval.*` ids, assets in `public/`, php-cs-fixer `@Symfony`, a CI matrix with lowest dependencies, the `VerifiedHumanApproval\BundleBundle` namespace, `LICENSE` and `docs/index.md` in the package, Monolog with an `mcp` channel.
+1. **Tool metadata.** Every tool declares `title`, `outputSchema` (one shared schema for the presenter's result, `ApprovalFlow::OUTPUT_SCHEMA`), described parameters and `openWorldHint: false`. The phone-code tool is now an ordinary `#[McpTool]` whose `_meta.ui` links it to the card with app-only visibility, so it carries annotations and a schema too.
+2. **The SDK gets the validated token.** The `/mcp` authenticator sets the `AccessToken` request attribute; tools decide with `RequestContext::getAccessToken()->hasScope()`, and the actor provider reads the same token. The authorizer still rechecks the stored grant when an approval completes, which no token covers.
+3. **Sessions and state.** The bundle's session lock is on; `request_state` has its own key, derived from the application secret, and a lifetime past the proposal's; the tool description, the server instructions and the prompt (which now names the request id) tell the model to call `approval_status` if a retry is refused. A retry carrying a verified state without an answer reads the stored request instead of starting over.
+4. **A handshake-era test** (`tests/Bundle/HandshakeEraTest.php`): a 2025-11-25 client named like Claude Code, declaring URL-mode elicitation, gets a plain pending result, the card and the status, with a session in the file store and no shim-driven elicitation.
+5. **OAuth hygiene.** Client ID Metadata Documents are cached (honouring `Cache-Control`, bounded, failures remembered briefly) and never fetched at the token endpoint, which compares the stored `client_id`; `client_name` is required; `resource` is validated at the token endpoint too; the 401 carries `scope=` and the metadata URL the SDK's `ProtectedResourceMetadata` derives, from one shared service; open registration has a budget per address; the consent page lists the scopes, the metadata document's host and warns about loopback-only clients; `[::1]` is a valid loopback.
+6. **The card** stops on `ui/notifications/tool-cancelled`, answers `ui/resource-teardown`, and polls every 3 s, then 10 s, then 30 s, not while hidden.
+7. **Docs and logging.** The OAuth server is labelled a stand-in with the recommended replacement named; the deviations above are stated in the overview and the security model; the wording about app-only tools, server workers and the passkey sandbox is corrected; the demo runs Monolog with the bundle's `mcp` channel.
 
-Two upstream suggestions came out of it, to be filed after judging: a public `RequestContext::getClientInfo()` in the SDK (we read the session key the SDK uses internally), and `annotations`/`outputSchema` parameters on the bundle's `#[AsMcpAppTool]`.
+## Still open
+
+Bundle maturity, as Symfony's bundle best practices ask: explicit service definitions with `verified_human_approval.*` ids, assets in `public/`, php-cs-fixer `@Symfony`, a CI job with lowest dependencies, a Flex recipe. Two upstream suggestions, to be filed after judging: a public `RequestContext::getClientInfo()` in the SDK (we read the session key the SDK uses internally), and `annotations`/`outputSchema` parameters on the bundle's `#[AsMcpAppTool]`, which would make the plain-tool workaround above unnecessary.
