@@ -30,6 +30,8 @@ Setup prints fresh passwords and personal agent tokens once, plus the exact comm
 
 To start over for another run, use `php examples/symfony/bin/setup.php --reset`.
 
+On a Mac, `examples/symfony/bin/server start` runs the site under launchd instead, so it keeps running when the terminal or Claude quits. It also takes `stop`, `restart` and `status`.
+
 ## How it works
 
 ```mermaid
