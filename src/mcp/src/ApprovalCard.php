@@ -44,7 +44,7 @@ final class ApprovalCard
     /**
      * The fields the card reads, under fixed names whatever the platform's own result calls them.
      *
-     * @return array{requestId: string, status: string, reason: ?string, reviewUrl: string, statusTool: string, statement: string, handoffTool: ?string}
+     * @return array{requestId: string, status: string, reason: ?string, approvedWithPasskey: bool, reviewUrl: string, statusTool: string, statement: string, handoffTool: ?string}
      */
     public static function view(ApprovalState $state, string $reviewUrl, string $statusTool, ?string $handoffTool = null): array
     {
@@ -52,6 +52,8 @@ final class ApprovalCard
             'requestId' => $state->request->id,
             'status' => $state->status,
             'reason' => $state->reason,
+            // A person approved it with a passkey only if the application recorded that proof.
+            'approvedWithPasskey' => null !== $state->proof,
             'reviewUrl' => $reviewUrl,
             'statusTool' => $statusTool,
             'statement' => $state->request->statement(),

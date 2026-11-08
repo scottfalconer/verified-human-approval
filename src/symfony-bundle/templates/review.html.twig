@@ -18,7 +18,8 @@
     </div>
     {% elseif state.status == 'completed' %}
     <div class="done">
-        <p class="notice">Approved with your passkey. This request is completed.</p>
+        {# Only a recorded passkey proof means a person approved it; under a rule that needs none, say so. #}
+        <p class="notice">{% if state.proof %}Approved with your passkey. This request is completed.{% else %}Completed without a passkey: the application's rule did not require one for this request.{% endif %}</p>
         {# The way back to the agent. The approval card adds #return=claude-desktop, claude-mobile or claude-web to the link. #}
         {% block return %}
         <div class="actions" data-return hidden>
@@ -33,7 +34,7 @@
     {% endif %}
 </section>
 <section class="card">
-    <h2>{{ state.status == 'completed' ? 'What you approved' : 'What you are approving' }}</h2>
+    <h2>{{ state.status == 'completed' ? (state.proof ? 'What you approved' : 'What ran') : 'What you are approving' }}</h2>
     {# Override this block to show the effect as its audience will see it, rendered from the frozen proposal. #}
     {% block preview %}
     {% if prepared.effect.title is defined %}<h3>{{ prepared.effect.title }}</h3>{% endif %}

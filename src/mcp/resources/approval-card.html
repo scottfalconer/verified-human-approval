@@ -43,6 +43,7 @@
   const TEXT = {
     pending: 'Waiting for approval on the site. Nothing has changed yet.',
     completed: 'Approved with a passkey. The site recorded the change.',
+    completedDirect: 'Done without a passkey: the site’s rule did not require one. The site recorded the change.',
     cancelled: 'Cancelled on the site. Nothing changed.',
     expired: 'This request expired. Nothing changed.',
     invalidated: 'The content changed after this request, so it can no longer be approved. Nothing changed.',
@@ -81,6 +82,7 @@
     const card = data.approval || {};
     const found = {
       requestId: card.requestId || data.requestId, status: card.status || data.status, reason: card.reason ?? data.reason ?? null,
+      approvedWithPasskey: typeof card.approvedWithPasskey === 'boolean' ? card.approvedWithPasskey : null,
       reviewUrl: card.reviewUrl || data.reviewUrl || data.review_url, statusTool: card.statusTool || null, statement: card.statement || null,
       handoffTool: card.handoffTool || null,
     };
@@ -97,7 +99,10 @@
     phoneShow.hidden = !(pending && url && url.protocol === 'https:' && view.handoffTool && returnTarget() !== 'claude-mobile');
     if (!pending) hideCode();
     document.body.dataset.status = view.status;
-    status.textContent = TEXT[view.status] || 'Status: ' + view.status + '.';
+    // Only the site's record of a passkey proof makes a completed request one a person approved.
+    status.textContent = view.status === 'completed'
+      ? (view.approvedWithPasskey === true ? TEXT.completed : view.approvedWithPasskey === false ? TEXT.completedDirect : 'Completed. The site recorded the change.')
+      : TEXT[view.status] || 'Status: ' + view.status + '.';
     if (!pending) stopPolling();
     resize();
   }
@@ -119,7 +124,7 @@
     const result = await request('tools/call', { name: view.statusTool, arguments: { request_id: view.requestId } }).catch(() => null);
     const next = result && !result.isError ? read(result) : null;
     if (next && next.requestId === view.requestId && next.status !== view.status) {
-      view = { ...view, status: next.status, reason: next.reason };
+      view = { ...view, status: next.status, reason: next.reason, approvedWithPasskey: next.approvedWithPasskey };
       render();
     }
     schedulePoll();

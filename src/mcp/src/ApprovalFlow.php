@@ -46,6 +46,7 @@ final readonly class ApprovalFlow
                     'requestId' => ['type' => 'string'],
                     'status' => ['type' => 'string'],
                     'reason' => ['type' => ['string', 'null']],
+                    'approvedWithPasskey' => ['type' => 'boolean', 'description' => 'Whether a person approved it with their passkey. A completed request without one ran because the application’s rule did not require approval.'],
                     'reviewUrl' => ['type' => 'string'],
                     'statusTool' => ['type' => 'string', 'description' => 'The read-only tool that reports this request’s outcome.'],
                     'statement' => ['type' => 'string', 'description' => 'The exact statement the person approves.'],

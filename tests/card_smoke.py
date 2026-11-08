@@ -35,7 +35,7 @@ HOST = """<!doctype html><meta charset="utf-8"><body style="margin:0;background:
   const card = () => document.getElementById('card');
   window.calls = []; window.opened = [];
   window.server = { status: 'pending', expiresIn: 120 };
-  const view = (status) => ({ requestId: 'r1', status, reason: null, reviewUrl: %(review)s, statusTool: 'approval_status',
+  const view = (status) => ({ requestId: 'r1', status, reason: null, approvedWithPasskey: status === 'completed', reviewUrl: %(review)s, statusTool: 'approval_status',
     statement: 'I approve issuing the public alert “Evacuation order: Riverside Road area” (revision 1) on Riverside Council website. Every resident sees it as soon as I approve.',
     handoffTool: %(handoff)s });
   const reply = (id, result) => card().contentWindow.postMessage({ jsonrpc: '2.0', id, result }, '*');

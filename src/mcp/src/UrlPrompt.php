@@ -149,7 +149,8 @@ final readonly class UrlPrompt
     public static function note(string $answer, ApprovalState $state, string $statusTool): string
     {
         return match (true) {
-            'completed' === $state->status => 'Approved on the site with the person\'s passkey. The stored action ran once; this is its recorded result.',
+            'completed' === $state->status && null !== $state->proof => 'Approved on the site with the person\'s passkey. The stored action ran once; this is its recorded result.',
+            'completed' === $state->status => 'The stored action ran once without a passkey: the application\'s rule did not require one. This is its recorded result.',
             'pending' !== $state->status => 'This request is '.$state->status.'. It did not change anything. Request the action again if it is still wanted.',
             'accept' === $answer => 'The person opened the approval page. That is not an approval: the site acts only after its own passkey check. Call '.$statusTool.' with this requestId to read the outcome.',
             default => 'The approval prompt was dismissed, so nothing was approved or changed. The request is still open: the person can use the review URL to approve or cancel it on the site.',

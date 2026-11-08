@@ -94,6 +94,8 @@ final class SymfonyApprovalTest extends TestCase
 
         $status = $client->callTool('approval_status', ['request_id' => $id]);
         self::assertSame('completed', $status->structuredContent['status']);
+        self::assertTrue($status->structuredContent['approval']['approvedWithPasskey'], 'The card says a passkey approved it.');
+        self::assertStringContainsString('Approved with your passkey', $browser->request('GET', self::ORIGIN.'/approval/'.$id)->filter('.approval-sheet')->text());
         $retry = $client->callTool('publish_alert', ['alert_id' => 'riverside-evacuation', 'request_key' => 'same-request']);
         self::assertSame($id, $retry->structuredContent['requestId']);
         self::assertSame('completed', $retry->structuredContent['status']);
@@ -399,6 +401,16 @@ final class SymfonyApprovalTest extends TestCase
         $manager = $this->mcp('manager')->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
         self::assertSame('completed', $manager->structuredContent['status'], 'The emergency manager issues directly.');
         self::assertSame(1, $this->mutationCount());
+    }
+
+    public function testAnActionThatNeededNoPasskeyNeverSaysAPasskeyApprovedIt(): void
+    {
+        $issued = $this->mcp('manager')->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
+        self::assertSame('completed', $issued->structuredContent['status'], 'The emergency manager issues directly.');
+        self::assertFalse($issued->structuredContent['approval']['approvedWithPasskey']);
+        $sheet = $this->browser('manager')->request('GET', self::ORIGIN.'/approval/'.$issued->structuredContent['requestId'])->filter('.approval-sheet')->text();
+        self::assertStringNotContainsString('Approved with your passkey', $sheet);
+        self::assertStringContainsString('Completed without a passkey', $sheet);
     }
 
     public function testTheApprovalPageShowsTheFinalPublicPageWhichGoesLiveUnchanged(): void
