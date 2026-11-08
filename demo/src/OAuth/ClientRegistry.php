@@ -25,6 +25,8 @@ final readonly class ClientRegistry
     private const MAX_SECONDS = 3600;
     /** A document that failed is remembered briefly too, so a bad client ID cannot make this server fetch on every request. */
     private const NEGATIVE_SECONDS = 60;
+    /** A client metadata document is a few hundred bytes; nothing larger is read. */
+    private const MAX_BYTES = 65536;
 
     private HttpClientInterface $http;
     private CacheInterface $cache;
@@ -123,12 +125,20 @@ final readonly class ClientRegistry
     private function fetchMetadataDocument(string $url): array
     {
         try {
-            $response = $this->http->request('GET', $url, ['timeout' => 5, 'max_redirects' => 0, 'headers' => ['Accept' => 'application/json']]);
+            $response = $this->http->request('GET', $url, [
+                'timeout' => 5, 'max_duration' => 10, 'max_redirects' => 0, 'headers' => ['Accept' => 'application/json'],
+                // Stop downloading the moment it is larger than any document needs, whatever it claims about its size.
+                'on_progress' => static function (int $downloaded, int $size): void {
+                    if ($downloaded > self::MAX_BYTES || $size > self::MAX_BYTES) {
+                        throw new \RuntimeException('The client metadata document is too large.');
+                    }
+                },
+            ]);
             if (200 !== $response->getStatusCode()) {
                 return [null, self::NEGATIVE_SECONDS];
             }
             $body = $response->getContent();
-            if (\strlen($body) > 65536) {
+            if (\strlen($body) > self::MAX_BYTES) {
                 return [null, self::NEGATIVE_SECONDS];
             }
             $document = json_decode($body, true, 16, \JSON_THROW_ON_ERROR);

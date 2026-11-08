@@ -135,6 +135,24 @@ final class OAuthTest extends TestCase
         self::assertSame(1, $failing->getRequestsCount(), 'A failed fetch is remembered too, so a bad client ID cannot make this server fetch on every request.');
     }
 
+    public function testAnOversizedMetadataDocumentIsCutOffWhileItDownloads(): void
+    {
+        $database = new DemoDatabase(DemoDatabase::connect($this->runtime.'/application.sqlite'));
+        $sent = 0;
+        // An 8 MiB answer, produced only as fast as the client reads it.
+        $body = (static function () use (&$sent): \Generator {
+            for ($chunk = 0; $chunk < 128; ++$chunk) {
+                $sent += 65536;
+                yield str_repeat(' ', 65536);
+            }
+        })();
+        self::assertNull((new ClientRegistry($database, new MockHttpClient(new MockResponse($body))))->find('https://claude.ai/oauth/mcp-oauth-client-metadata'));
+        self::assertLessThanOrEqual(2 * 65536, $sent, 'The download stopped at the size limit, not after the whole answer.');
+
+        $declared = new MockHttpClient(new MockResponse('{}', ['response_headers' => ['Content-Length' => '8388608']]));
+        self::assertNull((new ClientRegistry($database, $declared))->find('https://claude.ai/oauth/mcp-oauth-client-metadata'), 'A declared size over the limit is refused too.');
+    }
+
     public function testTheTokenEndpointHonoursTheResourceParameterAndNeedsNoMetadataFetch(): void
     {
         $api = $this->client();
