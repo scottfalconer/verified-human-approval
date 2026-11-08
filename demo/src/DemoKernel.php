@@ -25,6 +25,7 @@ use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
 use VerifiedHumanApproval\Core\Storage\PdoApprovalStore;
 use VerifiedHumanApproval\Demo\Action\DemoAuthorizer;
 use VerifiedHumanApproval\Demo\Action\DemoPolicyProvider;
+use VerifiedHumanApproval\Demo\Action\PublishAlert;
 use VerifiedHumanApproval\Demo\Controller\AccountController;
 use VerifiedHumanApproval\Demo\Controller\AuditController;
 use VerifiedHumanApproval\Demo\Controller\DemoController;
@@ -83,42 +84,70 @@ final class DemoKernel extends Kernel
         return \dirname(__DIR__);
     }
 
+    /** The runtime this kernel serves; its settings reach services through DemoRuntimeSettings. */
+    public function runtimeDirectory(): string
+    {
+        return $this->runtimeDirectory;
+    }
+
+    /** @return array<string, mixed> */
+    public function settings(): array
+    {
+        return $this->settings;
+    }
+
+    /**
+     * The compiled container depends on no runtime, so a test run shares one: the bootstrap names its
+     * directory. Elsewhere each runtime keeps its own.
+     */
     public function getCacheDir(): string
     {
-        return $this->runtimeDirectory.'/cache/'.$this->environment;
+        return ($this->sharedTestDirectory() ?? $this->runtimeDirectory).'/cache/'.$this->environment;
     }
 
     public function getLogDir(): string
     {
-        return $this->runtimeDirectory.'/log';
+        return ($this->sharedTestDirectory() ?? $this->runtimeDirectory).'/log';
+    }
+
+    private function sharedTestDirectory(): ?string
+    {
+        $directory = 'test' === $this->environment ? getenv('VERIFIED_HUMAN_APPROVAL_TEST_CACHE') : false;
+
+        return \is_string($directory) && '' !== $directory ? $directory : null;
     }
 
     protected function configureContainer(ContainerConfigurator $container): void
     {
-        $origin = rtrim($this->settings['origin'], '/');
+        // Every runtime-specific value is an environment variable that DemoRuntimeSettings serves from this
+        // runtime's settings.json, so nothing here depends on which runtime the container was compiled for.
+        $origin = '%env(DEMO_RUNTIME_ORIGIN)%';
+        $runtime = '%env(DEMO_RUNTIME_DIRECTORY)%';
         $container->extension('framework', [
-            'secret' => $this->settings['app_secret'],
+            'secret' => '%env(DEMO_RUNTIME_SECRET)%',
             'test' => 'test' === $this->environment,
             'router' => ['utf8' => true],
             'http_method_override' => false,
             'handle_all_throwables' => true,
-            'trusted_hosts' => ['^'.preg_quote($this->settings['rp_id'], '/').'$'],
+            'trusted_hosts' => ['%env(DEMO_RUNTIME_TRUSTED_HOST)%'],
             // The public copy runs behind a local tunnel; only localhost may forward the original scheme and host.
             'trusted_proxies' => '127.0.0.1,::1',
             'trusted_headers' => ['x-forwarded-for', 'x-forwarded-proto', 'x-forwarded-host'],
             'session' => [
-                'handler_id' => null, 'save_path' => $this->runtimeDirectory.'/sessions',
+                'handler_id' => null, 'save_path' => $runtime.'/sessions',
                 'cookie_secure' => 'auto', 'cookie_httponly' => true, 'cookie_samesite' => 'lax',
                 'storage_factory_id' => 'test' === $this->environment ? 'session.storage.factory.mock_file' : 'session.storage.factory.native',
             ],
             'csrf_protection' => true,
             'form' => true,
             'validation' => ['email_validation_mode' => 'html5'],
-            // Locks for the rate limiters and the phone code's single redemption, next to this runtime's other files.
-            'lock' => 'flock://'.$this->runtimeDirectory.'/locks',
+            // Each runtime's cache pools (rate-limit state, phone codes) stay its own.
+            'cache' => ['directory' => $runtime.'/cache/pools'],
+            // Locks for the rate limiters and the phone code's single redemption.
+            'lock' => 'flock',
             'rate_limiter' => [
-                'demo_passkey_enrollment' => ['policy' => 'fixed_window', 'limit' => $this->settings['enrollment_attempts_per_minute'] ?? 10, 'interval' => '1 minute'],
-                'demo_oauth_registration' => ['policy' => 'fixed_window', 'limit' => $this->settings['registration_attempts_per_minute'] ?? 10, 'interval' => '1 minute'],
+                'demo_passkey_enrollment' => ['policy' => 'fixed_window', 'limit' => '%env(int:DEMO_RUNTIME_ENROLLMENT_ATTEMPTS)%', 'interval' => '1 minute'],
+                'demo_oauth_registration' => ['policy' => 'fixed_window', 'limit' => '%env(int:DEMO_RUNTIME_REGISTRATION_ATTEMPTS)%', 'interval' => '1 minute'],
             ],
         ]);
         $container->extension('twig', ['strict_variables' => true]);
@@ -157,24 +186,24 @@ final class DemoKernel extends Kernel
             'name' => 'Verified Human Approval demo', 'version' => '0.1.0',
             'instructions' => 'Riverside Council public alerts. The draft evacuation alert is riverside-evacuation: read it with read_alert, then ask to issue it with publish_alert. If approval is required, show the review URL; only the person’s own passkey on the site can approve. Call approval_status afterwards and never say the alert is live while it is pending. If a retried call is refused, call approval_status with the request id instead of asking again.',
             'transports' => ['http' => true, 'stdio' => false],
-            'http' => ['path' => '/mcp', 'allowed_hosts' => [$this->settings['rp_id']]],
+            'http' => ['path' => '/mcp', 'allowed_hosts' => ['%env(DEMO_RUNTIME_RP_ID)%']],
             // Handshake-era clients (Claude Desktop, claude.ai) keep a session, and the card polls it while the
             // model calls tools: the lock serializes those requests so none overwrites what another saved.
-            'session' => ['store' => 'file', 'directory' => $this->runtimeDirectory.'/mcp', 'lock' => ['enabled' => true]],
+            'session' => ['store' => 'file', 'directory' => $runtime.'/mcp', 'lock' => ['enabled' => true]],
             // The signed state a URL-mode elicitation's retry carries. Its own key, derived from the application
             // secret, and a lifetime past the proposal's, so a retry after a slow approval still reads the outcome.
-            'request_state' => ['key' => hash_hmac('sha256', 'mcp-request-state', $this->settings['app_secret']), 'ttl' => DemoPolicyProvider::LIFETIME_SECONDS + 300],
+            'request_state' => ['key' => '%env(DEMO_RUNTIME_REQUEST_STATE_KEY)%', 'ttl' => DemoPolicyProvider::LIFETIME_SECONDS + 300],
             'registry' => ['tools' => [DemoTools::class, ApprovalStatusTool::class, ApprovalHandoffTool::class], 'apps' => [ApprovalCardApp::class]],
         ]]]);
         $container->extension('verified_human_approval', [
-            'public_origin' => $this->settings['origin'], 'actor_provider' => DemoActorProvider::class,
+            'public_origin' => $origin, 'actor_provider' => DemoActorProvider::class,
             'policy_provider' => DemoPolicyProvider::class, 'authorizer' => DemoAuthorizer::class,
             'store' => PdoApprovalStore::class, 'verifier' => WebAuthnVerifier::class,
             // Names the agent connection on the review page, so an agent's request never looks like the person's own.
             'requester_label' => DemoRequesterLabel::class,
             // Each receipt is signed as the action commits, so a later edit to the record shows.
             'receipt_signer' => SodiumEvidenceSigner::class,
-            'attempts_per_minute' => $this->settings['approval_attempts_per_minute'] ?? 30,
+            'attempts_per_minute' => '%env(int:DEMO_RUNTIME_APPROVAL_ATTEMPTS)%',
             // The framework's lock, which a multi-host deployment would back with a shared store.
             'lock_factory' => 'lock.factory',
             // Claude Code shows URL-mode elicitation (2.1.287 and later); other clients get the card and link.
@@ -183,19 +212,21 @@ final class DemoKernel extends Kernel
 
         $services = $container->services()->defaults()->autowire()->autoconfigure();
         $services->load('VerifiedHumanApproval\\Demo\\', __DIR__.'/')->exclude([__DIR__.'/DemoKernel.php', __DIR__.'/DemoSetup.php', __DIR__.'/Security/DemoUser.php']);
-        $services->set(\PDO::class, \PDO::class)->factory([DemoDatabase::class, 'connect'])->args([$this->runtimeDirectory.'/application.sqlite']);
+        $services->set(DemoRuntimeSettings::class)->autoconfigure(false)->args([service('kernel')])->tag('container.env_var_loader');
+        $services->set(\PDO::class, \PDO::class)->factory([DemoDatabase::class, 'connect'])->args([$runtime.'/application.sqlite']);
         $services->set(PdoApprovalStore::class);
         $services->set(PdoCredentialRepository::class);
         // Approvals accept only passkeys whose signed enrollment record vouches for them.
-        $services->set(AuditLog::class)->args([service(\PDO::class), service(SodiumEvidenceSigner::class), $this->settings['receipt_public_key'], service('verified_human_approval.clock')]);
+        $services->set(AuditLog::class)->args([service(\PDO::class), service(SodiumEvidenceSigner::class), '%env(DEMO_RUNTIME_RECEIPT_PUBLIC_KEY)%', service('verified_human_approval.clock')]);
         $services->set(AnchoredCredentialRepository::class);
         $services->alias(CredentialRepository::class, AnchoredCredentialRepository::class);
-        $services->set(Configuration::class)->args([$this->settings['rp_id'], $this->settings['origin']]);
+        $services->set(Configuration::class)->args(['%env(DEMO_RUNTIME_RP_ID)%', $origin]);
         $services->set(WebAuthnVerifier::class);
-        $services->set(SodiumEvidenceSigner::class, SodiumEvidenceSigner::class)->factory([SodiumEvidenceSigner::class, 'fromEncoded'])->args([$this->settings['receipt_key_id'], $this->settings['receipt_secret_key']]);
+        $services->set(SodiumEvidenceSigner::class, SodiumEvidenceSigner::class)->factory([SodiumEvidenceSigner::class, 'fromEncoded'])->args(['%env(DEMO_RUNTIME_RECEIPT_KEY_ID)%', '%env(DEMO_RUNTIME_RECEIPT_SECRET_KEY)%']);
         $services->set(EvidenceExporter::class)->args([service(SodiumEvidenceSigner::class)]);
         // One description of the protected resource (RFC 9728): served at /.well-known and named in every 401.
         $services->set(ProtectedResourceMetadata::class)->args([$origin.'/mcp', [$origin], OAuthServer::SCOPES, 'Riverside Council public alerts']);
+        $services->get(PublishAlert::class)->arg('$layoutFiles', '%env(json:DEMO_RUNTIME_LAYOUT_FILES)%');
         $services->get(AccountController::class)->arg('$limiter', service('limiter.demo_passkey_enrollment'));
         $services->get(OAuthController::class)->arg('$origin', $origin)->arg('$registrationLimiter', service('limiter.demo_oauth_registration'));
     }

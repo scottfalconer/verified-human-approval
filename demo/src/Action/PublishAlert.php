@@ -12,7 +12,8 @@ use VerifiedHumanApproval\Demo\DemoDatabase;
 
 final readonly class PublishAlert implements ActionAdapter
 {
-    public function __construct(private DemoDatabase $database, private AlertPublisher $publisher)
+    /** @param list<string>|null $layoutFiles the public page's template and stylesheet; the demo's own when null */
+    public function __construct(private DemoDatabase $database, private AlertPublisher $publisher, private ?array $layoutFiles = null)
     {
     }
     public const ID = 'alert.publish';
@@ -26,8 +27,12 @@ final readonly class PublishAlert implements ActionAdapter
     public function version(): string
     {
         $site = \dirname(__DIR__, 2);
+        $content = '';
+        foreach ($this->layoutFiles ?? [$site.'/templates/public/_page.html.twig', $site.'/assets/riverside.css'] as $file) {
+            $content .= (string) file_get_contents($file);
+        }
 
-        return '2:'.substr(hash('sha256', (string) file_get_contents($site.'/templates/public/_page.html.twig').(string) file_get_contents($site.'/assets/riverside.css')), 0, 16);
+        return '2:'.substr(hash('sha256', $content), 0, 16);
     }
 
     public function prepare(Actor $actor, array $input): PreparedAction

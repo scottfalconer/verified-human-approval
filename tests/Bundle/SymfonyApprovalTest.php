@@ -432,20 +432,21 @@ final class SymfonyApprovalTest extends TestCase
 
     public function testChangingThePublicPageLayoutAfterReviewInvalidatesTheApproval(): void
     {
-        $template = \dirname(__DIR__, 2).'/demo/templates/public/_page.html.twig';
-        $original = (string) file_get_contents($template);
+        $site = \dirname(__DIR__, 2).'/demo';
         $id = $this->requestAction();
+        $this->enroll($this->browser('editor'));
+        // A deploy changes the alerts page's layout after the person reviewed it: the site now serves a
+        // changed copy. The repository's own template is never touched.
+        $changed = $this->runtime.'/deployed-page.html.twig';
+        file_put_contents($changed, file_get_contents($site.'/templates/public/_page.html.twig')."{# layout changed after review #}\n");
+        $settings = json_decode((string) file_get_contents($this->runtime.'/settings.json'), true, 32, \JSON_THROW_ON_ERROR);
+        $settings['layout_files'] = [$changed, $site.'/assets/riverside.css'];
+        file_put_contents($this->runtime.'/settings.json', json_encode($settings, \JSON_THROW_ON_ERROR));
+
         $browser = $this->browser('editor');
-        $this->enroll($browser);
-        try {
-            file_put_contents($template, $original."{# layout changed after review #}\n");
-            $csrf = (string) $browser->request('GET', self::ORIGIN.'/approval/'.$id)->filter('[data-passkey-panel]')->attr('data-csrf');
-            $refused = $this->post($browser, '/approval/'.$id.'/options', $csrf, []);
-            $status = $browser->getResponse()->getStatusCode();
-        } finally {
-            file_put_contents($template, $original);
-        }
-        self::assertSame(409, $status);
+        $csrf = (string) $browser->request('GET', self::ORIGIN.'/approval/'.$id)->filter('[data-passkey-panel]')->attr('data-csrf');
+        $refused = $this->post($browser, '/approval/'.$id.'/options', $csrf, []);
+        self::assertSame(409, $browser->getResponse()->getStatusCode());
         self::assertSame('implementation_changed', $refused['reason']);
         self::assertSame(0, $this->mutationCount());
     }
