@@ -56,7 +56,7 @@ with tempfile.TemporaryDirectory(prefix="verified-human-approval-http-") as temp
                 raise AssertionError(agent.stderr)
             assert "pending" in agent.stdout and "review_url" in agent.stdout, agent.stdout
             with sqlite3.connect(runtime / "application.sqlite") as db:
-                assert db.execute("SELECT mutation_count FROM demo_announcements WHERE id='riverside-evacuation'").fetchone()[0] == 0
+                assert db.execute("SELECT mutation_count FROM demo_alerts WHERE id='riverside-evacuation'").fetchone()[0] == 0
                 assert db.execute("SELECT COUNT(*) FROM verified_human_approval_executions").fetchone()[0] == 0
             print(json.dumps({"passed": True, "checks": ["real HTTP MCP discovery", "read the draft alert", "request returns approval URL", "status remains pending", "request retry reuses proposal", "Symfony AI Agent + McpToolbox over real HTTP", "zero protected mutations without human approval"], "transport": "official MCP SDK and Symfony MCP Bundle", "live_model_calls": 0, "model_mode": "Symfony MockPlatformFactory scripted responses", "browser_or_physical_device_tested": False}, indent=2))
         finally:

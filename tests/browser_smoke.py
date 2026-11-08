@@ -57,7 +57,7 @@ def main():
             def row():
                 with sqlite3.connect(runtime / "application.sqlite") as db:
                     db.row_factory = sqlite3.Row
-                    return dict(db.execute("SELECT * FROM demo_announcements WHERE id = 'riverside-evacuation'").fetchone())
+                    return dict(db.execute("SELECT * FROM demo_alerts WHERE id = 'riverside-evacuation'").fetchone())
 
             catalogue = mcp("list")
             names = {tool["name"] for tool in catalogue["tools"]}
@@ -117,11 +117,11 @@ def main():
 
                 # Stage a *new* draft through a versioned writer, request approval, then change it after review.
                 with sqlite3.connect(runtime / "application.sqlite") as db:
-                    db.execute("UPDATE demo_announcements SET revision = revision + 1, body = body || ' New draft.' WHERE id = 'riverside-evacuation'")
+                    db.execute("UPDATE demo_alerts SET revision = revision + 1, body = body || ' New draft.' WHERE id = 'riverside-evacuation'")
                 pending = mcp("publish", "riverside-evacuation", "browser-stale-two")["structuredContent"]
                 page.goto(pending["review_url"])
                 with sqlite3.connect(runtime / "application.sqlite") as db:
-                    db.execute("UPDATE demo_announcements SET revision = revision + 1, body = body || ' Changed after review.' WHERE id = 'riverside-evacuation'")
+                    db.execute("UPDATE demo_alerts SET revision = revision + 1, body = body || ' Changed after review.' WHERE id = 'riverside-evacuation'")
                 page.locator("[data-approve]").click()
                 expect(page.locator("[data-message]")).to_contain_text("no longer eligible", timeout=15000)
                 stale = mcp("status", pending["requestId"])["structuredContent"]

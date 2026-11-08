@@ -176,7 +176,7 @@ final readonly class PublishAlertTool
         // The flow returns the card's result, or for an opted-in client a URL-mode elicitation.
         return $this->flow->respond(
             $context, $actor, 'publish_alert', ['alert_id' => $alert_id, 'request_key' => $request_key],
-            fn (): ApprovalState => $this->approvals->request($actor, 'announcement.publish', ['announcement_id' => $alert_id], $request_key),
+            fn (): ApprovalState => $this->approvals->request($actor, 'alert.publish', ['alert_id' => $alert_id], $request_key),
         );
     }
 }
@@ -188,16 +188,16 @@ The completion route accepts a ceremony identifier and a WebAuthn response only.
 
 ## Register an action and protect its mutation
 
-The reusable core's `ActionAdapter` separates preparation, preconditions, execution and postconditions. The demo adapter is `demo/src/Action/PublishAnnouncement.php`.
+The reusable core's `ActionAdapter` separates preparation, preconditions, execution and postconditions. The demo adapter is `demo/src/Action/PublishAlert.php`.
 
 It freezes:
 
-- Application, environment, tenant and target announcement.
+- Application, environment, tenant and target alert.
 - Source revision, title and body.
 - Current published-revision precondition and intended published state.
 - Action behavior version, policy version and exact resolved statement.
 
-`AnnouncementPublisher::publish()` calls `ExecutionGuard::assertExecuting()` before its conditional SQL update. The execution context exists only while the core is applying a validated stored action. Calling the same publisher directly without that context fails. Browser publication and MCP publication both enter through `ApprovalService`.
+`AlertPublisher::publish()` calls `ExecutionGuard::assertExecuting()` before its conditional SQL update. The execution context exists only while the core is applying a validated stored action. Calling the same publisher directly without that context fails. Browser publication and MCP publication both enter through `ApprovalService`.
 
 An action's execution and postconditions must use the **same transaction and PDO connection** as approval consumption, credential counter updates and the execution record. The supplied `PdoApprovalStore` is a SQLite reference adapter. It does not automatically enlist a different ORM connection, remote database, email send or downstream MCP call. Integrate another database by implementing the store's transaction contract and running its concurrency/rollback tests.
 

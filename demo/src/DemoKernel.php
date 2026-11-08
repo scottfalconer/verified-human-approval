@@ -227,8 +227,8 @@ final class DemoKernel extends Kernel
         $routes->add('demo_audit_connection_revoke', '/admin/audit/connections/{id}/revoke')->controller([AuditController::class, 'revokeConnection'])->methods(['POST'])->defaults($private);
         $routes->add('demo_audit_link', '/admin/audit/links')->controller([AuditController::class, 'issueLink'])->methods(['POST'])->defaults($private);
         $routes->add('demo_policy', '/admin/approval-policy')->controller([DemoController::class, 'policy'])->methods(['GET', 'POST'])->defaults($private);
-        $routes->add('demo_request_publication', '/announcements/{id}/publish')->controller([DemoController::class, 'requestPublication'])->methods(['POST'])->defaults($private);
-        $routes->add('demo_edit_draft', '/announcements/{id}/draft')->controller([DemoController::class, 'editDraft'])->methods(['POST'])->defaults($private);
+        $routes->add('demo_publish_alert', '/alerts/{id}/publish')->controller([DemoController::class, 'requestPublication'])->methods(['POST'])->defaults($private);
+        $routes->add('demo_edit_alert', '/alerts/{id}/draft')->controller([DemoController::class, 'editDraft'])->methods(['POST'])->defaults($private);
         $routes->add('oauth_protected_resource', '/.well-known/oauth-protected-resource')->controller([OAuthController::class, 'protectedResource'])->methods(['GET']);
         $routes->add('oauth_protected_resource_mcp', '/.well-known/oauth-protected-resource/mcp')->controller([OAuthController::class, 'protectedResource'])->methods(['GET']);
         $routes->add('oauth_metadata', '/.well-known/oauth-authorization-server')->controller([OAuthController::class, 'authorizationServer'])->methods(['GET']);

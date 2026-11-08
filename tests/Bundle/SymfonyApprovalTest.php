@@ -15,8 +15,8 @@ use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ChallengeBinding;
 use VerifiedHumanApproval\Core\ExecutionGuard;
-use VerifiedHumanApproval\Demo\Action\AnnouncementPublisher;
-use VerifiedHumanApproval\Demo\Action\PublishAnnouncement;
+use VerifiedHumanApproval\Demo\Action\AlertPublisher;
+use VerifiedHumanApproval\Demo\Action\PublishAlert;
 use VerifiedHumanApproval\Demo\DemoDatabase;
 use VerifiedHumanApproval\Demo\DemoKernel;
 use VerifiedHumanApproval\Demo\DemoSetup;
@@ -88,7 +88,7 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame('completed', $completed['status']);
         self::assertSame('published', $completed['result']['disposition']);
         self::assertSame(1, $this->mutationCount());
-        $row = $this->database->announcement('riverside-evacuation');
+        $row = $this->database->alert('riverside-evacuation');
         self::assertSame($row['title'], $row['published_title']);
         self::assertSame($row['body'], $row['published_body']);
 
@@ -114,7 +114,7 @@ final class SymfonyApprovalTest extends TestCase
         $browser = $this->browser('editor');
         $authenticator = $this->enroll($browser);
         [$csrf, $ceremony] = $this->begin($browser, $id);
-        $this->database->pdo->exec("UPDATE demo_announcements SET body = body || '!', revision = revision + 1 WHERE id = 'riverside-evacuation'");
+        $this->database->pdo->exec("UPDATE demo_alerts SET body = body || '!', revision = revision + 1 WHERE id = 'riverside-evacuation'");
         $result = $this->post($browser, '/approval/'.$id.'/complete', $csrf, ['ceremony_id' => $ceremony['ceremony_id'], 'credential' => $authenticator->assertion($ceremony['publicKey'])]);
         self::assertSame('invalidated', $result['status']);
         self::assertSame('stale_resource', $result['reason']);
@@ -169,7 +169,7 @@ final class SymfonyApprovalTest extends TestCase
             self::assertStringEndsWith('/login', (string) $browser->getResponse()->headers->get('Location'));
         }
         self::assertSame(0, (int) $this->database->pdo->query('SELECT COUNT(*) FROM verified_human_approval_credentials')->fetchColumn());
-        self::assertSame(1, (int) $this->database->policy('announcement.publish')['version']);
+        self::assertSame(1, (int) $this->database->policy('alert.publish')['version']);
         self::assertSame(0, $this->mutationCount());
     }
 
@@ -230,11 +230,11 @@ final class SymfonyApprovalTest extends TestCase
 
     public function testDirectPublicationServiceCannotBypassTheApplicationGuard(): void
     {
-        $publisher = new AnnouncementPublisher($this->database, new ExecutionGuard());
-        $adapter = new PublishAnnouncement($this->database, $publisher);
+        $publisher = new AlertPublisher($this->database, new ExecutionGuard());
+        $adapter = new PublishAlert($this->database, $publisher);
         $actor = new Actor('editor', 'campaigns');
         try {
-            $publisher->publish($actor, $adapter->prepare($actor, ['announcement_id' => 'riverside-evacuation']));
+            $publisher->publish($actor, $adapter->prepare($actor, ['alert_id' => 'riverside-evacuation']));
             self::fail('Direct publication should require the approval execution context.');
         } catch (ApprovalException $error) {
             self::assertSame('approval_required', $error->reason);
@@ -249,7 +249,7 @@ final class SymfonyApprovalTest extends TestCase
         self::assertFalse($request->isError);
         $id = $request->structuredContent['requestId'];
         $this->database->pdo->prepare("UPDATE demo_grants SET scopes = ? WHERE id = 'editor-personal'")
-            ->execute([json_encode(['announcement.read', 'announcement.publish'], \JSON_THROW_ON_ERROR)]);
+            ->execute([json_encode(['alert.read', 'alert.publish'], \JSON_THROW_ON_ERROR)]);
         $status = $client->callTool('approval_status', ['request_id' => $id]);
         self::assertTrue($status->isError);
         self::assertNull($status->structuredContent);
@@ -278,13 +278,13 @@ final class SymfonyApprovalTest extends TestCase
 
         // Proposing a change changes nothing.
         $proposal = $this->proposeRule($browser, ['approval_policy[statement]' => 'I approve exactly “{{title}}” revision {{revision}}.']);
-        self::assertSame(1, (int) $this->database->policy('announcement.publish')['version'], 'Nothing changes on a password session alone.');
+        self::assertSame(1, (int) $this->database->policy('alert.publish')['version'], 'Nothing changes on a password session alone.');
         $review = $browser->request('GET', self::ORIGIN.'/approval/'.$proposal);
         self::assertStringContainsString('Change who can issue public alerts', $review->filter('h1')->text());
         self::assertStringContainsString('The statement approvers confirm', $review->filter('.statement')->first()->text());
         // The administrator approves the exact change with their own passkey.
         self::assertSame('completed', $this->approveWith($browser, $proposal, $managerKey)['status']);
-        self::assertSame(2, (int) $this->database->policy('announcement.publish')['version']);
+        self::assertSame(2, (int) $this->database->policy('alert.publish')['version']);
 
         $crawler = $staff->request('GET', self::ORIGIN.'/approval/'.$id);
         $csrf = (string) $crawler->filter('[data-passkey-panel]')->attr('data-csrf');
@@ -684,6 +684,6 @@ final class SymfonyApprovalTest extends TestCase
 
     private function mutationCount(): int
     {
-        return (int) $this->database->announcement('riverside-evacuation')['mutation_count'];
+        return (int) $this->database->alert('riverside-evacuation')['mutation_count'];
     }
 }

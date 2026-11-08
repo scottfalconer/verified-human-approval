@@ -21,7 +21,7 @@ use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalPolicy;
 use VerifiedHumanApproval\Core\ApprovalService;
 use VerifiedHumanApproval\Demo\Action\ChangeAlertRule;
-use VerifiedHumanApproval\Demo\Action\PublishAnnouncement;
+use VerifiedHumanApproval\Demo\Action\PublishAlert;
 use VerifiedHumanApproval\Demo\DemoDatabase;
 use VerifiedHumanApproval\Demo\Form\ApprovalPolicyType;
 
@@ -31,7 +31,7 @@ final readonly class DemoController
         private DemoDatabase $database,
         private ActorProvider $actors,
         private ApprovalService $approvals,
-        private PublishAnnouncement $action,
+        private PublishAlert $action,
         private CsrfTokenManagerInterface $csrf,
         private FormFactoryInterface $forms,
         private Security $security,
@@ -43,10 +43,10 @@ final readonly class DemoController
     public function home(): Response
     {
         $actor = $this->actors->interactive();
-        $query = $this->database->pdo->prepare('SELECT * FROM demo_announcements WHERE tenant_id = ? ORDER BY id');
+        $query = $this->database->pdo->prepare('SELECT * FROM demo_alerts WHERE tenant_id = ? ORDER BY id');
         $query->execute([$actor->tenantId]);
 
-        return new Response($this->twig->render('home.html.twig', ['announcements' => $query->fetchAll(), 'actor' => $actor]));
+        return new Response($this->twig->render('home.html.twig', ['alerts' => $query->fetchAll(), 'actor' => $actor]));
     }
 
     public function requestPublication(Request $request, string $id): Response
@@ -56,7 +56,7 @@ final readonly class DemoController
             throw new AccessDeniedException('Invalid CSRF token.');
         }
         try {
-            $state = $this->approvals->request($actor, 'announcement.publish', ['announcement_id' => $id]);
+            $state = $this->approvals->request($actor, 'alert.publish', ['alert_id' => $id]);
         } catch (ApprovalException $error) {
             throw new AccessDeniedException($error->getMessage());
         }
@@ -76,7 +76,7 @@ final readonly class DemoController
             throw new BadRequestHttpException('Invalid draft content.');
         }
         // Editing a draft cannot update any published field. Pending approvals will become stale.
-        $query = $this->database->pdo->prepare('UPDATE demo_announcements SET title = ?, body = ?, revision = revision + 1 WHERE id = ? AND tenant_id = ?');
+        $query = $this->database->pdo->prepare('UPDATE demo_alerts SET title = ?, body = ?, revision = revision + 1 WHERE id = ? AND tenant_id = ?');
         $query->execute([$title, $body, $id, $actor->tenantId]);
 
         return new RedirectResponse('/');
@@ -92,8 +92,8 @@ final readonly class DemoController
         if (!$this->security->isGranted('ROLE_ADMIN')) {
             throw new AccessDeniedException('Policy administration requires a human administrator session.');
         }
-        $row = $this->database->policy('announcement.publish') ?? throw new \RuntimeException('This demo has no alert policy. Start a fresh one with: php demo/bin/setup.php --reset');
-        $modes = ['manager' => $this->database->roleMode('announcement.publish', 'manager') ?? 'denied', 'staff' => $this->database->roleMode('announcement.publish', 'staff') ?? 'denied'];
+        $row = $this->database->policy('alert.publish') ?? throw new \RuntimeException('This demo has no alert policy. Start a fresh one with: php demo/bin/setup.php --reset');
+        $modes = ['manager' => $this->database->roleMode('alert.publish', 'manager') ?? 'denied', 'staff' => $this->database->roleMode('alert.publish', 'staff') ?? 'denied'];
         $form = $this->forms->create(ApprovalPolicyType::class, $modes + ['statement' => $row['statement'], 'version' => (string) $row['version']]);
         $form->handleRequest($request);
         if ($form->isSubmitted() && $form->isValid()) {
@@ -110,7 +110,7 @@ final readonly class DemoController
                 }
             }
         }
-        $preview = (new ApprovalPolicy('announcement.publish', (string) $row['version'], $row['statement']))->statement($this->action->prepare($actor, ['announcement_id' => 'riverside-evacuation']));
+        $preview = (new ApprovalPolicy('alert.publish', (string) $row['version'], $row['statement']))->statement($this->action->prepare($actor, ['alert_id' => 'riverside-evacuation']));
 
         return new Response($this->twig->render('policy.html.twig', ['form' => $form->createView(), 'preview' => $preview]));
     }

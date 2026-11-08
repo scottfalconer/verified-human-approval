@@ -49,7 +49,7 @@ final class OAuthTest extends TestCase
         self::assertSame(401, $api->getResponse()->getStatusCode());
         $challenge = (string) $api->getResponse()->headers->get('WWW-Authenticate');
         self::assertStringContainsString('resource_metadata="'.self::ORIGIN.'/.well-known/oauth-protected-resource/mcp"', $challenge, 'The challenge names the metadata URL the SDK derives for the resource (RFC 9728 §3.1).');
-        self::assertStringContainsString('scope="announcement.read announcement.publish approval.read"', $challenge, 'The challenge names the scopes an agent needs.');
+        self::assertStringContainsString('scope="alert.read alert.publish approval.read"', $challenge, 'The challenge names the scopes an agent needs.');
         self::assertSame($this->json($api, 'GET', '/.well-known/oauth-protected-resource'), $this->json($api, 'GET', '/.well-known/oauth-protected-resource/mcp'));
 
         $resource = $this->json($api, 'GET', '/.well-known/oauth-protected-resource');

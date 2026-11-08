@@ -88,7 +88,7 @@ final class HandoffTest extends TestCase
         $done = $this->post($phone, '/approval/'.$id.'/complete', $csrf, ['ceremony_id' => $ceremony['ceremony_id'], 'credential' => $authenticator->assertion($ceremony['publicKey'])]);
         self::assertSame('completed', $done['status'], 'Approved on the phone with the person’s own passkey.');
         $database = new DemoDatabase(DemoDatabase::connect($this->runtime.'/application.sqlite'));
-        self::assertSame(1, (int) $database->announcement('riverside-evacuation')['mutation_count']);
+        self::assertSame(1, (int) $database->alert('riverside-evacuation')['mutation_count']);
         self::assertSame('completed', $agent->callTool('approval_status', ['request_id' => $id])->structuredContent['status'], 'The card on the computer sees the outcome.');
     }
 
@@ -101,7 +101,7 @@ final class HandoffTest extends TestCase
         $limited = 'limited-'.bin2hex(random_bytes(16));
         $database = new DemoDatabase(DemoDatabase::connect($this->runtime.'/application.sqlite'));
         $database->pdo->prepare('INSERT INTO demo_grants (id, user_id, tenant_id, token_hash, scopes) VALUES (?, ?, ?, ?, ?)')
-            ->execute(['editor-limited', 'editor', 'campaigns', hash('sha256', $limited), '["announcement.read","announcement.publish"]']);
+            ->execute(['editor-limited', 'editor', 'campaigns', hash('sha256', $limited), '["alert.read","alert.publish"]']);
         $this->accounts['limited'] = ['personal_token' => $limited];
         $refused = $this->mcp('limited')->callTool('approval_handoff', ['request_id' => $id]);
         self::assertTrue($refused->isError, 'A connection that may not read results cannot open the review elsewhere either.');

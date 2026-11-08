@@ -147,7 +147,7 @@ final class AccountAndAuditTest extends TestCase
 
     public function testATakeDownIsRecordedAndTheLogShowsEdits(): void
     {
-        $this->database->pdo->exec("UPDATE demo_announcements SET published_revision = revision, published_title = title, published_body = body WHERE id = 'riverside-evacuation'");
+        $this->database->pdo->exec("UPDATE demo_alerts SET published_revision = revision, published_title = title, published_body = body WHERE id = 'riverside-evacuation'");
         $tester = new \Symfony\Component\Console\Tester\CommandTester((new \Symfony\Bundle\FrameworkBundle\Console\Application($this->kernel()))->find('demo:all-clear'));
         $tester->execute([]);
         self::assertStringContainsString('The take-down is in the audit log', $tester->getDisplay());
@@ -208,7 +208,7 @@ final class AccountAndAuditTest extends TestCase
         $id = $this->mcp($user)->callTool('publish_alert', ['alert_id' => 'riverside-evacuation', 'request_key' => bin2hex(random_bytes(8))])->structuredContent['requestId'];
         $result = $this->approve($this->signedIn($user), $id, $passkey);
         if (($result['status'] ?? null) === 'completed') {
-            $this->database->pdo->exec('UPDATE demo_announcements SET published_revision = NULL, published_title = NULL, published_body = NULL');
+            $this->database->pdo->exec('UPDATE demo_alerts SET published_revision = NULL, published_title = NULL, published_body = NULL');
 
             return true;
         }

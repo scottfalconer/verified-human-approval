@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS demo_oauth_codes (
     scopes TEXT NOT NULL, code_challenge TEXT NOT NULL, expires_at INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0,
     client_name TEXT
 );
-CREATE TABLE IF NOT EXISTS demo_announcements (
+CREATE TABLE IF NOT EXISTS demo_alerts (
     id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, revision INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,
     published_revision INTEGER, published_title TEXT, published_body TEXT, mutation_count INTEGER NOT NULL DEFAULT 0
 );
@@ -86,9 +86,9 @@ SQL);
         return $query->fetch() ?: null;
     }
 
-    public function announcement(string $id): ?array
+    public function alert(string $id): ?array
     {
-        $query = $this->pdo->prepare('SELECT * FROM demo_announcements WHERE id = ?');
+        $query = $this->pdo->prepare('SELECT * FROM demo_alerts WHERE id = ?');
         $query->execute([$id]);
 
         return $query->fetch() ?: null;
@@ -161,7 +161,7 @@ SQL);
     /** @return array<string, mixed>|null */
     public function liveAlert(): ?array
     {
-        $query = $this->pdo->prepare('SELECT * FROM demo_announcements WHERE published_revision IS NOT NULL ORDER BY id LIMIT 1');
+        $query = $this->pdo->prepare('SELECT * FROM demo_alerts WHERE published_revision IS NOT NULL ORDER BY id LIMIT 1');
         $query->execute();
 
         return $query->fetch() ?: null;

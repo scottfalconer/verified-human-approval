@@ -23,7 +23,7 @@ final readonly class ChangeAlertRule implements ActionAdapter
     public const MODES = ['direct' => 'Issue alerts directly', 'approval' => 'Issue alerts only with verified human approval', 'denied' => 'Cannot issue alerts'];
     private const ROLES = ['manager' => 'Emergency manager', 'staff' => 'County staff'];
 
-    public function __construct(private DemoDatabase $database, private ExecutionGuard $guard, private PublishAnnouncement $alerts)
+    public function __construct(private DemoDatabase $database, private ExecutionGuard $guard, private PublishAlert $alerts)
     {
     }
 
@@ -49,7 +49,7 @@ final readonly class ChangeAlertRule implements ActionAdapter
         }
         // The new statement must render for a real alert before anyone can approve it.
         try {
-            (new ApprovalPolicy(PublishAnnouncement::ID, 'preview', $statement))->statement($this->alerts->prepare($actor, ['announcement_id' => 'riverside-evacuation']));
+            (new ApprovalPolicy(PublishAlert::ID, 'preview', $statement))->statement($this->alerts->prepare($actor, ['alert_id' => 'riverside-evacuation']));
         } catch (\InvalidArgumentException $error) {
             throw new ApprovalException('invalid_policy', $error->getMessage());
         }
@@ -90,13 +90,13 @@ final readonly class ChangeAlertRule implements ActionAdapter
     {
         $this->guard->assertExecuting($actor, $action);
         $policy = $this->database->pdo->prepare('UPDATE demo_policies SET version = version + 1, statement = ? WHERE action_id = ? AND version = ?');
-        $policy->execute([$action->effect['statement'], PublishAnnouncement::ID, $action->preconditions['version']]);
+        $policy->execute([$action->effect['statement'], PublishAlert::ID, $action->preconditions['version']]);
         if (1 !== $policy->rowCount()) {
             throw new ApprovalException('stale_resource', 'The rule changed. Nothing was changed.');
         }
         $rule = $this->database->pdo->prepare('UPDATE demo_role_policies SET mode = ? WHERE action_id = ? AND role = ?');
         foreach (array_keys(self::ROLES) as $role) {
-            $rule->execute([$action->effect[$role], PublishAnnouncement::ID, $role]);
+            $rule->execute([$action->effect[$role], PublishAlert::ID, $role]);
         }
 
         return ['disposition' => 'rule_changed', 'version' => $action->preconditions['version'] + 1];
@@ -114,12 +114,12 @@ final readonly class ChangeAlertRule implements ActionAdapter
     /** @return array{version: int, statement: string, manager: string, staff: string} */
     private function current(): array
     {
-        $policy = $this->database->policy(PublishAnnouncement::ID) ?? throw new ApprovalException('policy_missing', 'No rule is configured.');
+        $policy = $this->database->policy(PublishAlert::ID) ?? throw new ApprovalException('policy_missing', 'No rule is configured.');
 
         return [
             'version' => (int) $policy['version'], 'statement' => (string) $policy['statement'],
-            'manager' => $this->database->roleMode(PublishAnnouncement::ID, 'manager') ?? 'denied',
-            'staff' => $this->database->roleMode(PublishAnnouncement::ID, 'staff') ?? 'denied',
+            'manager' => $this->database->roleMode(PublishAlert::ID, 'manager') ?? 'denied',
+            'staff' => $this->database->roleMode(PublishAlert::ID, 'staff') ?? 'denied',
         ];
     }
 }

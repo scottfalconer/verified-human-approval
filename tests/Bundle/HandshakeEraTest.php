@@ -103,6 +103,6 @@ final class HandshakeEraTest extends TestCase
 
     private function mutationCount(): int
     {
-        return (int) $this->database->announcement('riverside-evacuation')['mutation_count'];
+        return (int) $this->database->alert('riverside-evacuation')['mutation_count'];
     }
 }

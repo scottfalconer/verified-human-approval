@@ -87,7 +87,7 @@ def main() -> None:
                         time.sleep(0.1)
                 report = run_claude(config, work, origin, editor["password"], editor["passkey_link"])
                 with sqlite3.connect(work / "runtime/application.sqlite") as db:
-                    report["committed_effects"] = db.execute("SELECT mutation_count FROM demo_announcements WHERE id = 'riverside-evacuation'").fetchone()[0]
+                    report["committed_effects"] = db.execute("SELECT mutation_count FROM demo_alerts WHERE id = 'riverside-evacuation'").fetchone()[0]
             finally:
                 server.terminate()
                 server.wait(timeout=10)

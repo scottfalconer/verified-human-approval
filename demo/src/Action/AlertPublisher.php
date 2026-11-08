@@ -11,7 +11,7 @@ use VerifiedHumanApproval\Core\PreparedAction;
 use VerifiedHumanApproval\Demo\DemoDatabase;
 
 /** The one supported publication boundary. Every application entry point uses it. */
-final readonly class AnnouncementPublisher
+final readonly class AlertPublisher
 {
     public function __construct(private DemoDatabase $database, private ExecutionGuard $guard)
     {
@@ -21,7 +21,7 @@ final readonly class AnnouncementPublisher
     {
         $this->guard->assertExecuting($actor, $action);
         $query = $this->database->pdo->prepare(<<<'SQL'
-UPDATE demo_announcements
+UPDATE demo_alerts
 SET published_revision = revision, published_title = ?, published_body = ?, mutation_count = mutation_count + 1
 WHERE id = ? AND tenant_id = ? AND revision = ? AND title = ? AND body = ? AND published_revision IS ?
 SQL);
@@ -30,9 +30,9 @@ SQL);
             $action->preconditions['revision'], $action->effect['title'], $action->effect['body'], $action->preconditions['published_revision'],
         ]);
         if (1 !== $query->rowCount()) {
-            throw new ApprovalException('stale_resource', 'The announcement changed. Nothing was published.');
+            throw new ApprovalException('stale_resource', 'The alert changed. Nothing was issued.');
         }
 
-        return ['disposition' => 'published', 'announcement_id' => $action->target['resource'], 'source_revision' => $action->preconditions['revision']];
+        return ['disposition' => 'published', 'alert_id' => $action->target['resource'], 'source_revision' => $action->preconditions['revision']];
     }
 }

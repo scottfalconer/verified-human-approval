@@ -134,7 +134,7 @@ An application adopting the component supplies four things:
 3. Transactional persistence shared by application data, authority, credentials and approval records.
 4. Its trusted credential enrollment and browser account flow.
 
-Every supported entry point for the protected mutation must call a service that enforces `ExecutionGuard::assertExecuting()`. The example’s MCP and web publication routes use the same `AnnouncementPublisher`. A decorator cannot automatically protect arbitrary application writes or raw SQL.
+Every supported entry point for the protected mutation must call a service that enforces `ExecutionGuard::assertExecuting()`. The example’s MCP and web publication routes use the same `AlertPublisher`. A decorator cannot automatically protect arbitrary application writes or raw SQL.
 
 See [Symfony integration](../src/symfony-bundle/docs/index.md), [WebAuthn integration](../src/webauthn/README.md), [extension contracts](integration-contract.md), [security boundary](security-model.md) and [verification results](verification.md).
 

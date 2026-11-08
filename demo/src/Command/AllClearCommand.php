@@ -27,10 +27,10 @@ final class AllClearCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $this->pdo->beginTransaction();
-        $query = $this->pdo->prepare('SELECT id, tenant_id, published_revision, published_title FROM demo_announcements WHERE published_revision IS NOT NULL');
+        $query = $this->pdo->prepare('SELECT id, tenant_id, published_revision, published_title FROM demo_alerts WHERE published_revision IS NOT NULL');
         $query->execute();
         $live = $query->fetchAll(\PDO::FETCH_ASSOC);
-        $this->pdo->exec('UPDATE demo_announcements SET published_revision = NULL, published_title = NULL, published_body = NULL WHERE published_revision IS NOT NULL');
+        $this->pdo->exec('UPDATE demo_alerts SET published_revision = NULL, published_title = NULL, published_body = NULL WHERE published_revision IS NOT NULL');
         foreach ($live as $alert) {
             $this->audit->append($alert['tenant_id'], 'alert.taken_down', $alert['id'], ['by' => 'operator console (demo:all-clear)', 'revision' => (int) $alert['published_revision'], 'title' => $alert['published_title']]);
         }

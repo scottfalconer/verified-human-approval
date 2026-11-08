@@ -64,7 +64,7 @@ final readonly class DemoTools
 
             return $this->flow->respond(
                 $context, $actor, 'publish_alert', ['alert_id' => $alert_id, 'request_key' => $request_key],
-                fn (): ApprovalState => $this->approvals->request($actor, 'announcement.publish', ['announcement_id' => $alert_id], $request_key),
+                fn (): ApprovalState => $this->approvals->request($actor, 'alert.publish', ['alert_id' => $alert_id], $request_key),
             );
         } catch (ApprovalException $error) {
             $data = ['status' => 'rejected', 'reason' => $error->reason, 'message' => $error->getMessage()];
@@ -86,13 +86,13 @@ final readonly class DemoTools
     ): CallToolResult {
         try {
             $actor = $this->actors->current();
-            if (!self::token($context)->hasScope('announcement.read')) {
+            if (!self::token($context)->hasScope('alert.read')) {
                 return CallToolResult::error([new TextContent('Your personal connection does not allow reading alerts.')]);
             }
         } catch (ApprovalException $error) {
             return CallToolResult::error([new TextContent($error->getMessage())]);
         }
-        $row = $this->database->announcement($alert_id);
+        $row = $this->database->alert($alert_id);
         if (null === $row || $row['tenant_id'] !== $actor->tenantId) {
             return CallToolResult::error([new TextContent('This alert is unavailable for this account.')]);
         }

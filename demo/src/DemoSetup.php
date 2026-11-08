@@ -15,7 +15,7 @@ use VerifiedHumanApproval\WebAuthn\PdoCredentialRepository;
 final class DemoSetup
 {
     /** The runtime layout this code expects; an older runtime has to be reset. */
-    public const SCHEMA = 3;
+    public const SCHEMA = 4;
     private const LINK_SECONDS = 7 * 86400;
 
     /** Returns credentials once. No plaintext account password or token is stored. */
@@ -60,7 +60,7 @@ final class DemoSetup
             $token = ChallengeBinding::encode(random_bytes(32));
             $database->pdo->prepare('INSERT INTO demo_users (id, tenant_id, display_name, password_hash, can_publish, is_admin, role) VALUES (?, ?, ?, ?, ?, ?, ?)')
                 ->execute([$id, $tenant, $name, password_hash($password, \PASSWORD_DEFAULT), (int) $publish, (int) $admin, $role]);
-            $scopes = $publish ? ['announcement.read', 'announcement.publish', 'approval.read'] : ['announcement.read', 'approval.read'];
+            $scopes = $publish ? ['alert.read', 'alert.publish', 'approval.read'] : ['alert.read', 'approval.read'];
             $database->pdo->prepare('INSERT INTO demo_grants (id, user_id, tenant_id, token_hash, scopes, created_at) VALUES (?, ?, ?, ?, ?, ?)')
                 ->execute([$id.'-personal', $id, $tenant, hash('sha256', $token), json_encode($scopes, \JSON_THROW_ON_ERROR), time()]);
             // A password alone cannot add an approval passkey: each person's first one needs this one-time link.
@@ -68,13 +68,13 @@ final class DemoSetup
             $audit->append($tenant, 'passkey_link.issued', $id, ['issuedBy' => 'setup', 'expiresAt' => time() + self::LINK_SECONDS]);
             $credentials[$id] = ['password' => $password, 'personal_token' => $token, 'passkey_link' => rtrim($origin, '/').'/account/passkeys/link/'.$link];
         }
-        $database->pdo->prepare('INSERT INTO demo_announcements (id, tenant_id, revision, title, body) VALUES (?, ?, ?, ?, ?)')
+        $database->pdo->prepare('INSERT INTO demo_alerts (id, tenant_id, revision, title, body) VALUES (?, ?, ?, ?, ?)')
             ->execute(['riverside-evacuation', 'campaigns', 1, 'Evacuation order: Riverside Road area', "Water is rising fast. If you are between Mill Street and the river bridge, leave now.\nUse the Hill Street route: Riverside Road is closed.\nShelter is open at the Station Lane community centre."]);
         $database->pdo->prepare('INSERT INTO demo_policies (action_id, version, statement, required) VALUES (?, ?, ?, ?)')
-            ->execute(['announcement.publish', 1, 'I approve issuing the public alert “{{title}}” (revision {{revision}}) on {{application}}. Every resident sees it as soon as I approve.', 1]);
+            ->execute(['alert.publish', 1, 'I approve issuing the public alert “{{title}}” (revision {{revision}}) on {{application}}. Every resident sees it as soon as I approve.', 1]);
         // The administrator's rule per role: who may issue an alert, and who must verify each exact alert with a passkey.
         foreach (['manager' => 'direct', 'staff' => 'approval', 'reader' => 'denied'] as $role => $mode) {
-            $database->pdo->prepare('INSERT INTO demo_role_policies (action_id, role, mode) VALUES (?, ?, ?)')->execute(['announcement.publish', $role, $mode]);
+            $database->pdo->prepare('INSERT INTO demo_role_policies (action_id, role, mode) VALUES (?, ?, ?)')->execute(['alert.publish', $role, $mode]);
         }
         $settings = [
             'schema' => self::SCHEMA, 'origin' => $origin, 'rp_id' => $rpId, 'app_secret' => ChallengeBinding::encode(random_bytes(48)),

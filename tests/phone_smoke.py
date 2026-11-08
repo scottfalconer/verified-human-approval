@@ -101,7 +101,7 @@ def main():
         def row():
             with sqlite3.connect(runtime / "application.sqlite") as db:
                 db.row_factory = sqlite3.Row
-                return dict(db.execute("SELECT * FROM demo_announcements WHERE id = 'riverside-evacuation'").fetchone())
+                return dict(db.execute("SELECT * FROM demo_alerts WHERE id = 'riverside-evacuation'").fetchone())
 
         try:
             for _ in range(100):

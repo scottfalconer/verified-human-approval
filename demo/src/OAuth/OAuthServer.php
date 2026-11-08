@@ -12,7 +12,7 @@ use VerifiedHumanApproval\Demo\DemoDatabase;
  */
 final readonly class OAuthServer
 {
-    public const SCOPES = ['announcement.read', 'announcement.publish', 'approval.read'];
+    public const SCOPES = ['alert.read', 'alert.publish', 'approval.read'];
     private const CODE_SECONDS = 300;
     private const TOKEN_SECONDS = 3600;
     /** However often it is refreshed, a connection ends after this; the person connects again. */

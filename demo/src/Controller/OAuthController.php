@@ -31,8 +31,8 @@ use VerifiedHumanApproval\Demo\OAuth\OAuthServer;
 final readonly class OAuthController
 {
     private const SCOPE_DESCRIPTIONS = [
-        'announcement.read' => 'read public alerts',
-        'announcement.publish' => 'ask to issue public alerts as you',
+        'alert.read' => 'read public alerts',
+        'alert.publish' => 'ask to issue public alerts as you',
         'approval.read' => 'read the outcome of your approvals',
     ];
 
@@ -120,7 +120,7 @@ final readonly class OAuthController
             $actor = $this->actors->interactive();
             if ($request->isMethod('GET')) {
                 $user = $this->database->user($actor->userId);
-                $rule = null === $user ? null : $this->database->roleMode('announcement.publish', (string) $user['role']);
+                $rule = null === $user ? null : $this->database->roleMode('alert.publish', (string) $user['role']);
 
                 return $this->page('oauth/consent.html.twig', [
                     'client' => $client, 'redirect_host' => parse_url($redirect, \PHP_URL_HOST), 'user' => $user, 'rule' => $rule,

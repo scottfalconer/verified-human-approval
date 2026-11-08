@@ -10,12 +10,12 @@ use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\PreparedAction;
 use VerifiedHumanApproval\Demo\DemoDatabase;
 
-final readonly class PublishAnnouncement implements ActionAdapter
+final readonly class PublishAlert implements ActionAdapter
 {
-    public function __construct(private DemoDatabase $database, private AnnouncementPublisher $publisher)
+    public function __construct(private DemoDatabase $database, private AlertPublisher $publisher)
     {
     }
-    public const ID = 'announcement.publish';
+    public const ID = 'alert.publish';
 
     public function id(): string
     {
@@ -32,10 +32,10 @@ final readonly class PublishAnnouncement implements ActionAdapter
 
     public function prepare(Actor $actor, array $input): PreparedAction
     {
-        if (array_keys($input) !== ['announcement_id'] || !\is_string($input['announcement_id']) || \strlen($input['announcement_id']) > 128) {
-            throw new ApprovalException('invalid_input', 'Provide exactly one announcement_id.');
+        if (array_keys($input) !== ['alert_id'] || !\is_string($input['alert_id']) || \strlen($input['alert_id']) > 128) {
+            throw new ApprovalException('invalid_input', 'Provide exactly one alert_id.');
         }
-        $row = $this->database->announcement($input['announcement_id']);
+        $row = $this->database->alert($input['alert_id']);
         if (null === $row || $row['tenant_id'] !== $actor->tenantId) {
             throw new ApprovalException('not_found', 'This alert is unavailable for this account.');
         }
@@ -52,11 +52,11 @@ final readonly class PublishAnnouncement implements ActionAdapter
 
     public function assertPreconditions(Actor $actor, PreparedAction $action): void
     {
-        $row = $this->database->announcement($action->target['resource']);
+        $row = $this->database->alert($action->target['resource']);
         if (null === $row || $row['tenant_id'] !== $actor->tenantId || (int) $row['revision'] !== $action->preconditions['revision']
             || $row['title'] !== $action->effect['title'] || $row['body'] !== $action->effect['body']
             || (null === $row['published_revision'] ? null : (int) $row['published_revision']) !== $action->preconditions['published_revision']) {
-            throw new ApprovalException('stale_resource', 'The announcement changed after this request was created. Review a new proposal.');
+            throw new ApprovalException('stale_resource', 'The alert changed after this request was created. Review a new proposal.');
         }
     }
 
@@ -67,7 +67,7 @@ final readonly class PublishAnnouncement implements ActionAdapter
 
     public function assertPostconditions(Actor $actor, PreparedAction $action, array $result): void
     {
-        $row = $this->database->announcement($action->target['resource']);
+        $row = $this->database->alert($action->target['resource']);
         if (null === $row || $row['published_title'] !== $action->effect['title'] || $row['published_body'] !== $action->effect['body']
             || (int) $row['published_revision'] !== $action->preconditions['revision']) {
             throw new ApprovalException('unexpected_effect', 'Publication did not preserve the approved content; the transaction was rolled back.');

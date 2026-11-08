@@ -72,8 +72,8 @@ To run it again, `demo/bin/public all-clear` takes the alert down and keeps the 
 | --- | --- |
 | [`src/DemoKernel.php`](src/DemoKernel.php) | The bundle's configuration, the two firewalls (a session firewall for people, a stateless one for `/mcp`), the review routes' request matcher, and the account and admin pages opting in to the review pages' security headers |
 | [`src/Mcp/DemoTools.php`](src/Mcp/DemoTools.php) | The MCP tools: `read_alert`, the protected `publish_alert`, and the scope checks around them |
-| [`src/Action/PublishAnnouncement.php`](src/Action/PublishAnnouncement.php) | The action adapter: what exactly is frozen, its version, preconditions and postconditions |
-| [`src/Action/AnnouncementPublisher.php`](src/Action/AnnouncementPublisher.php) | The guarded mutation: it refuses to run outside a validated execution |
+| [`src/Action/PublishAlert.php`](src/Action/PublishAlert.php) | The action adapter: what exactly is frozen, its version, preconditions and postconditions |
+| [`src/Action/AlertPublisher.php`](src/Action/AlertPublisher.php) | The guarded mutation: it refuses to run outside a validated execution |
 | [`src/Action/ChangeAlertRule.php`](src/Action/ChangeAlertRule.php), [`src/Action/DemoPolicyProvider.php`](src/Action/DemoPolicyProvider.php) | The administrator's per-role rule, and changing it as an approved action |
 | [`src/Security`](src/Security) | Accounts, personal agent tokens, the actor provider and the requester label |
 | [`src/Controller/AccountController.php`](src/Controller/AccountController.php) | Passkey enrollment: one-time links for the first passkey, an existing passkey for the next |

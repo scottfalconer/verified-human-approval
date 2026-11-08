@@ -21,7 +21,7 @@ final class AllClearCommandTest extends TestCase
         $kernel = new DemoKernel($runtime, 'test');
         try {
             $pdo = DemoDatabase::connect($runtime.'/application.sqlite');
-            $pdo->exec("UPDATE demo_announcements SET published_revision = revision, published_title = title, published_body = body, mutation_count = 1 WHERE id = 'riverside-evacuation'");
+            $pdo->exec("UPDATE demo_alerts SET published_revision = revision, published_title = title, published_body = body, mutation_count = 1 WHERE id = 'riverside-evacuation'");
             $database = new DemoDatabase($pdo);
             self::assertNotNull($database->liveAlert());
 
@@ -29,7 +29,7 @@ final class AllClearCommandTest extends TestCase
             self::assertSame(0, $tester->execute([]));
             self::assertStringContainsString('All clear', $tester->getDisplay());
             self::assertNull($database->liveAlert(), 'The public page shows no active alerts again.');
-            self::assertSame(1, (int) $database->announcement('riverside-evacuation')['mutation_count'], 'The record of what was issued stays.');
+            self::assertSame(1, (int) $database->alert('riverside-evacuation')['mutation_count'], 'The record of what was issued stays.');
 
             $tester->execute([]);
             self::assertStringContainsString('Already clear', $tester->getDisplay());

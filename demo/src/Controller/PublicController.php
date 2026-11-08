@@ -23,7 +23,7 @@ final readonly class PublicController
             return new Response($this->twig->render('public/not_published.html.twig'));
         }
 
-        return new Response($this->twig->render('public/announcement.html.twig', ['title' => $row['published_title'], 'body' => $row['published_body']]));
+        return new Response($this->twig->render('public/alert.html.twig', ['title' => $row['published_title'], 'body' => $row['published_body']]));
     }
 
     public function styles(): Response
