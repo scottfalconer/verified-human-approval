@@ -43,7 +43,8 @@ jobs:
         run: |
           # The lock is resolved for PHP 8.3; Symfony 8 needs this runner's own PHP 8.4.
           composer config --unset platform.php
-          php -r '$c = json_decode(file_get_contents("composer.json"), true); foreach (["require", "require-dev"] as $s) foreach ($c[$s] as $p => $v) if (str_starts_with($p, "symfony/") && str_starts_with($v, "^7.4")) $c[$s][$p] = "^8.0"; file_put_contents("composer.json", json_encode($c, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");'
+          # Decoded as objects, so empty JSON objects such as config.platform stay objects.
+          php -r '$c = json_decode(file_get_contents("composer.json")); foreach (["require", "require-dev"] as $s) foreach ($c->$s as $p => $v) if (str_starts_with($p, "symfony/") && str_starts_with($v, "^7.4")) $c->$s->$p = "^8.0"; file_put_contents("composer.json", json_encode($c, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");'
           composer update --with-all-dependencies --no-interaction --prefer-dist
       - name: Show the versions under test
         run: composer show | grep -E '^(symfony/framework-bundle|symfony/mcp-bundle|mcp/sdk|web-auth/webauthn-lib|phpunit/phpunit) '
