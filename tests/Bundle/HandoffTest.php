@@ -147,11 +147,21 @@ final class HandoffTest extends TestCase
                 }
             }
         }
-        ob_start();
-        imagepng($image);
-        $png = (string) ob_get_clean();
-
-        return (string) (new \chillerlan\QRCode\QRCode())->readFromBlob($png);
+        // Read it the way a phone camera does, at whatever angle it is held. This reader misses about one
+        // perfect code in a hundred in one orientation (its detector, or the error correction after it) and
+        // reads it in another; Apple's detector reads every one. Each code is random, so reading a single
+        // orientation made this test fail now and then.
+        foreach ([0, 90, 180, 270] as $angle) {
+            ob_start();
+            imagepng(0 === $angle ? $image : imagerotate($image, $angle, 0));
+            $png = (string) ob_get_clean();
+            try {
+                return (string) (new \chillerlan\QRCode\QRCode())->readFromBlob($png);
+            } catch (\chillerlan\QRCode\QRCodeException) {
+                continue;
+            }
+        }
+        self::fail('No orientation of the drawn code could be read.');
     }
 
     private function enrollOnComputer(string $user): VirtualAuthenticator
