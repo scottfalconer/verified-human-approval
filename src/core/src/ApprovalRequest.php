@@ -33,6 +33,7 @@ final readonly class ApprovalRequest
         return new self($id, $canonical, hash('sha256', $canonical));
     }
 
+    /** @return array<string, mixed> */
     public function payload(): array
     {
         return CanonicalJson::map(CanonicalJson::decode($this->canonical));

@@ -74,6 +74,7 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
         ->end();
     }
 
+    /** @param array<string, mixed> $config */
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
         // Your own action adapters join the registry when they are autoconfigured, or when you tag them.

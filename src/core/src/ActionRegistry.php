@@ -9,6 +9,7 @@ final class ActionRegistry
     /** @var array<string, ActionAdapter> */
     private array $actions = [];
 
+    /** @param iterable<mixed> $actions the action adapters; anything else is refused */
     public function __construct(iterable $actions)
     {
         foreach ($actions as $action) {

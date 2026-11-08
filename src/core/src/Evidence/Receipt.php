@@ -16,7 +16,12 @@ final class Receipt
 {
     private const PREFIX = "VerifiedHumanApproval/Receipt/v1\0";
 
-    /** The exact bytes that are signed. */
+    /**
+     * The exact bytes that are signed.
+     *
+     * @param array<string, mixed>|null $proof
+     * @param array<string, mixed>      $execution
+     */
     public static function manifest(string $keyId, string $proposalDigest, ?array $proof, array $execution): string
     {
         return CanonicalJson::encode([
@@ -27,7 +32,12 @@ final class Receipt
         ]);
     }
 
-    /** @return array{manifest: string, keyId: string, signature: string} */
+    /**
+     * @param array<string, mixed>|null $proof
+     * @param array<string, mixed>      $execution
+     *
+     * @return array{manifest: string, keyId: string, signature: string}
+     */
     public static function sign(EvidenceSigner $signer, string $proposalDigest, ?array $proof, array $execution): array
     {
         $manifest = self::manifest($signer->keyId(), $proposalDigest, $proof, $execution);

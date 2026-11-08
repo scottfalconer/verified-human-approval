@@ -29,6 +29,7 @@ final class ApprovalService
         $guard->bind($this->executionOwner);
     }
 
+    /** @param array<string, mixed> $input */
     public function request(Actor $actor, string $actionId, array $input, ?string $idempotencyKey = null, string $locale = 'en'): ApprovalState
     {
         if (null !== $idempotencyKey && ('' === $idempotencyKey || \strlen($idempotencyKey) > 128)) {
@@ -111,6 +112,7 @@ final class ApprovalService
         return $result;
     }
 
+    /** @param array<string, mixed> $assertion the browser's WebAuthn response */
     public function complete(Actor $reviewer, string $ceremonyId, array $assertion): ApprovalState
     {
         if (\strlen(CanonicalJson::encode((object) $assertion)) > 65536) {
@@ -204,6 +206,7 @@ final class ApprovalService
         });
     }
 
+    /** @param array<string, mixed>|null $proof */
     private function execute(ApprovalState $state, ?array $proof): ApprovalState
     {
         $request = $state->request;
@@ -316,6 +319,8 @@ final class ApprovalService
      * A request key replays its recorded outcome only while the content it named is unchanged. If the
      * resource changed since (say, a new draft), replaying "completed" would suggest the new content
      * was approved, so the caller must use a new key.
+     *
+     * @param array<string, mixed> $input
      */
     private function assertSameContent(ApprovalState $state, Actor $actor, string $actionId, array $input): void
     {

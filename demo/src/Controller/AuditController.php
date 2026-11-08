@@ -205,6 +205,9 @@ final readonly class AuditController
      */
     private function passkeySigned(ApprovalState $state, Actor $requester, \VerifiedHumanApproval\WebAuthn\Credential $enrolled): array
     {
+        if (null === $state->proof) {
+            return ['valid' => false, 'problem' => 'no passkey signature was recorded'];
+        }
         try {
             $challenge = ChallengeBinding::challenge($state->request->digest, ChallengeBinding::decode((string) $state->proof['nonce']));
             $this->webauthn->verifyEvidenceAssertion($requester, $challenge, CanonicalJson::map($state->proof['assertion']), $enrolled);

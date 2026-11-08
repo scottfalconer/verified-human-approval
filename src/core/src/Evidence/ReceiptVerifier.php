@@ -15,7 +15,9 @@ final class ReceiptVerifier
     /**
      * Trust keys must be supplied out-of-band. No public key contained in evidence is accepted.
      *
-     * @return array{request: ApprovalRequest, proof: ?array, execution: array, applicationSignatureValid: true}
+     * @param array<string, mixed> $bundle
+     *
+     * @return array{request: ApprovalRequest, proof: array<string, mixed>|null, execution: array<string, mixed>, applicationSignatureValid: true}
      */
     public function verify(array $bundle, string $trustedKeyId, string $trustedPublicKey): array
     {

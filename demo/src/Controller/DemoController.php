@@ -92,7 +92,7 @@ final readonly class DemoController
         if (!$this->security->isGranted('ROLE_ADMIN')) {
             throw new AccessDeniedException('Policy administration requires a human administrator session.');
         }
-        $row = $this->database->policy('announcement.publish');
+        $row = $this->database->policy('announcement.publish') ?? throw new \RuntimeException('This demo has no alert policy. Start a fresh one with: php demo/bin/setup.php --reset');
         $modes = ['manager' => $this->database->roleMode('announcement.publish', 'manager') ?? 'denied', 'staff' => $this->database->roleMode('announcement.publish', 'staff') ?? 'denied'];
         $form = $this->forms->create(ApprovalPolicyType::class, $modes + ['statement' => $row['statement'], 'version' => (string) $row['version']]);
         $form->handleRequest($request);

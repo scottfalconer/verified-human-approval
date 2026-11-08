@@ -53,7 +53,9 @@ final readonly class AuditLog
             $this->pdo->exec('BEGIN IMMEDIATE');
         }
         try {
-            $last = $this->pdo->query('SELECT seq, hash FROM verified_human_approval_audit ORDER BY seq DESC LIMIT 1')->fetch(\PDO::FETCH_ASSOC) ?: null;
+            $newest = $this->pdo->prepare('SELECT seq, hash FROM verified_human_approval_audit ORDER BY seq DESC LIMIT 1');
+            $newest->execute();
+            $last = $newest->fetch(\PDO::FETCH_ASSOC) ?: null;
             $seq = null === $last ? 1 : (int) $last['seq'] + 1;
             $entry = CanonicalJson::encode([
                 'format' => self::FORMAT, 'seq' => $seq, 'at' => ApprovalRequest::timestamp($this->clock->now()),
@@ -106,7 +108,9 @@ final readonly class AuditLog
         $intact = true;
         $previous = null;
         $expected = 1;
-        foreach ($this->pdo->query('SELECT * FROM verified_human_approval_audit ORDER BY seq')->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+        $rows = $this->pdo->prepare('SELECT * FROM verified_human_approval_audit ORDER BY seq');
+        $rows->execute();
+        foreach ($rows->fetchAll(\PDO::FETCH_ASSOC) as $row) {
             $entry = $this->verified($row);
             $problem = match (true) {
                 null === $entry => 'its signature or hash does not verify',

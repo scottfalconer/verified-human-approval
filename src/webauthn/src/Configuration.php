@@ -9,10 +9,13 @@ final readonly class Configuration
 {
     public string $host;
 
+    /** @var int<1000, 600000> how long a ceremony may take, in milliseconds */
+    public int $timeoutMs;
+
     public function __construct(
         public string $rpId,
         public string $origin,
-        public int $timeoutMs = 60000,
+        int $timeoutMs = 60000,
     ) {
         $parts = parse_url($origin);
         if (!\is_array($parts) || !isset($parts['scheme'], $parts['host'])
@@ -36,5 +39,6 @@ final readonly class Configuration
             throw new \InvalidArgumentException('The ceremony timeout must be between one second and ten minutes.');
         }
         $this->host = $host;
+        $this->timeoutMs = $timeoutMs;
     }
 }

@@ -14,7 +14,11 @@ final readonly class EvidenceExporter
     {
     }
 
-    /** The host must obtain this state through ApprovalService::get() to enforce ownership. */
+    /**
+     * The host must obtain this state through ApprovalService::get() to enforce ownership.
+     *
+     * @return array<string, mixed>
+     */
     public function export(ApprovalState $state): array
     {
         if ('completed' !== $state->status || null === $state->execution) {

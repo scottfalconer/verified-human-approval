@@ -30,7 +30,12 @@ try {
             throw new RuntimeException('Expected a local JSON file smaller than 1 MiB.');
         }
 
-        return CanonicalJson::map(CanonicalJson::decode(file_get_contents($path)));
+        $json = file_get_contents($path);
+        if (false === $json) {
+            throw new RuntimeException('Could not read '.$path.'.');
+        }
+
+        return CanonicalJson::map(CanonicalJson::decode($json));
     };
     $bundle = $read($argv[1]);
     $application = $read($argv[2]);

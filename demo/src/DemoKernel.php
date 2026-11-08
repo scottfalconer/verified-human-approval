@@ -58,7 +58,11 @@ final class DemoKernel extends Kernel
         if (!is_file($runtimeDirectory.'/settings.json')) {
             throw new \RuntimeException('Initialize the demo with: php demo/bin/setup.php');
         }
-        $this->settings = json_decode(file_get_contents($runtimeDirectory.'/settings.json'), true, 32, \JSON_THROW_ON_ERROR);
+        $settings = file_get_contents($runtimeDirectory.'/settings.json');
+        if (false === $settings) {
+            throw new \RuntimeException('Cannot read '.$runtimeDirectory.'/settings.json. Start a fresh demo with: php demo/bin/setup.php --reset');
+        }
+        $this->settings = json_decode($settings, true, 32, \JSON_THROW_ON_ERROR);
         if (($this->settings['schema'] ?? 1) < DemoSetup::SCHEMA) {
             throw new \RuntimeException('This demo was set up by an older version. Start a fresh one with: php demo/bin/setup.php --reset');
         }

@@ -35,6 +35,10 @@ final readonly class DemoUser implements UserInterface, PasswordAuthenticatedUse
 
     public function getUserIdentifier(): string
     {
+        if ('' === $this->id) {
+            throw new \LogicException('A demo account always has an identifier.');
+        }
+
         return $this->id;
     }
 

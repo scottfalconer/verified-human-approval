@@ -66,8 +66,11 @@ final readonly class ClientRegistry
         $query = $this->database->pdo->prepare('SELECT * FROM demo_oauth_clients WHERE client_id = ?');
         $query->execute([$clientId]);
         $row = $query->fetch();
+        if (!\is_array($row)) {
+            return null;
+        }
 
-        return false === $row ? null : ['client_id' => $row['client_id'], 'client_name' => $row['client_name'], 'redirect_uris' => json_decode($row['redirect_uris'], true, 4, \JSON_THROW_ON_ERROR)];
+        return ['client_id' => $row['client_id'], 'client_name' => $row['client_name'], 'redirect_uris' => json_decode($row['redirect_uris'], true, 4, \JSON_THROW_ON_ERROR)];
     }
 
     public static function assertRedirectUri(mixed $uri): void
@@ -95,6 +98,8 @@ final readonly class ClientRegistry
     /**
      * A Client ID Metadata Document: fetched once per cache lifetime, small, without redirects, and
      * naming itself. The spec asks authorization servers to cache it, honouring HTTP cache headers.
+     *
+     * @return array{client_id: string, client_name: string, redirect_uris: list<string>}|null
      */
     private function metadataDocument(string $url): ?array
     {

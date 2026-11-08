@@ -110,7 +110,7 @@ final class PdoApprovalStore implements ApprovalStore
         $statement->bindValue(1, max(1, min($limit, 1000)), \PDO::PARAM_INT);
         $statement->execute();
 
-        return array_map(self::state(...), $statement->fetchAll(\PDO::FETCH_ASSOC));
+        return array_values(array_map(self::state(...), $statement->fetchAll(\PDO::FETCH_ASSOC)));
     }
 
     private const SELECT = 'SELECT r.*, e.record AS execution, c.key_id AS receipt_key_id, c.manifest AS receipt_manifest, c.signature AS receipt_signature
@@ -130,8 +130,12 @@ final class PdoApprovalStore implements ApprovalStore
         $statement = $this->pdo->prepare('SELECT id, fingerprint FROM verified_human_approval_requests WHERE actor_key = ? AND idempotency_key = ?');
         $statement->execute([$actor->key(), hash('sha256', $idempotencyKey)]);
         $row = $statement->fetch(\PDO::FETCH_ASSOC);
+        if (false === $row) {
+            return null;
+        }
+        $state = $this->get($row['id']);
 
-        return false === $row ? null : ['state' => $this->get($row['id']), 'fingerprint' => $row['fingerprint']];
+        return null === $state ? null : ['state' => $state, 'fingerprint' => $row['fingerprint']];
     }
 
     public function findPending(Actor $actor, string $fingerprint): ?ApprovalState

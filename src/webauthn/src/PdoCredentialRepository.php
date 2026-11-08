@@ -43,7 +43,7 @@ final readonly class PdoCredentialRepository implements CredentialRepository
             WHERE user_id = :user AND tenant_id = :tenant AND revoked = 0 ORDER BY credential_id');
         $statement->execute(['user' => $actor->userId, 'tenant' => $actor->tenantId]);
 
-        return array_map($this->hydrate(...), $statement->fetchAll(\PDO::FETCH_ASSOC));
+        return array_values(array_map($this->hydrate(...), $statement->fetchAll(\PDO::FETCH_ASSOC)));
     }
 
     public function add(Credential $credential): void
@@ -95,7 +95,7 @@ final readonly class PdoCredentialRepository implements CredentialRepository
         $statement = $this->pdo->prepare('SELECT * FROM verified_human_approval_credentials WHERE tenant_id = :tenant ORDER BY user_id, credential_id');
         $statement->execute(['tenant' => $tenantId]);
 
-        return array_map($this->hydrate(...), $statement->fetchAll(\PDO::FETCH_ASSOC));
+        return array_values(array_map($this->hydrate(...), $statement->fetchAll(\PDO::FETCH_ASSOC)));
     }
 
     /**

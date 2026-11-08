@@ -100,7 +100,7 @@ SQL);
         $query = $this->pdo->prepare('SELECT id, tenant_id, display_name, enabled, can_publish, is_admin, role FROM demo_users WHERE tenant_id = ? ORDER BY id');
         $query->execute([$tenantId]);
 
-        return $query->fetchAll();
+        return array_values($query->fetchAll());
     }
 
     /** @return list<array<string, mixed>> agent connections: personal tokens and OAuth grants */
@@ -109,7 +109,7 @@ SQL);
         $query = $this->pdo->prepare('SELECT id, user_id, tenant_id, active, scopes, expires_at, client_id, client_name, created_at FROM demo_grants WHERE tenant_id = ?'.(null === $userId ? '' : ' AND user_id = ?').' ORDER BY created_at DESC, id');
         $query->execute(null === $userId ? [$tenantId] : [$tenantId, $userId]);
 
-        return $query->fetchAll();
+        return array_values($query->fetchAll());
     }
 
     /** Ends an agent connection: its access and refresh tokens stop working at once. */
@@ -155,12 +155,16 @@ SQL);
         $query = $this->pdo->prepare('SELECT user_id, issued_by, issued_at, expires_at, used_at, credential_id FROM demo_passkey_links WHERE tenant_id = ? ORDER BY issued_at DESC');
         $query->execute([$tenantId]);
 
-        return $query->fetchAll();
+        return array_values($query->fetchAll());
     }
 
+    /** @return array<string, mixed>|null */
     public function liveAlert(): ?array
     {
-        return $this->pdo->query('SELECT * FROM demo_announcements WHERE published_revision IS NOT NULL ORDER BY id LIMIT 1')->fetch() ?: null;
+        $query = $this->pdo->prepare('SELECT * FROM demo_announcements WHERE published_revision IS NOT NULL ORDER BY id LIMIT 1');
+        $query->execute();
+
+        return $query->fetch() ?: null;
     }
 
     public function roleMode(string $action, string $role): ?string

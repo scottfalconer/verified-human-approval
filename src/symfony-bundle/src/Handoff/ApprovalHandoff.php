@@ -64,7 +64,7 @@ final readonly class ApprovalHandoff
     {
         $matrix = (new QRCode(new QROptions(['eccLevel' => EccLevel::M, 'addQuietzone' => true])))->addByteSegment($url)->getQRMatrix();
 
-        return array_values(array_map(static fn (array $row): string => implode('', array_map(static fn (bool $dark): string => $dark ? '1' : '0', $row)), $matrix->getMatrix(true)));
+        return array_values(array_map(static fn (array $row): string => implode('', array_map(static fn (bool|int $dark): string => $dark ? '1' : '0', $row)), $matrix->getMatrix(true)));
     }
 
     /** Whether a link is still usable, without using it. */

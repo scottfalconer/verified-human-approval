@@ -36,6 +36,7 @@ final readonly class ApprovalPresenter implements ResultPresenter
         return rtrim($this->publicOrigin, '/').$this->urls->generate('verified_human_approval_review', ['id' => $state->request->id]);
     }
 
+    /** @return array<string, mixed> */
     public function data(ApprovalState $state, ?string $message = null): array
     {
         $data = $state->toArray();

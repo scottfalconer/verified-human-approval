@@ -6,6 +6,7 @@ namespace VerifiedHumanApproval\Core;
 
 final readonly class Ceremony
 {
+    /** @param array<string, mixed> $options the browser's publicKey options */
     public function __construct(
         public string $id,
         public string $requestId,
@@ -17,6 +18,7 @@ final readonly class Ceremony
     ) {
     }
 
+    /** @return array{ceremonyId: string, options: array<string, mixed>, expiresAt: string} */
     public function toArray(): array
     {
         return ['ceremonyId' => $this->id, 'options' => $this->options, 'expiresAt' => $this->expiresAt];

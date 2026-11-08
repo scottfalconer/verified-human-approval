@@ -24,6 +24,7 @@ final readonly class Actor
         return $this->userId === $other->userId && $this->tenantId === $other->tenantId;
     }
 
+    /** @return array{userId: string, tenantId: string, delegationId: ?string} */
     public function toArray(): array
     {
         return ['userId' => $this->userId, 'tenantId' => $this->tenantId, 'delegationId' => $this->delegationId];
@@ -34,6 +35,7 @@ final readonly class Actor
         return hash('sha256', CanonicalJson::encode($this->toArray()));
     }
 
+    /** @param array<string, mixed> $data */
     public static function fromArray(array $data): self
     {
         return new self($data['userId'], $data['tenantId'], $data['delegationId']);

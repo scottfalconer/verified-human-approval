@@ -249,9 +249,12 @@ final readonly class AccountController
     public static function recentConfirmation(Request $request, Actor $actor): ?array
     {
         $confirmed = $request->getSession()->get('demo.confirmed');
+        if (!\is_array($confirmed) || $confirmed['user'] !== $actor->userId || $confirmed['tenant'] !== $actor->tenantId
+            || !\is_int($confirmed['at']) || $confirmed['at'] + self::CONFIRMATION_SECONDS < time()) {
+            return null;
+        }
 
-        return \is_array($confirmed) && $confirmed['user'] === $actor->userId && $confirmed['tenant'] === $actor->tenantId
-            && $confirmed['at'] + self::CONFIRMATION_SECONDS >= time() ? $confirmed : null;
+        return ['user' => $actor->userId, 'tenant' => $actor->tenantId, 'credential' => $confirmed['credential'], 'at' => $confirmed['at']];
     }
 
     /** @return array{ceremony_id: string, credential: array<string, mixed>} */

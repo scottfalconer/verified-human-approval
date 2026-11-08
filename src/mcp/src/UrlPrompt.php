@@ -72,7 +72,11 @@ final readonly class UrlPrompt
         );
     }
 
-    /** Binds a continuation to who called which tool with which arguments. */
+    /**
+     * Binds a continuation to who called which tool with which arguments.
+     *
+     * @param array<string, mixed> $arguments
+     */
     public static function binding(Actor $actor, string $tool, array $arguments): string
     {
         return hash('sha256', CanonicalJson::encode([self::FORMAT, (object) $actor->toArray(), $tool, (object) $arguments]));

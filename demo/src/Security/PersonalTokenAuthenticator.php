@@ -38,7 +38,7 @@ final class PersonalTokenAuthenticator extends AbstractAuthenticator implements 
 
     public function authenticate(Request $request): Passport
     {
-        $header = $request->headers->get('Authorization', '');
+        $header = $request->headers->get('Authorization') ?? '';
         if (!preg_match('/^Bearer ([A-Za-z0-9_-]{32,256})$/D', $header, $matches)) {
             throw new CustomUserMessageAuthenticationException('Invalid personal token.');
         }

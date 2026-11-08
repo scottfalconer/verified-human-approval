@@ -33,6 +33,7 @@ final readonly class ApprovalPolicy
         return $resolved;
     }
 
+    /** @return array{actionId: string, version: string, statementTemplate: string, lifetimeSeconds: int, required: bool} */
     public function toArray(): array
     {
         return ['actionId' => $this->actionId, 'version' => $this->version, 'statementTemplate' => $this->statementTemplate, 'lifetimeSeconds' => $this->lifetimeSeconds, 'required' => $this->required];

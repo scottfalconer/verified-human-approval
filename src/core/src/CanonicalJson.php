@@ -26,7 +26,11 @@ final class CanonicalJson
         return json_decode($json, false, 64, \JSON_THROW_ON_ERROR);
     }
 
-    /** Preserve nested {} versus [] when reading records with known top-level objects. */
+    /**
+     * Preserve nested {} versus [] when reading records with known top-level objects.
+     *
+     * @return array<string, mixed>
+     */
     public static function map(mixed $value): array
     {
         if (!$value instanceof \stdClass) {
@@ -59,7 +63,7 @@ final class CanonicalJson
             return;
         }
         if (\is_array($value) || $value instanceof \stdClass) {
-            foreach ($value as $key => $child) {
+            foreach (\is_array($value) ? $value : get_object_vars($value) as $key => $child) {
                 self::validate((string) $key, $depth + 1);
                 self::validate($child, $depth + 1);
             }

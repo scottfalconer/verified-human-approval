@@ -6,6 +6,7 @@ namespace VerifiedHumanApproval\Core;
 
 final readonly class VerifiedApproval
 {
+    /** @param array<string, mixed> $evidence */
     public function __construct(public string $credentialId, public array $evidence)
     {
         if ('' === $credentialId) {
