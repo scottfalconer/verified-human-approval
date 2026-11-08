@@ -14,4 +14,9 @@ button.secondary {background: white; color: #172b38; border-color: #b8c7ce;} but
 label {display: block; font-weight: 600; margin: 1rem 0 .35rem;} input:not([type=checkbox]), textarea, select {font: inherit; padding: .65rem; border: 1px solid #b8c7ce; border-radius: 6px; width: 100%; max-width: 650px;}
 textarea {min-height: 8rem;} dl {display: grid; grid-template-columns: 150px 1fr; gap: .5rem 1rem;} dt {font-weight: 650;} dd {margin: 0; overflow-wrap: anywhere;}
 pre {overflow: auto; padding: 1rem; background: #f3f6f8; border-radius: 6px; font-size: .8rem;} code {overflow-wrap: anywhere;} table {border-collapse: collapse; width: 100%;} th, td {text-align: left; padding: .7rem; border-bottom: 1px solid #dce4e8;}
-[data-message] {white-space: pre-line;} @media (max-width: 600px) {header {display: block;} header span {display: block;} dl {grid-template-columns: 1fr;} dd {margin-bottom: .5rem;}}
+[data-message] {white-space: pre-line;} @media (max-width: 600px) {body > header {display: block;} body > header span {display: block;} dl {grid-template-columns: 1fr;} dd {margin-bottom: .5rem;}}
+/* The approval sheet: the decision first, then what it changes. */
+.approval-sheet {border-color: #9fc4b8; box-shadow: 0 1px 3px rgba(23, 43, 56, .08);} .approval-sheet h1 {font-size: 1.7rem; line-height: 1.25; margin: .3rem 0 1rem;}
+.approval-sheet .actions {margin-top: 1.2rem;} button.primary {font-size: 1.05rem; padding: .85rem 1.3rem;} .small {font-size: .85rem;}
+.approval-sheet .done .notice {font-weight: 650; color: #14513f;} details {margin-top: 1rem;} summary {cursor: pointer; color: #5b6c77;}
+[hidden] {display: none !important;}

@@ -190,7 +190,7 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame(0, $this->mutationCount());
         $browser->followRedirect();
         self::assertSame(200, $browser->getResponse()->getStatusCode());
-        self::assertStringContainsString('Approve and execute', (string) $browser->getResponse()->getContent());
+        self::assertStringContainsString('Approve with your passkey', (string) $browser->getResponse()->getContent());
 
         $reader = $this->browser('reader');
         $reader->request('GET', self::ORIGIN.'/admin/approval-policy');

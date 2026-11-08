@@ -78,3 +78,23 @@ for (const panel of document.querySelectorAll('[data-passkey-panel]')) {
         }
     });
 }
+
+// After approval, return the person to where the request came from. The card in Claude adds
+// #return=claude-desktop, claude-mobile or claude-web to the review link; without it, the page just says so.
+const back = new URLSearchParams(location.hash.slice(1)).get('return');
+const returnPanel = document.querySelector('[data-return]');
+if (returnPanel && back) {
+    const app = returnPanel.querySelector('[data-return-app]');
+    const tab = returnPanel.querySelector('[data-return-tab]');
+    const hint = document.querySelector('[data-return-hint]');
+    if (back === 'claude-desktop' || back === 'claude-mobile') {
+        returnPanel.hidden = false; app.hidden = false;
+        if (hint) hint.textContent = 'Claude already shows the result. This tab can be closed.';
+    } else if (back === 'claude-web') {
+        returnPanel.hidden = false; tab.hidden = false;
+        tab.addEventListener('click', () => {
+            window.close();
+            setTimeout(() => { if (hint) hint.textContent = 'Switch back to your Claude tab: it already shows the result.'; }, 300);
+        });
+    }
+}

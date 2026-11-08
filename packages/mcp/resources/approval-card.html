@@ -44,7 +44,7 @@
     rejected: 'The site refused this request. Nothing changed.',
   };
   const POLL_MS = 3000, POLL_LIMIT_MS = 15 * 60 * 1000;
-  let nextId = 1, view = null, timer = null, since = 0;
+  let nextId = 1, view = null, timer = null, since = 0, host = {};
   const waiting = new Map();
 
   function request(method, params) {
@@ -56,6 +56,7 @@
   function resize() { notify('ui/notifications/size-changed', { height: document.documentElement.scrollHeight }); }
   function applyTheme(context) {
     if (!context) return;
+    host = { ...host, ...context };
     if (context.theme === 'light' || context.theme === 'dark') document.documentElement.dataset.theme = context.theme;
     const variables = context.styles && context.styles.variables;
     if (variables) for (const [name, value] of Object.entries(variables)) {
@@ -100,6 +101,11 @@
       render();
     }
   }
+  // Tells the review page where the person came from, so it can offer the way back after approval.
+  function returnTarget() {
+    const platform = host.platform || (/Electron\//.test(navigator.userAgent) ? 'desktop' : 'web');
+    return platform === 'desktop' || platform === 'mobile' ? 'claude-' + platform : 'claude-web';
+  }
   function show(result) {
     view = read(result);
     since = Date.now();
@@ -123,6 +129,7 @@
   open.addEventListener('click', async () => {
     const url = view && reviewUrl(view.reviewUrl);
     if (!url) return;
+    url.hash = 'return=' + returnTarget();
     const opened = await request('ui/open-link', { url: url.href }).catch(() => ({ isError: true }));
     status.textContent = opened && opened.isError
       ? 'The page did not open. Use the review link in the reply.'

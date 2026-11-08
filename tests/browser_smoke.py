@@ -84,7 +84,8 @@ def main():
                 page.locator("[data-approve]").click()
                 expect(page.get_by_text("Personal passkey", exact=True)).to_be_visible(timeout=15000)
 
-                page.goto(initial["review_url"])
+                # Opened the way Claude Desktop's card opens it, so the page offers the way back.
+                page.goto(initial["review_url"] + "#return=claude-desktop")
                 expect(page.locator(".statement")).to_contain_text("Flood update")
                 expect(page.locator(".content-preview")).to_contain_text("Hill Street detour")
                 # The approval page shows the final public page, rendered from the frozen proposal.
@@ -96,6 +97,10 @@ def main():
                 page.locator("[data-approve]").click()
                 expect(page.locator(".notice")).to_contain_text("completed", timeout=15000)
                 assert row()["mutation_count"] == 1 and row()["published_revision"] == 1
+                expect(page.locator("[data-return-app]")).to_be_visible()
+                assert page.locator("[data-return-app]").get_attribute("href") == "claude://"
+                if SHOTS:
+                    page.screenshot(path=str(SHOTS / "3-approved.png"), full_page=True)
                 page.goto(origin + "/news/flood-update")
                 assert page.locator(".rc-title").inner_text() == approved_title
                 assert page.locator(".rc-body").inner_text() == approved_body
