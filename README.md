@@ -186,9 +186,12 @@ sequenceDiagram
 | A signed approval is replayed for another request | Rejected: the signature covers one proposal's digest |
 | A client answers "accept" without your passkey | Still pending: accept only means the page was opened |
 | The same approval is repeated | The same receipt, and the alert issued once |
+| The rule lets a role act directly | It runs, and every page says it ran without a passkey |
 | A phone code is used twice, or after two minutes | Refused: each code works once |
 | Someone with only the password tries to add a passkey | Refused: the first needs a one-time link, any other an existing passkey |
 | A passkey row is added or changed directly in the database | It approves nothing: no signed enrollment record vouches for it |
+| A record is edited and its receipt deleted to hide it | The audit page flags it, and no evidence is signed for that record |
+| A passkey is revoked just after it confirmed adding another | The confirmation ends with it: no new passkey or passkey link |
 | An approval's record is edited in the database afterwards | The audit page's checks fail: the receipt was signed at commit, and the passkey signed the original |
 | An administrator's password alone tries to switch verification off | Pending: the rule change waits for the administrator's passkey |
 | Another account, or a read-only agent token | No access to the request, and no rights from a passkey |

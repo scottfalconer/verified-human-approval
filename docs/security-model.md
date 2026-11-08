@@ -46,7 +46,7 @@ All version checks and writes participate in the transaction. A write that has a
 
 Failed execution and postconditions roll back protected state, credential updates, consumed approval and result together. The service then retires the failed ceremony. If commit outcome is uncertain, it checks persisted state and returns an existing completion where available; otherwise it reports uncertainty or known failure. It never claims automatic rollback of remote effects.
 
-With a receipt signer configured (the bundle's `receipt_signer`), `ApprovalService` signs the receipt inside the completing transaction. If signing fails, nothing executes: there is no unrecorded action. Without a signer, the exporter signs at download time and marks the receipt `at_export`, which cannot show edits made in between. Exporting never re-executes anything.
+With a receipt signer configured (the bundle's `receipt_signer`), `ApprovalService` signs the receipt inside the completing transaction. If signing fails, nothing executes: there is no unrecorded action. With a signer, a completed action whose receipt is missing has no evidence: the exporter refuses it and the audit page flags it, because deleting the receipt is how someone with database access would hide an edit. Without a signer, an application opts in to signing at download time (`signAtExport`); that receipt says `export` inside what it signs, so it cannot pass for one signed at commit, and it cannot show edits made before the download. Exporting never re-executes anything.
 
 ## Web and operational controls
 

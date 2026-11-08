@@ -51,6 +51,19 @@ Also done, as Symfony's bundle best practices ask:
 - **One compiled container for the tests.** The demo's runtime settings reach the container as environment variables from an env var loader, so the compiled container names no runtime: a test run compiles it once, runs in 18 s instead of 31 s at PHP's default memory limit, and no secret is written into a compiled file. The layout test no longer rewrites the repository's template.
 - **The example client** names itself and prints a URL prompt's review link instead of failing on it.
 
+## After an independent review
+
+A second review of the code (at `e4d6e65`) reproduced four defects and three smaller problems; all are fixed, each with a regression test:
+
+- **A deleted receipt was replaced at export.** Someone with database access could edit a completed action, delete its receipt, and the audit page, which exports to check, would sign the edited record afresh. The exporter now refuses a completed action without its commit receipt; when a receipt was signed is part of what it signs (formats v2); the audit page flags a missing receipt.
+- **A revoked passkey's confirmation lived on.** For two minutes after confirming, a session could still add a passkey or issue a passkey link even if the confirming passkey had been revoked meanwhile, from any browser. The confirming passkey must now be active at each use, and enrollment rechecks it inside its transaction.
+- **"Approved with your passkey" after a direct run.** The review page and the card said it for every completed request; they now say so only when a passkey proof was recorded.
+- **The evidence command failed once installed** (its autoloader path was one directory off), and lived in core although it uses WebAuthn. It now follows Composer's bin proxy and ships with the WebAuthn package.
+- **The demo read client metadata whole before checking its size**, with no time limit. The download now stops at the limit.
+- **Docs**: a mangled config path, links that broke outside the monorepo, a stale `PolicyProvider` signature, and a quickstart missing the first passkey's one-time link.
+
+The same review's release advice is the roadmap below: a CI job that installs the packages into a separate Symfony application in production mode, splitting the monorepo into four Packagist packages, install steps for our own betas, a database adapter beyond SQLite with schema upgrades, scoped styles and translations, a kept evidence file from each release, PHP 8.5 in CI, and a security policy.
+
 ## Still open
 
 A Flex recipe is not useful yet: the bundle needs your actor provider, policy provider, authorizer and store before it can boot, so a recipe could not leave a working application; the README's install steps are the standard alternative. Two upstream suggestions, to be filed after judging: a public `RequestContext::getClientInfo()` in the SDK (we read the session key the SDK uses internally), and `annotations`/`outputSchema` parameters on the bundle's `#[AsMcpAppTool]`, which would make the plain-tool workaround above unnecessary.

@@ -8,4 +8,4 @@ composer require verified-human-approval/symfony-bundle
 
 The integration guide is in [docs/index.md](docs/index.md): configuration, mapping your account model, wrapping an MCP tool, registering an action adapter and protecting its mutation, passkeys and review screens, the approval card, the phone code and evidence.
 
-This package is the Symfony integration; the engine is `verified-human-approval/core`, the passkey verifier `verified-human-approval/webauthn` and the MCP presentation `verified-human-approval/mcp`. The repository's [demo](../../demo) is a complete Symfony application using it.
+This package is the Symfony integration; the engine is `verified-human-approval/core`, the passkey verifier `verified-human-approval/webauthn` and the MCP presentation `verified-human-approval/mcp`. The repository's [demo](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/README.md) is a complete Symfony application using it.

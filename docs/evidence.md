@@ -1,6 +1,8 @@
 # Verify an approval outside the application
 
-The evidence export contains the exact canonical proposal string, proposal-bound assertion material, durable execution record and an Ed25519 application receipt over their digests.
+The evidence export (`verified-human-approval/evidence/v2`) contains the exact canonical proposal string, proposal-bound assertion material, durable execution record and an Ed25519 application receipt over their digests. The receipt also signs when it was signed: `commit`, inside the transaction that ran the action, or `export`, only when the evidence was downloaded. A receipt signed at export cannot show an edit made before then, and cannot be relabelled as one signed at commit.
+
+An application that signs receipts at commit exports nothing for a completed action whose receipt is missing: deleting a receipt is how someone with database access would hide an edit, so the exporter refuses (`receipt_missing`) rather than sign the record afresh. Only an application that has never signed at commit opts in to signing at export (`EvidenceExporter(..., signAtExport: true)`).
 
 Two trust files are supplied separately. Do not accept trust data supplied solely by the artifact being verified.
 
@@ -32,7 +34,7 @@ Two trust files are supplied separately. Do not accept trust data supplied solel
 vendor/bin/verify-evidence.php evidence.json trusted-application.json trusted-credential.json
 ```
 
-Successful output separately reports `credentialApprovedExactProposal` and `applicationSignedExecutionReport`, plus the original statement. Altered statements, effects, assertions, nonces, execution reports and substituted keys fail verification. An administrator may later update the live policy; that does not rewrite the old signed statement.
+The command ships with `verified-human-approval/webauthn`. Successful output separately reports `credentialApprovedExactProposal` and `applicationSignedExecutionReport`, when that report was signed (`applicationReportSignedAt`: `commit` or `export`), plus the original statement. Altered statements, effects, assertions, nonces, execution reports and substituted keys fail verification. An administrator may later update the live policy; that does not rewrite the old signed statement.
 
 Historical verification checks signature, origin, RP, ownership, required UV and proposal binding. It deliberately does not apply the credential’s **current** monotonic counter to an old assertion. A historical proof does not independently establish the historical revocation status. The application’s recorded decision remains an application claim.
 

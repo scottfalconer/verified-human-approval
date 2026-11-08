@@ -6,7 +6,7 @@ This package does not create an OAuth server, replace application permissions or
 
 ## Run the reference application
 
-The repository’s [demo](../../demo/README.md) is a complete Symfony application using this bundle: Riverside Council’s public alerts site. From the repository root, with PHP 8.3+ and Composer:
+The repository’s [demo](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/README.md) is a complete Symfony application using this bundle: Riverside Council’s public alerts site. From the repository root, with PHP 8.3+ and Composer:
 
 ```bash
 composer install
@@ -17,7 +17,7 @@ php -S localhost:8080 -t demo/public demo/public/index.php
 Setup creates private local state under `var/demo` and displays random development passwords and personal MCP tokens once. No plaintext account password or personal token is stored. Keep those credentials privately. The example is a local development application, not a production OAuth implementation.
 
 1. Open `http://localhost:8080/login` and sign in as `editor` using the generated password.
-2. Open **Your passkeys** and register a passkey through the native browser prompt.
+2. Open the editor's `passkey_link` from setup's output, then register a passkey through the browser's prompt. A password alone cannot add an approval passkey: the first one needs this one-time link, and any further one a confirmation with an existing passkey.
 3. Optionally sign in as `manager`, the administrator, and open **Administrator settings** to choose which roles must verify and to edit the required statement.
 4. Choose **Issue alert** on the page, or connect an MCP client to `http://localhost:8080/mcp` using the editor's personal bearer token.
 5. Open the returned review URL, inspect the final alerts page and the statement, and choose **Approve with your passkey**.
@@ -69,7 +69,7 @@ verified_human_approval:
 Configure the normal MCP endpoint and select your tools:
 
 ```yaml
-# config/src/mcp.yaml
+# config/packages/mcp.yaml
 mcp:
     servers:
         application:
@@ -257,7 +257,7 @@ A protected tool takes the SDK's `RequestContext` and returns `ApprovalFlow::res
 ],
 ```
 
-It is off by default, applies only under MCP 2026-07-28 or later, and its retry is bound to the same caller, tool and arguments. The demo enables it for Claude Code. See [MCP presentation](../mcp/README.md).
+It is off by default, applies only under MCP 2026-07-28 or later, and its retry is bound to the same caller, tool and arguments. The demo enables it for Claude Code. See [MCP presentation](https://github.com/scottfalconer/verified-human-approval/blob/main/src/mcp/README.md).
 
 ### Approve on your phone
 
