@@ -22,14 +22,14 @@ try {
     }
     $scripted = in_array('--scripted', $argv, true);
     $model = getenv('EXACT_APPROVAL_MODEL') ?: 'gpt-4.1-mini';
-    $prompt = $argv[1] ?? 'Please publish the summer-campaign announcement. If approval is needed, show me its review link and stop.';
+    $prompt = $argv[1] ?? 'Please publish the flood-update announcement. If approval is needed, show me its review link and stop.';
     if ($scripted) {
         // This exercises the real Symfony AI runner and real MCP call; it is explicitly not an LLM benchmark.
         $turn = 0;
         $key = 'scripted-'.bin2hex(random_bytes(12));
         $platform = MockPlatformFactory::createPlatform(static function () use (&$turn, $key) {
             return $turn++ === 0
-                ? new ToolCallResult([new ToolCall('request-publication', 'application_publish_announcement', ['announcement_id' => 'summer-campaign', 'request_key' => $key])])
+                ? new ToolCallResult([new ToolCall('request-publication', 'application_publish_announcement', ['announcement_id' => 'flood-update', 'request_key' => $key])])
                 : new TextResult('Scripted client completed its tool round. Inspect the authoritative tool result below; no human approval was simulated.');
         });
         $model = 'scripted-test';

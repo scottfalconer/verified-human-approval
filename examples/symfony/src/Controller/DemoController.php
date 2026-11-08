@@ -86,7 +86,7 @@ final readonly class DemoController
             $data = $form->getData();
             try {
                 $policy = new ApprovalPolicy('announcement.publish', (string) ((int) $data['version'] + 1), $data['statement'], 600, $data['required']);
-                $preview = $policy->statement($this->action->prepare($actor, ['announcement_id' => 'summer-campaign']));
+                $preview = $policy->statement($this->action->prepare($actor, ['announcement_id' => 'flood-update']));
                 $query = $this->database->pdo->prepare('UPDATE demo_policies SET version = version + 1, statement = ?, required = ? WHERE action_id = ? AND version = ?');
                 $query->execute([$data['statement'], (int) $data['required'], 'announcement.publish', (int) $data['version']]);
                 if ($query->rowCount() !== 1) $form->addError(new FormError('The policy changed in another session. Reload before saving.'));
@@ -96,7 +96,7 @@ final readonly class DemoController
             }
         }
         if ($preview === null) {
-            $preview = (new ApprovalPolicy('announcement.publish', (string) $row['version'], $row['statement']))->statement($this->action->prepare($actor, ['announcement_id' => 'summer-campaign']));
+            $preview = (new ApprovalPolicy('announcement.publish', (string) $row['version'], $row['statement']))->statement($this->action->prepare($actor, ['announcement_id' => 'flood-update']));
         }
 
         return new Response($this->twig->render('policy.html.twig', ['form' => $form->createView(), 'preview' => $preview, 'saved' => $request->query->getBoolean('saved')]));

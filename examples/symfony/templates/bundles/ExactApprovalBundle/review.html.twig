@@ -1,0 +1,12 @@
+{# Overrides the bundle's review page for this site: a publication shows the final public page. #}
+{% extends '@!ExactApproval/review.html.twig' %}
+{% block stylesheets %}<link rel="stylesheet" href="{{ path('riverside_styles') }}">{% endblock %}
+{% block preview %}
+{% if prepared.actionId == 'announcement.publish' %}
+<p class="muted">This is the page that goes live when you approve. It is drawn from the frozen proposal with the site’s own template, not from the current draft.</p>
+<div class="rc-frame">
+    <div class="rc-frame-bar"><span class="rc-frame-url">{{ url('riverside_news', {id: prepared.target.resource}) }}</span></div>
+    <div class="riverside rc-frame-page">{% include 'public/_page.html.twig' with {title: prepared.effect.title, body: prepared.effect.body} only %}</div>
+</div>
+{% else %}{{ parent() }}{% endif %}
+{% endblock %}

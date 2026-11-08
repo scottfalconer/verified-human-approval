@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Exact action approval{% endblock %}</title>
     <link rel="stylesheet" href="{{ path('exact_approval_styles') }}">
+    {% block stylesheets %}{% endblock %}
     <script type="module" src="{{ path('exact_approval_script') }}"></script>
 </head>
 <body>

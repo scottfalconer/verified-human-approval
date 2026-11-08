@@ -12,6 +12,7 @@ use ExactApproval\Demo\Action\DemoPolicyProvider;
 use ExactApproval\Demo\Controller\AccountController;
 use ExactApproval\Demo\Controller\DemoController;
 use ExactApproval\Demo\Controller\EvidenceController;
+use ExactApproval\Demo\Controller\PublicController;
 use ExactApproval\Demo\Mcp\DemoTools;
 use ExactApproval\Demo\Security\DemoActorProvider;
 use ExactApproval\Demo\Security\DemoUser;
@@ -101,6 +102,7 @@ final class DemoKernel extends Kernel
             'access_control' => [
                 ['path' => '^/login$', 'roles' => 'PUBLIC_ACCESS'],
                 ['path' => '^/approval/assets/', 'roles' => 'PUBLIC_ACCESS'],
+                ['path' => '^/(news/|site/)', 'roles' => 'PUBLIC_ACCESS'],
                 ['path' => '^/mcp(?:$|/)', 'roles' => 'ROLE_USER'],
                 ['path' => '^/', 'roles' => 'ROLE_USER'],
             ],
@@ -133,7 +135,7 @@ final class DemoKernel extends Kernel
         $services->set(WebAuthnVerifier::class);
         $services->set(SodiumEvidenceSigner::class, SodiumEvidenceSigner::class)->factory([SodiumEvidenceSigner::class, 'fromEncoded'])->args([$this->settings['receipt_key_id'], $this->settings['receipt_secret_key']]);
         $services->set(EvidenceExporter::class)->args([service(SodiumEvidenceSigner::class)]);
-        foreach ([DemoController::class, AccountController::class, EvidenceController::class] as $controller) $services->set($controller)->public()->tag('controller.service_arguments');
+        foreach ([DemoController::class, AccountController::class, EvidenceController::class, PublicController::class] as $controller) $services->set($controller)->public()->tag('controller.service_arguments');
         $services->set('demo.enrollment_limiter', RateLimiterFactory::class)->args([
             ['id' => 'demo-passkey-enrollment', 'policy' => 'fixed_window', 'limit' => $this->settings['enrollment_attempts_per_minute'] ?? 10, 'interval' => '1 minute'],
             service('exact_approval.limiter.storage'), service('exact_approval.limiter.lock_factory'),
@@ -154,6 +156,8 @@ final class DemoKernel extends Kernel
         $routes->add('exact_approval_policy', '/admin/approval-policy')->controller([DemoController::class, 'policy'])->methods(['GET', 'POST']);
         $routes->add('exact_approval_request_publication', '/announcements/{id}/publish')->controller([DemoController::class, 'requestPublication'])->methods(['POST']);
         $routes->add('exact_approval_edit_draft', '/announcements/{id}/draft')->controller([DemoController::class, 'editDraft'])->methods(['POST']);
+        $routes->add('riverside_news', '/news/{id}')->controller([PublicController::class, 'news'])->methods(['GET']);
+        $routes->add('riverside_styles', '/site/riverside.css')->controller([PublicController::class, 'styles'])->methods(['GET']);
         $routes->add('exact_approval_evidence', '/approval/{id}/evidence')->controller([EvidenceController::class, 'export'])->methods(['GET']);
     }
 }

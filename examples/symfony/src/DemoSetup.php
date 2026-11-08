@@ -29,7 +29,7 @@ final class DemoSetup
         (new PdoCredentialRepository($database->pdo))->initialize();
         $credentials = [];
         $users = [
-            ['editor', 'campaigns', 'Campaign editor', true, true],
+            ['editor', 'campaigns', 'Communications editor', true, true],
             ['reader', 'campaigns', 'Read-only colleague', false, false],
             ['other', 'other-organization', 'Other organization', true, false],
         ];
@@ -44,7 +44,7 @@ final class DemoSetup
             $credentials[$id] = ['password' => $password, 'personal_token' => $token];
         }
         $database->pdo->prepare('INSERT INTO demo_announcements (id, tenant_id, revision, title, body) VALUES (?, ?, ?, ?, ?)')
-            ->execute(['summer-campaign', 'campaigns', 1, 'Summer campaign', 'Applications close on June 20. Join your local campaign team.']);
+            ->execute(['flood-update', 'campaigns', 1, 'Flood update: Riverside Road closed', 'Riverside Road is closed between Mill Street and the bridge until the water drops. Use the Hill Street detour. Sandbags are available at the depot on Station Lane.']);
         $database->pdo->prepare('INSERT INTO demo_policies (action_id, version, statement, required) VALUES (?, ?, ?, ?)')
             ->execute(['announcement.publish', 1, 'I approve publishing “{{title}}” revision {{revision}} on {{application}} ({{environment}}). This content will become publicly visible immediately.', 1]);
         $keypair = sodium_crypto_sign_keypair();

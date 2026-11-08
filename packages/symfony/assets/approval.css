@@ -1,8 +1,9 @@
 :root {color-scheme: light; font: 16px/1.55 system-ui, sans-serif; color: #172b38; background: #f5f7f8;}
-* {box-sizing: border-box;} body {margin: 0;} header, main, footer {max-width: 920px; margin: auto; padding: 1.4rem;}
-header {display: flex; gap: 1rem; justify-content: space-between; border-bottom: 1px solid #dce4e8;}
-header a {font-weight: 750; text-decoration: none;} header span, footer {font-size: .85rem; color: #5b6c77;}
-main {min-height: 65vh;} h1 {font-size: 2.1rem; line-height: 1.2; margin-top: 1rem;} h2 {font-size: 1.2rem;}
+/* Page chrome rules use child selectors so they never restyle content embedded in a review, such as a page preview. */
+* {box-sizing: border-box;} body {margin: 0;} body > header, body > main, body > footer {max-width: 920px; margin: auto; padding: 1.4rem;}
+body > header {display: flex; gap: 1rem; justify-content: space-between; border-bottom: 1px solid #dce4e8;}
+body > header a {font-weight: 750; text-decoration: none;} body > header span, body > footer {font-size: .85rem; color: #5b6c77;}
+body > main {min-height: 65vh;} body > main > h1 {font-size: 2.1rem; line-height: 1.2; margin-top: 1rem;} .card > h2 {font-size: 1.2rem;}
 .eyebrow {text-transform: uppercase; font-size: .75rem; letter-spacing: .12em; font-weight: 700; color: #28625c;}
 .card {padding: 1.5rem; background: white; border: 1px solid #dce4e8; border-radius: 12px; margin: 1.2rem 0;}
 .statement {white-space: pre-wrap; font-size: 1.15rem; border-left: 4px solid #287b68; padding-left: 1rem;}

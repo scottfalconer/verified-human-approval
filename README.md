@@ -48,8 +48,8 @@ In another terminal, provide the `editor` account’s personal token without put
 read -r -s -p 'Personal agent token: ' EXACT_APPROVAL_TOKEN
 export EXACT_APPROVAL_TOKEN
 php examples/clients/mcp.php list
-php examples/clients/mcp.php read summer-campaign
-php examples/clients/mcp.php publish summer-campaign my-first-request
+php examples/clients/mcp.php read flood-update
+php examples/clients/mcp.php publish flood-update my-first-request
 ```
 
 This client uses the official SDK and HTTP transport. The server is the Symfony MCP Bundle at `/mcp`. It exposes:
@@ -103,7 +103,7 @@ php examples/clients/agent.php --scripted
 # Optional real model; set your own API key and model explicitly.
 export OPENAI_API_KEY='YOUR_KEY'
 export EXACT_APPROVAL_MODEL='YOUR_SUPPORTED_MODEL'
-php examples/clients/agent.php 'Please publish the summer-campaign announcement.'
+php examples/clients/agent.php 'Please publish the flood-update announcement.'
 ```
 
 The scripted mode is tested and clearly labels itself. No paid model call was made for this build. A model can request the action and return its review link; the approval decision remains in the application. `EXACT_APPROVAL_MCP_URL` changes the endpoint for either client.

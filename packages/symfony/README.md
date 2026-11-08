@@ -23,7 +23,7 @@ Setup creates private local state under `var/demo` and displays random developme
 5. Open the returned review URL, inspect the frozen content and statement, and choose **Approve and execute**.
 6. Read `approval_status` using the returned `requestId`. The application has already committed the stored action; this status tool does not execute it.
 
-The demo provides `publish_announcement`, `read_announcement` and `approval_status`. Its announcement ID is `summer-campaign`. The `reader` account has read access but cannot publish. The `other` account belongs to another tenant and cannot read or approve the first tenant's requests.
+The demo provides `publish_announcement`, `read_announcement` and `approval_status`. Its announcement ID is `flood-update`. The `reader` account has read access but cannot publish. The `other` account belongs to another tenant and cannot read or approve the first tenant's requests.
 
 `EXACT_APPROVAL_RUNTIME` selects another private runtime directory. `EXACT_APPROVAL_ORIGIN` sets the initial origin during setup; choose a stable HTTPS origin before enrolling real passkeys for a hosted demonstration. HTTP `localhost` is the development exception. Hostname, WebAuthn origin and RP ID must agree. The bundled PHP development server is for local use.
 

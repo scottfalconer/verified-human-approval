@@ -15,8 +15,11 @@
 </div>
 <section class="card">
     <h2>Exact proposed content</h2>
+    {# Override this block to show the effect as its audience will see it, rendered from the frozen proposal. #}
+    {% block preview %}
     {% if prepared.effect.title is defined %}<h3>{{ prepared.effect.title }}</h3>{% endif %}
     {% if prepared.effect.body is defined %}<div class="content-preview">{{ prepared.effect.body }}</div>{% endif %}
+    {% endblock %}
     <details><summary>All bound effects and preconditions</summary><pre>{{ {'effect': prepared.effect, 'preconditions': prepared.preconditions}|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre></details>
 </section>
 <section class="card">

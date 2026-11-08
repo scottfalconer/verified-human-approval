@@ -1,0 +1,12 @@
+{# The council's public page. The live page and the approval preview both render this template,
+   so the person approves the page exactly as it will appear. Changing it changes the action's
+   version, which invalidates approvals given for the old layout. #}
+<header class="rc-header"><div class="rc-wrap"><span class="rc-brand">Riverside Council</span><span class="rc-nav">News · Roads and travel · Bins · Contact us</span></div></header>
+<main class="rc-wrap">
+    <article class="rc-article">
+        <p class="rc-kicker">News · Roads and travel</p>
+        <h1 class="rc-title">{{ title }}</h1>
+        <div class="rc-body content-preview">{{ body|nl2br }}</div>
+    </article>
+</main>
+<footer class="rc-footer"><div class="rc-wrap">Riverside Council · A fictional site for the exact-approval demo</div></footer>

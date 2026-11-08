@@ -14,7 +14,13 @@ final readonly class PublishAnnouncement implements ActionAdapter
 {
     public function __construct(private DemoDatabase $database, private AnnouncementPublisher $publisher) {}
     public function id(): string { return 'announcement.publish'; }
-    public function version(): string { return '1'; }
+    /** The public page's template and stylesheet are part of what the person approves: changing either after review invalidates the approval. */
+    public function version(): string
+    {
+        $site = \dirname(__DIR__, 2);
+
+        return '2:'.substr(hash('sha256', (string) file_get_contents($site.'/templates/public/_page.html.twig').(string) file_get_contents($site.'/assets/riverside.css')), 0, 16);
+    }
 
     public function prepare(Actor $actor, array $input): PreparedAction
     {
@@ -26,11 +32,11 @@ final readonly class PublishAnnouncement implements ActionAdapter
 
         return new PreparedAction(
             $this->id(), $this->version(),
-            ['application' => 'Campaign Demo', 'environment' => 'Local demonstration', 'tenant_id' => $actor->tenantId, 'resource' => $row['id']],
+            ['application' => 'Riverside Council website', 'environment' => 'Local demonstration', 'tenant_id' => $actor->tenantId, 'resource' => $row['id']],
             ['title' => $row['title'], 'body' => $row['body'], 'state' => 'published'],
             ['revision' => (int) $row['revision'], 'published_revision' => $row['published_revision'] === null ? null : (int) $row['published_revision']],
             ['title' => 'Publish “'.$row['title'].'”', 'consequence' => 'The approved title and body will become the published announcement immediately.'],
-            ['title' => $row['title'], 'revision' => (string) $row['revision'], 'application' => 'Campaign Demo', 'environment' => 'Local demonstration'],
+            ['title' => $row['title'], 'revision' => (string) $row['revision'], 'application' => 'Riverside Council website', 'environment' => 'Local demonstration'],
         );
     }
 
