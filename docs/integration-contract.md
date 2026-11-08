@@ -5,7 +5,7 @@ Namespaces: `VerifiedHumanApproval\Core`, `VerifiedHumanApproval\WebAuthn`, `Ver
 Core public value types and interfaces (all in `VerifiedHumanApproval\Core` unless stated):
 
 - `Actor(string $userId, string $tenantId, ?string $delegationId = null)`: authenticated subject. Reviewer and initiator must match user/tenant; stored initiator delegation is independently rechecked at execution.
-- `PreparedAction(string $actionId, string $version, array $target, array $effect, array $preconditions, array $display, array $placeholders = [])`.
+- `PreparedAction(string $actionId, string $version, array $target, array $effect, array $preconditions, array $display, array $placeholders = [])`. The bundle's review page reads `display.title` and `display.consequence` (what happens the moment it is approved); both are frozen with the proposal.
 - `ApprovalPolicy(string $actionId, string $version, string $statementTemplate, int $lifetimeSeconds = 600, bool $required = true)`.
 - `ActionAdapter`: `id(): string`, `version(): string`, `prepare(Actor $actor, array $input): PreparedAction`, `assertPreconditions(Actor $actor, PreparedAction $action): void`, `execute(Actor $actor, PreparedAction $action): array`, `assertPostconditions(Actor $actor, PreparedAction $action, array $result): void`.
 - `PolicyProvider::get(string $actionId, ?Actor $actor = null): ApprovalPolicy`: the rule for this action, for this person when one is given, so it can depend on their role.

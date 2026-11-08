@@ -123,22 +123,43 @@ def main():
                 with sqlite3.connect(runtime / "application.sqlite") as db:
                     db.execute("UPDATE demo_alerts SET revision = revision + 1, body = body || ' Changed after review.' WHERE id = 'riverside-evacuation'")
                 page.locator("[data-approve]").click()
-                expect(page.locator("[data-message]")).to_contain_text("no longer eligible", timeout=15000)
+                # The site says the request stopped, so the page shows it stopped, with no button left to press.
+                expect(page.locator(".approval-sheet .notice")).to_contain_text("can no longer be approved", timeout=15000)
+                expect(page.locator("[data-approve]")).to_have_count(0)
                 stale = mcp("status", pending["requestId"])["structuredContent"]
                 assert stale["status"] == "invalidated" and row()["mutation_count"] == 1
+
+                # The site acts on the passkey response, but its answer never reaches the page. The page does
+                # not guess: it says it can't confirm, and a reload shows what the site recorded.
+                with sqlite3.connect(runtime / "application.sqlite") as db:
+                    db.execute("UPDATE demo_alerts SET revision = revision + 1, body = body || ' Third draft.' WHERE id = 'riverside-evacuation'")
+                lost = mcp("publish", "riverside-evacuation", "browser-answer-lost")["structuredContent"]
+                page.goto(lost["review_url"])
+
+                def answer_lost(route):
+                    route.fetch()
+                    route.abort("connectionreset")
+
+                page.route("**/approval/*/complete", answer_lost)
+                page.locator("[data-approve]").click()
+                expect(page.locator("[data-message]")).to_contain_text("we can’t confirm whether your approval was saved", timeout=15000)
+                assert row()["mutation_count"] == 2, "The site published; the page must not say otherwise"
+                page.unroute("**/approval/*/complete")
+                page.reload()
+                expect(page.locator(".approval-sheet .notice")).to_contain_text("Approved with your passkey", timeout=15000)
                 assert errors == [], errors
                 browser.close()
 
             # Exercise Symfony AI's actual Agent/McpToolbox, with a clearly labelled scripted model.
             agent = subprocess.run([PHP, str(ROOT / "examples/agent.php"), "--scripted"], env=env, capture_output=True, text=True, check=True, timeout=30)
             assert "pending" in agent.stdout and "review_url" in agent.stdout, agent.stdout
-            assert row()["mutation_count"] == 1
+            assert row()["mutation_count"] == 2
             print(json.dumps({
                 "passed": True,
                 "mcp_transport": "official PHP SDK over real HTTP to Symfony MCP Bundle",
                 "browser": "Chromium, headless; native WebAuthn API with CDP virtual authenticator",
-                "checks": ["tool discovery", "pending before approval", "human login", "passkey enrollment", "exact content review", "verified approval commits once", "MCP status", "idempotent request replay", "stale proposal refuses execution", "Symfony AI scripted runner uses real MCP"],
-                "committed_effects": 1,
+                "checks": ["tool discovery", "pending before approval", "human login", "passkey enrollment", "exact content review", "verified approval commits once", "MCP status", "idempotent request replay", "stale proposal refuses execution and shows as stopped", "a lost answer is reported as unconfirmed, not guessed", "Symfony AI scripted runner uses real MCP"],
+                "committed_effects": 2,
                 "physical_biometrics_tested": False,
                 "external_hosted_clients_tested": False,
                 "live_model_calls": 0,

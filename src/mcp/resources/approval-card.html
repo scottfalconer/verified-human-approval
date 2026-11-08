@@ -49,6 +49,8 @@
     invalidated: 'The content changed after this request, so it can no longer be approved. Nothing changed.',
     denied: 'This account can no longer do this. Nothing changed.',
     rejected: 'The site refused this request. Nothing changed.',
+    // The host stopped the tool call: the site may have received it, so this card cannot know the outcome.
+    interrupted: 'This request was stopped before the site’s answer arrived, so this card can’t tell whether anything changed. Check the site before trying again.',
   };
   const POLL_LIMIT_MS = 15 * 60 * 1000;
   let nextId = 1, view = null, timer = null, since = 0, host = {}, codeTimer = null, ended = false;
@@ -166,7 +168,7 @@
     if (message.method === 'ui/notifications/host-context-changed') applyTheme(message.params);
     if (message.method === 'ui/notifications/tool-cancelled') {
       const reason = message.params && typeof message.params.reason === 'string' ? ' ' + message.params.reason : '';
-      end('The request was cancelled before the site answered. Nothing changed.' + reason);
+      end(TEXT.interrupted + reason);
     }
     if (message.method === 'ui/resource-teardown' && message.id !== undefined) {
       end(null);

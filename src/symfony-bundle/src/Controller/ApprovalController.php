@@ -81,7 +81,7 @@ final readonly class ApprovalController
             $request->getSession()->set('verified_human_approval.ceremony.'.$id, $ceremony->id);
 
             return ['ceremony_id' => $ceremony->id, 'publicKey' => $ceremony->options, 'expires_at' => $ceremony->expiresAt];
-        });
+        }, $this->reviewer($request, $id), $id);
     }
 
     public function complete(Request $request, string $id): JsonResponse
@@ -108,7 +108,7 @@ final readonly class ApprovalController
             $request->getSession()->remove('verified_human_approval.ceremony.'.$id);
 
             return $this->presenter->data($this->approvals->complete($actor, $body['ceremony_id'], $body['credential']));
-        });
+        }, $this->reviewer($request, $id), $id);
     }
 
     public function cancel(Request $request, string $id): JsonResponse
@@ -124,7 +124,7 @@ final readonly class ApprovalController
             return self::refusal('sign_in_required', 'Cancel this request from your signed-in browser.', 403);
         }
 
-        return $this->respond(fn () => $this->presenter->data($this->approvals->cancel($person, $id)));
+        return $this->respond(fn () => $this->presenter->data($this->approvals->cancel($person, $id)), $person, $id);
     }
 
     /**
@@ -193,12 +193,30 @@ final readonly class ApprovalController
         return \is_array($body) && !array_is_list($body) ? $body : null;
     }
 
-    private function respond(callable $operation): JsonResponse
+    /**
+     * A refusal about one request also says whether that request is still open (`request_status`), so the
+     * page shows a finished or stopped request as it is instead of a button that can no longer work.
+     */
+    private function respond(callable $operation, ?Actor $reviewer = null, ?string $id = null): JsonResponse
     {
         try {
             return new JsonResponse($operation());
         } catch (ApprovalException $error) {
-            return self::refusal($error->reason, $error->getMessage(), 409);
+            $refusal = ['status' => 'rejected', 'reason' => $error->reason, 'message' => $error->getMessage()];
+            if (null !== $reviewer && null !== $id && null !== ($current = $this->currentStatus($reviewer, $id))) {
+                $refusal['request_status'] = $current;
+            }
+
+            return new JsonResponse($refusal, 409);
+        }
+    }
+
+    private function currentStatus(Actor $reviewer, string $id): ?string
+    {
+        try {
+            return $this->approvals->get($reviewer, $id)->status;
+        } catch (\Throwable) {
+            return null; // Unknown here too: the page shows the refusal and leaves the next step to the person.
         }
     }
 

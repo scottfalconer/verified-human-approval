@@ -115,6 +115,14 @@ def main():
             expect(card.locator("#phone-show")).to_be_hidden()
             checks.append("no phone option on " + label)
 
+        # The host stops the tool call. The site may have acted, so the card claims nothing either way.
+        page, card = host(browser)
+        page.evaluate("card().contentWindow.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-cancelled', params: { reason: 'The person stopped the reply.' } }, '*')")
+        expect(card.locator("#status")).to_contain_text("can’t tell whether anything changed")
+        expect(card.locator("#status")).not_to_contain_text("Nothing changed")
+        expect(card.locator("#open")).to_be_hidden()
+        checks.append("a stopped tool call is not reported as changing nothing")
+
         browser.close()
     print(json.dumps({"passed": True, "checks": checks}, indent=2))
 

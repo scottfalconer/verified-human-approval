@@ -8,6 +8,8 @@
     <p class="requester">Requested by {{ requested_by ?? (proposal.actor.delegationId ? 'an agent connected to your account' : 'you, on this site') }}.</p>
     <p class="statement">{{ state.request.statement }}</p>
     {% if state.status == 'pending' %}
+    {# What happens the moment it is approved, in the action's own words, frozen with the proposal. #}
+    {% if prepared.display.consequence is defined %}<p class="consequence">{{ prepared.display.consequence }}</p>{% endif %}
     <div data-passkey-panel data-mode="approval" data-csrf="{{ csrf }}"
          data-options-url="{{ path('verified_human_approval_options', {id: state.request.id}) }}"
          data-complete-url="{{ path('verified_human_approval_complete', {id: state.request.id}) }}"
@@ -30,11 +32,18 @@
         {% endblock %}
     </div>
     {% else %}
-    <p class="notice error">This request is {{ state.status }}{% if state.reason %} ({{ state.reason }}){% endif %}. Nothing changed.</p>
+    {# A stopped request never ran. The reason code is for whoever looks into it. #}
+    {% set stopped = {
+        cancelled: 'This request was cancelled.',
+        expired: 'This request expired before it was approved.',
+        invalidated: 'This request can no longer be approved: something it depends on changed after it was made.',
+        denied: 'This account is no longer allowed to do this.',
+    } %}
+    <p class="notice error">{{ stopped[state.status] ?? 'This request stopped.' }} Nothing changed.{% if state.reason and state.status in ['invalidated', 'denied'] %} <span class="small">Reason: {{ state.reason }}.</span>{% endif %}</p>
     {% endif %}
 </section>
 <section class="card">
-    <h2>{{ state.status == 'completed' ? (state.proof ? 'What you approved' : 'What ran') : 'What you are approving' }}</h2>
+    <h2>{{ state.status == 'completed' ? (state.proof ? 'What you approved' : 'What ran') : (state.status == 'pending' ? 'What you are approving' : 'What was requested') }}</h2>
     {# Override this block to show the effect as its audience will see it, rendered from the frozen proposal. #}
     {% block preview %}
     {% if prepared.effect.title is defined %}<h3>{{ prepared.effect.title }}</h3>{% endif %}
@@ -52,5 +61,5 @@
         {% if state.result %}<pre>{{ state.result|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre>{% endif %}
     </details>
 </section>
-<p class="muted">Request <code>{{ state.request.id }}</code> · <a href="{{ path('verified_human_approval_status', {id: state.request.id}) }}">Check status</a></p>
+<p class="muted">Request <code>{{ state.request.id }}</code></p>
 {% endblock %}

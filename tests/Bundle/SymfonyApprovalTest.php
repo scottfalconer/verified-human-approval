@@ -123,6 +123,42 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame(0, $this->mutationCount());
     }
 
+    public function testAStoppedRequestSaysSoAndOffersNoButtonThatCannotWork(): void
+    {
+        $id = $this->requestAction();
+        $browser = $this->browser('editor');
+        $this->enroll($browser);
+        $review = $browser->request('GET', self::ORIGIN.'/approval/'.$id);
+        // Next to the button: what happens the moment it is approved, frozen with the proposal.
+        self::assertSame('As soon as this is approved, every resident sees the alert on the Riverside Council website.', $review->filter('.approval-sheet .consequence')->text());
+        $csrf = (string) $review->filter('[data-passkey-panel]')->attr('data-csrf');
+        $this->database->pdo->exec("UPDATE demo_alerts SET body = body || '!', revision = revision + 1 WHERE id = 'riverside-evacuation'");
+
+        // The refusal says the request has stopped, so the page shows it as stopped instead of a button.
+        $refused = $this->post($browser, '/approval/'.$id.'/options', $csrf, []);
+        self::assertSame(409, $browser->getResponse()->getStatusCode());
+        self::assertSame(['stale_resource', 'invalidated'], [$refused['reason'], $refused['request_status'] ?? null]);
+        $stopped = $browser->request('GET', self::ORIGIN.'/approval/'.$id);
+        self::assertCount(0, $stopped->filter('[data-approve]'));
+        self::assertCount(0, $stopped->filter('.consequence'), 'What approval would do no longer applies.');
+        self::assertSame('This request can no longer be approved: something it depends on changed after it was made. Nothing changed. Reason: stale_resource.', $stopped->filter('.approval-sheet .notice')->text());
+        self::assertSame('What was requested', $stopped->filter('section.card h2')->text());
+        self::assertStringContainsString('it never issued this alert', $stopped->filter('section.card')->eq(1)->filter('p.muted')->text());
+        self::assertCount(0, $stopped->filter('a[href*="/status"]'), 'People get the review page, not the JSON status.');
+        self::assertSame(0, $this->mutationCount());
+    }
+
+    public function testARefusalThePersonCanFixLeavesTheRequestOpen(): void
+    {
+        $id = $this->requestAction();
+        $browser = $this->browser('editor');
+        $csrf = (string) $browser->request('GET', self::ORIGIN.'/approval/'.$id)->filter('[data-passkey-panel]')->attr('data-csrf');
+        // No passkey yet: the person can add one and come back, so the page keeps its button.
+        $refused = $this->post($browser, '/approval/'.$id.'/options', $csrf, []);
+        self::assertSame(409, $browser->getResponse()->getStatusCode());
+        self::assertSame(['credential_required', 'pending'], [$refused['reason'], $refused['request_status'] ?? null]);
+    }
+
     public function testCurrentDelegationRevocationPreventsExecutionAfterReview(): void
     {
         $id = $this->requestAction();
