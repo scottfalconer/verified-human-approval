@@ -108,7 +108,7 @@ final class DemoKernel extends Kernel
             ],
         ]);
         $container->extension('mcp', ['servers' => ['application' => [
-            'name' => 'Exact approval Symfony demo', 'version' => '0.1.0',
+            'name' => 'Verified Human Approval demo', 'version' => '0.1.0',
             'instructions' => 'Read the announcement, then request publication. If approval is required, show the review URL. Only the person’s browser passkey can approve. Call approval_status afterward; never claim publication while pending.',
             'transports' => ['http' => true, 'stdio' => false],
             'http' => ['path' => '/mcp', 'allowed_hosts' => [$this->settings['rp_id']]],

@@ -1,5 +1,5 @@
 {% extends '@ExactApproval/base.html.twig' %}
-{% block title %}Riverside Council · Exact approval{% endblock %}
+{% block title %}Riverside Council · Verified Human Approval{% endblock %}
 {% block body %}
 <p class="eyebrow">{{ actor.userId }} · Riverside Council website</p><h1>Publish with exact approval</h1>
 <p><a href="{{ path('exact_approval_passkeys') }}">Your passkeys</a>{% if is_granted('ROLE_ADMIN') %} · <a href="{{ path('exact_approval_policy') }}">Administrator settings</a>{% endif %}</p>

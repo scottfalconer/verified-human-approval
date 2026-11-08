@@ -1,18 +1,18 @@
-# Exact Approval
+# Verified Human Approval
 
 **An AI agent can ask to publish. Only your passkey can make it happen, and you approve the exact page that goes live.**
 
 An agent, such as Claude, prepares a change through MCP. The Symfony application freezes that exact proposal and shows it to you in Claude as an approval card or a native prompt. You review the final page on the application's own site and approve with a passkey, such as Touch ID. The application then re-checks your permissions and publishes that stored proposal once. A client saying "accept" never counts as approval, and nothing the agent sends later can change what you approved.
 
-Built with the official PHP MCP SDK (`mcp/sdk`), the Symfony MCP bundle and Symfony AI, on the MCP standard as it is: MCP Apps for the card and URL-mode elicitation for the native prompt.
+Built with the official PHP MCP SDK (`mcp/sdk`), the Symfony MCP bundle and Symfony AI, on the MCP standard as it is: MCP Apps for the card and URL-mode elicitation for the native prompt. The packages are named `exact-approval/*` after the guarantee they implement: a person approves one exact action.
 
 ## Run it in five minutes
 
 You need PHP 8.3+ with the `pdo_sqlite`, `sodium` and `openssl` extensions, Composer, and Chrome or Safari. To see the Claude side, you also need Claude Desktop or Claude Code.
 
 ```bash
-git clone https://github.com/scottfalconer/exact-action-approval.git
-cd exact-action-approval
+git clone https://github.com/scottfalconer/verified-human-approval.git
+cd verified-human-approval
 composer install
 php examples/symfony/bin/setup.php
 PHP_CLI_SERVER_WORKERS=4 php -S localhost:8080 -t examples/symfony/public examples/symfony/public/index.php
@@ -22,7 +22,7 @@ Setup prints fresh passwords and personal agent tokens once, plus the exact comm
 
 1. **Add a passkey.** Open http://localhost:8080, sign in as `editor`, and open **Your passkeys**. On a Mac, Touch ID works.
 2. **Connect Claude** as the editor, using the commands setup printed:
-   - **Claude Desktop:** add the printed `exact-approval` entry under `mcpServers` in `claude_desktop_config.json`, then restart Claude. It uses `mcp-remote`, and keeps the token in a private file.
+   - **Claude Desktop:** add the printed `verified-human-approval` entry under `mcpServers` in `claude_desktop_config.json`, then restart Claude. It uses `mcp-remote`, and keeps the token in a private file.
    - **Claude Code:** run the printed `claude mcp add --transport http …` command.
 3. **Ask Claude:** "Publish the flood-update announcement on the Riverside Council site."
 4. **Approve.** Claude Desktop shows an approval card, and Claude Code shows an "Open link" prompt. Either one opens the review page, which shows the exact public page that will go live. Approve with your passkey, and the card updates to show it's done.

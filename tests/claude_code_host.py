@@ -59,7 +59,7 @@ def approve_in_browser(url: str, origin: str, password: str) -> None:
 
 
 def main() -> None:
-    with tempfile.TemporaryDirectory(prefix="exact-approval-claude-code-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="verified-human-approval-claude-code-") as temporary:
         work = Path(temporary)
         with socket.socket() as sock:
             sock.bind(("127.0.0.1", 0))
@@ -69,7 +69,7 @@ def main() -> None:
         setup = subprocess.run([PHP, "-r", 'require $argv[1]; echo json_encode(ExactApproval\\Demo\\DemoSetup::initialize(getenv("EXACT_APPROVAL_RUNTIME"), getenv("EXACT_APPROVAL_ORIGIN")), JSON_THROW_ON_ERROR);', str(ROOT / "vendor/autoload.php")], env=env, capture_output=True, text=True, check=True)
         editor = json.loads(setup.stdout)["accounts"]["editor"]
         config = work / "mcp.json"
-        config.write_text(json.dumps({"mcpServers": {"exact-approval": {"type": "http", "url": origin + "/mcp", "headers": {"Authorization": "Bearer " + editor["personal_token"]}}}}))
+        config.write_text(json.dumps({"mcpServers": {"verified-human-approval": {"type": "http", "url": origin + "/mcp", "headers": {"Authorization": "Bearer " + editor["personal_token"]}}}}))
         config.chmod(0o600)
 
         with open(work / "server.log", "w") as log:
@@ -97,7 +97,7 @@ def main() -> None:
 
 
 def run_claude(config: Path, work: Path, origin: str, password: str) -> dict:
-    tools = "mcp__exact-approval__publish_announcement,mcp__exact-approval__approval_status"
+    tools = "mcp__verified-human-approval__publish_announcement,mcp__verified-human-approval__approval_status"
     claude = subprocess.Popen([CLAUDE, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
                                "--mcp-config", str(config), "--strict-mcp-config", "--allowedTools", tools,
                                "--model", MODEL, "--max-turns", "6"],
@@ -109,7 +109,7 @@ def run_claude(config: Path, work: Path, origin: str, password: str) -> dict:
 
     send({"type": "control_request", "request_id": "init-1", "request": {"subtype": "initialize"}})
     send({"type": "user", "message": {"role": "user", "content":
-          'Use the exact-approval server. Call publish_announcement once with announcement_id "flood-update". '
+          'Use the verified-human-approval server. Call publish_announcement once with announcement_id "flood-update". '
           "Then answer in one sentence with the status it reports."}})
     report = {"claude_code_version": None, "model": MODEL, "elicitation": None, "host_answer": None, "tool_results": [], "final": None}
     deadline = time.time() + 240

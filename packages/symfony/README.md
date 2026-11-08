@@ -1,4 +1,4 @@
-# Exact Approval for Symfony
+# Verified Human Approval for Symfony (`exact-approval/symfony-bundle`)
 
 A thin Symfony integration for the shared PHP approval engine. An existing MCP tool requests a protected local action, returns a review URL, and later reads the result. The application validates a fresh passkey assertion and executes the frozen proposal in its own database transaction.
 

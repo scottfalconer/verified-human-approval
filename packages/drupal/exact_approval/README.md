@@ -27,9 +27,9 @@ See [the Drupal example README](../../../examples/drupal/README.md) for a dispos
 Keep the repository available at a stable path, or publish the three packages into your own Composer repository. From the Drupal project's Composer root, register the unpublished source packages, replacing the example absolute path:
 
 ```sh
-composer config repositories.exact-approval-core path /absolute/path/exact-action-approval/packages/core
-composer config repositories.exact-approval-webauthn path /absolute/path/exact-action-approval/packages/webauthn
-composer config repositories.exact-approval-drupal path /absolute/path/exact-action-approval/packages/drupal/exact_approval
+composer config repositories.exact-approval-core path /absolute/path/verified-human-approval/packages/core
+composer config repositories.exact-approval-webauthn path /absolute/path/verified-human-approval/packages/webauthn
+composer config repositories.exact-approval-drupal path /absolute/path/verified-human-approval/packages/drupal/exact_approval
 composer require 'drupal/exact_approval:^0.1'
 ```
 

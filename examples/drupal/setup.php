@@ -56,7 +56,7 @@ $run = static function (array $arguments) use ($root, $origin): void {
         throw new RuntimeException('Demo setup failed; inspect the preceding Drupal output.');
     }
 };
-$run(['site:install', 'minimal', '--yes', '--account-name=admin', '--account-pass='.$adminPassword, '--site-name=Exact Approval Demo']);
+$run(['site:install', 'minimal', '--yes', '--account-name=admin', '--account-pass='.$adminPassword, '--site-name=Verified Human Approval Demo']);
 $run(['en', '--yes', 'exact_approval', 'content_moderation', 'basic_auth', 'exact_approval_test', 'mcp_server', 'exact_approval_mcp']);
 $run(['php:script', $root.'/configure.php']);
 echo "\nDemo installed at $origin\nSign in as editor. The generated local passwords are in examples/drupal/var/demo.json.\n";

@@ -1,6 +1,6 @@
 {
   "name": "exact-approval/development",
-  "description": "Exact action approval for PHP applications, with Symfony and MCP integration.",
+  "description": "Verified Human Approval: exact action approval for PHP applications, with Symfony and MCP integration.",
   "type": "project",
   "license": "MIT",
   "repositories": [{"type": "path", "url": "packages/*", "options": {"symlink": true}}],

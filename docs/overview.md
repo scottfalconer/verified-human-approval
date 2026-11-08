@@ -1,4 +1,4 @@
-# Exact Approval: full overview
+# Verified Human Approval: full overview
 
 The detailed overview. For the short version and the five-minute quickstart, see the [README](../README.md).
 

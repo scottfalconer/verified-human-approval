@@ -1,4 +1,4 @@
-# Exact Approval MCP presentation
+# Verified Human Approval: MCP presentation (`exact-approval/mcp`)
 
 How a pending approval reaches a person through MCP. The Symfony bundle and the Drupal module both use this package; it needs only the core package and the official PHP MCP SDK.
 
