@@ -13,10 +13,10 @@ jobs:
       fail-fast: false
       matrix:
         php: ['8.3', '8.4']
-    env:
-      VHA_DRUPAL_CONSUMER: ${{ runner.temp }}/vha-drupal-consumer
     steps:
       - uses: actions/checkout@v4
+      - name: Set the independent consumer directory
+        run: echo "VHA_DRUPAL_CONSUMER=$RUNNER_TEMP/vha-drupal-consumer" >> "$GITHUB_ENV"
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '${{ matrix.php }}'
