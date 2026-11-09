@@ -1,5 +1,7 @@
 # Example MCP clients
 
+The [publishing example](doctrine-publishing/README.md) is a separate application: a newsroom on Doctrine ORM where publishing, live edits, archiving and deleting each need the person's passkey. The rest of this page is about the clients below.
+
 These clients connect to the [Riverside Council demo](../demo/README.md) over HTTP. They use the real MCP SDK and the application's normal authentication, policy, and approval flow.
 
 Run all commands from the repository root after `composer install`. Start the demo server and enroll the editor's passkey using the [demo walkthrough](../demo/README.md). Keep the server running in a separate terminal.

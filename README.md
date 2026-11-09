@@ -111,11 +111,13 @@ The [integration guide](src/symfony-bundle/docs/index.md) is the canonical insta
 
 The engine is independent of Symfony. The worked Symfony example uses a single SQLite transaction; the Doctrine storage passes the same contract on SQLite, PostgreSQL and MySQL. External effects, such as an email or another service's API, are outside the transaction and need their own design.
 
+On Doctrine ORM, start from the [publishing example](examples/doctrine-publishing/README.md): a runnable newsroom where publishing, editing live content, archiving (also a batch, under one approval) and deleting each wait for the person's passkey, from the web and from an agent alike, with entities that refuse any other write and a public page that marks approved live text. Its tests cover SQLite, PostgreSQL and MySQL.
+
 ## Built with Symfony and MCP
 
 The project uses the official PHP MCP SDK, Symfony MCP Bundle, Symfony AI and the WebAuthn Framework. Protected actions remain ordinary MCP tools. MCP Apps show the approval card, URL-mode elicitation provides an optional native prompt, and every client receives a plain review link. The demo includes OAuth for remote clients.
 
-The [examples guide](examples/README.md) explains what each example runs. The [conformance review](docs/conformance-review.md) records protocol choices and interoperability limits.
+The [examples guide](examples/README.md) explains what each example runs, and the [publishing example](examples/doctrine-publishing/README.md) is a complete application on Doctrine to copy from. The [conformance review](docs/conformance-review.md) records protocol choices and interoperability limits.
 
 ## Verification
 
