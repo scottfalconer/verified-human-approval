@@ -22,20 +22,11 @@ final readonly class AuditLog
     public const FORMAT = 'verified-human-approval/audit/v1';
 
     public function __construct(
-        private \PDO $pdo,
+        private AuditStore $store,
         private EvidenceSigner $signer,
         private string $trustedPublicKey,
         private ClockInterface $clock,
     ) {
-    }
-
-    public function initialize(): void
-    {
-        $this->pdo->exec('CREATE TABLE IF NOT EXISTS verified_human_approval_audit (
-            seq INTEGER PRIMARY KEY, tenant_id TEXT NOT NULL, type TEXT NOT NULL, subject TEXT NOT NULL,
-            entry TEXT NOT NULL, hash TEXT NOT NULL, key_id TEXT NOT NULL, signature TEXT NOT NULL
-        )');
-        $this->pdo->exec('CREATE INDEX IF NOT EXISTS verified_human_approval_audit_subject ON verified_human_approval_audit(type, subject)');
     }
 
     /**
@@ -47,35 +38,22 @@ final readonly class AuditLog
      */
     public function append(string $tenantId, string $type, string $subject, array $data): array
     {
-        $own = !$this->pdo->inTransaction();
-        if ($own) {
-            // The write reservation comes before reading the newest entry, so two writers cannot fork the chain.
-            $this->pdo->exec('BEGIN IMMEDIATE');
-        }
-        try {
-            $newest = $this->pdo->prepare('SELECT seq, hash FROM verified_human_approval_audit ORDER BY seq DESC LIMIT 1');
-            $newest->execute();
-            $last = $newest->fetch(\PDO::FETCH_ASSOC) ?: null;
+        $record = $this->store->append(function (?array $last) use ($tenantId, $type, $subject, $data): array {
             $seq = null === $last ? 1 : (int) $last['seq'] + 1;
             $entry = CanonicalJson::encode([
                 'format' => self::FORMAT, 'seq' => $seq, 'at' => ApprovalRequest::timestamp($this->clock->now()),
                 'tenantId' => $tenantId, 'type' => $type, 'subject' => $subject, 'data' => (object) $data,
                 'previous' => null === $last ? null : $last['hash'],
             ]);
-            $hash = hash('sha256', $entry);
-            $this->pdo->prepare('INSERT INTO verified_human_approval_audit (seq, tenant_id, type, subject, entry, hash, key_id, signature) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-                ->execute([$seq, $tenantId, $type, $subject, $entry, $hash, $this->signer->keyId(), $this->signer->sign($entry)]);
-            if ($own) {
-                $this->pdo->exec('COMMIT');
-            }
-        } catch (\Throwable $error) {
-            if ($own) {
-                $this->pdo->exec('ROLLBACK');
-            }
-            throw $error;
-        }
 
-        return CanonicalJson::map(CanonicalJson::decode($entry));
+            return [
+                'seq' => $seq, 'tenant_id' => $tenantId, 'type' => $type, 'subject' => $subject,
+                'entry' => $entry, 'hash' => hash('sha256', $entry),
+                'key_id' => $this->signer->keyId(), 'signature' => $this->signer->sign($entry),
+            ];
+        });
+
+        return CanonicalJson::map(CanonicalJson::decode($record['entry']));
     }
 
     /**
@@ -85,9 +63,7 @@ final readonly class AuditLog
      */
     public function find(string $type, string $subject): ?array
     {
-        $query = $this->pdo->prepare('SELECT * FROM verified_human_approval_audit WHERE type = ? AND subject = ? ORDER BY seq DESC');
-        $query->execute([$type, $subject]);
-        foreach ($query->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+        foreach ($this->store->recordsFor($type, $subject) as $row) {
             $entry = $this->verified($row);
             if (null !== $entry) {
                 return $entry;
@@ -108,9 +84,7 @@ final readonly class AuditLog
         $intact = true;
         $previous = null;
         $expected = 1;
-        $rows = $this->pdo->prepare('SELECT * FROM verified_human_approval_audit ORDER BY seq');
-        $rows->execute();
-        foreach ($rows->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+        foreach ($this->store->records() as $row) {
             $entry = $this->verified($row);
             $problem = match (true) {
                 null === $entry => 'its signature or hash does not verify',

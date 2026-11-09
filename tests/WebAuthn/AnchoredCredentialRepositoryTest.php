@@ -9,12 +9,15 @@ use Symfony\Component\Clock\MockClock;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
+use VerifiedHumanApproval\Core\Audit\AuditStore;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\Storage\PdoAuditStore;
 use VerifiedHumanApproval\Tests\Support\VirtualAuthenticator;
 use VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository;
 use VerifiedHumanApproval\WebAuthn\Configuration;
 use VerifiedHumanApproval\WebAuthn\Credential;
 use VerifiedHumanApproval\WebAuthn\PdoCredentialRepository;
+use VerifiedHumanApproval\WebAuthn\RevocableCredentialRepository;
 use VerifiedHumanApproval\WebAuthn\WebAuthnVerifier;
 
 /** Only a passkey with a signed enrollment record can approve; the database alone cannot add or swap one. */
@@ -32,8 +35,9 @@ final class AnchoredCredentialRepositoryTest extends TestCase
         $this->stored = new PdoCredentialRepository($this->pdo);
         $this->stored->initialize();
         $signer = new SodiumEvidenceSigner('app-key', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
-        $audit = new AuditLog($this->pdo, $signer, $signer->publicKey(), new MockClock());
-        $audit->initialize();
+        $auditStore = new PdoAuditStore($this->pdo);
+        $auditStore->initialize();
+        $audit = new AuditLog($auditStore, $signer, $signer->publicKey(), new MockClock());
         $this->anchored = new AnchoredCredentialRepository($this->stored, $audit);
         $this->verifier = new WebAuthnVerifier(new Configuration('approval.test', 'https://approval.test'), $this->anchored);
         $this->actor = new Actor('editor', 'acme');
@@ -106,5 +110,35 @@ final class AnchoredCredentialRepositoryTest extends TestCase
         self::assertTrue($this->approves($authenticator));
         self::assertTrue($this->anchored->revoke($this->actor, $credential->id, ['by' => 'editor']));
         self::assertFalse($this->approves($authenticator));
+    }
+
+    public function testSignedEnrollmentCanWrapANonPdoRevocableRepository(): void
+    {
+        $credential = new Credential('portable-key', $this->actor->userId, $this->actor->tenantId,
+            '{"publicKeyCredentialId":"aWQ","credentialPublicKey":"a2V5","userHandle":"dXNlcg"}', false, 'Portable passkey');
+        $raw = $this->createMock(RevocableCredentialRepository::class);
+        $raw->method('find')->with($credential->id)->willReturn($credential);
+        $raw->expects(self::once())->method('revoke')->with($this->actor, $credential->id)->willReturn(true);
+
+        $records = [];
+        $store = $this->createMock(AuditStore::class);
+        $store->expects(self::exactly(2))->method('append')->willReturnCallback(static function (callable $build) use (&$records): array {
+            $last = [] === $records ? null : $records[array_key_last($records)];
+            $record = $build(null === $last ? null : ['seq' => $last['seq'], 'hash' => $last['hash']]);
+            $records[] = $record;
+
+            return $record;
+        });
+        $store->method('recordsFor')->willReturnCallback(static function (string $type, string $subject) use (&$records): array {
+            return array_values(array_filter(array_reverse($records), static fn (array $row): bool => $row['type'] === $type && $row['subject'] === $subject));
+        });
+        $signer = new SodiumEvidenceSigner('portable-key', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
+        $anchored = new AnchoredCredentialRepository($raw, new AuditLog($store, $signer, $signer->publicKey(), new MockClock()));
+        self::assertNull($anchored->find($credential->id), 'A raw row alone is not a trusted enrollment.');
+        $anchored->anchor($credential, ['method' => 'trusted-host']);
+        self::assertSame($credential, $anchored->find($credential->id));
+        self::assertTrue($anchored->revoke($this->actor, $credential->id, ['by' => 'owner']));
+        self::assertNull($anchored->find($credential->id), 'The signed revocation also prevents using a restored raw row.');
+        self::assertSame($credential->sourceJson, $anchored->enrolled($credential->id)->sourceJson, 'Historical enrollment survives current revocation.');
     }
 }

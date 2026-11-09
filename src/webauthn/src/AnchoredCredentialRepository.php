@@ -21,7 +21,7 @@ final readonly class AnchoredCredentialRepository implements CredentialRepositor
     /** The parts of a registration that never change after enrollment; the counter does. */
     private const IDENTITY = ['publicKeyCredentialId', 'credentialPublicKey', 'userHandle'];
 
-    public function __construct(private PdoCredentialRepository $credentials, private AuditLog $audit)
+    public function __construct(private RevocableCredentialRepository $credentials, private AuditLog $audit)
     {
     }
 
