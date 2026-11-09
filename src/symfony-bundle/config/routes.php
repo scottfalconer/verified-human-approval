@@ -23,5 +23,7 @@ return static function (RoutingConfigurator $routes): void {
     $routes->add('verified_human_approval_options', '/approval/{id}/options')->controller($controller.'options')->methods(['POST'])->defaults($headers)->requirements($request);
     $routes->add('verified_human_approval_complete', '/approval/{id}/complete')->controller($controller.'complete')->methods(['POST'])->defaults($headers)->requirements($request);
     $routes->add('verified_human_approval_cancel', '/approval/{id}/cancel')->controller($controller.'cancel')->methods(['POST'])->defaults($headers)->requirements($request);
+    // The public page a "verified" badge links to; it answers only when `public_verification` is enabled.
+    $routes->add('verified_human_approval_verified', '/approval/{id}/verified')->controller('verified_human_approval.verification_controller::verified')->methods(['GET'])->defaults($headers)->requirements($request);
     $routes->add('verified_human_approval_evidence', '/approval/{id}/evidence')->controller($controller.'evidence')->methods(['GET'])->defaults($headers)->requirements($request);
 };

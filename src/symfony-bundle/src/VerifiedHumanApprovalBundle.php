@@ -11,12 +11,15 @@ use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
 use Symfony\Component\Lock\LockFactory;
 use Symfony\Component\Lock\Store\FlockStore;
 use VerifiedHumanApproval\Bundle\Controller\ApprovalController;
+use VerifiedHumanApproval\Bundle\Controller\VerificationController;
 use VerifiedHumanApproval\Bundle\Handoff\ApprovalHandoff;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool;
 use VerifiedHumanApproval\Bundle\Security\ReviewRequestMatcher;
 use VerifiedHumanApproval\Bundle\Twig\ContentSecurityPolicyExtension;
+use VerifiedHumanApproval\Bundle\Twig\VerificationExtension;
+use VerifiedHumanApproval\Bundle\Verification\PublicVerification;
 use VerifiedHumanApproval\Core\ActionAdapter;
 use VerifiedHumanApproval\Core\ActionRegistry;
 use VerifiedHumanApproval\Core\ApprovalObserver;
@@ -65,6 +68,8 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
                 ->info('Service id of a VerifiedHumanApproval\\Core\\Evidence\\EvidenceSigner. When set, each execution\'s receipt is signed inside the completing transaction, so later edits to the record show; the person can download their receipt, and the signer\'s public key is published to check it.')
                 ->defaultNull()
             ->end()
+            ->booleanNode('public_verification')->defaultFalse()
+                ->info('Serve /approval/{id}/verified, the public page a "verified" badge links to: what was approved, when, and the signed receipt, with no account, tenant, connection or passkey ids. Anyone with the link can open it. Needs receipt_signer.')->end()
             ->scalarNode('relying_party_id')->defaultNull()
                 ->info('The passkey relying party id published with the receipt key, so a receipt\'s passkey signature can be checked offline. Defaults to the public origin\'s host.')->end()
             ->arrayNode('url_elicitation')
@@ -182,6 +187,19 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
                 ->args([service($config['receipt_signer']), $config['public_origin'], $config['relying_party_id']]);
             $services->alias(ReceiptKey::class, 'verified_human_approval.receipt_key');
         }
+
+        // "Approved with a passkey" on your own pages: a Twig badge, and the public page it links to when enabled.
+        $services->set('verified_human_approval.public_verification', PublicVerification::class)->args([
+            service($config['store']),
+            null === $config['receipt_signer'] ? null : service('verified_human_approval.receipt_key'),
+        ]);
+        $services->alias(PublicVerification::class, 'verified_human_approval.public_verification');
+        $services->set('verified_human_approval.twig.verification', VerificationExtension::class)
+            ->args([service('verified_human_approval.public_verification'), service('router'), $config['public_verification']])
+            ->tag('twig.extension');
+        $services->set('verified_human_approval.verification_controller', VerificationController::class)->public()->args([
+            service('verified_human_approval.public_verification'), service('twig'), $config['public_verification'],
+        ]);
 
         // The review pages. Public, because routes name it by service id.
         $services->set('verified_human_approval.approval_controller', ApprovalController::class)->public()->args([
