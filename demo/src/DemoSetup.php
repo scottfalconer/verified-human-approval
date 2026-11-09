@@ -9,6 +9,7 @@ use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\ChallengeBinding;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
 use VerifiedHumanApproval\Core\Storage\PdoApprovalStore;
+use VerifiedHumanApproval\Core\Storage\PdoAuditStore;
 use VerifiedHumanApproval\Demo\Account\PasskeyLinks;
 use VerifiedHumanApproval\WebAuthn\Configuration;
 use VerifiedHumanApproval\WebAuthn\PdoCredentialRepository;
@@ -47,8 +48,9 @@ final class DemoSetup
         // outside the database, so database access alone cannot forge either.
         $keypair = sodium_crypto_sign_keypair();
         $signer = new SodiumEvidenceSigner('demo-application-1', sodium_crypto_sign_secretkey($keypair));
-        $audit = new AuditLog($database->pdo, $signer, $signer->publicKey(), new NativeClock());
-        $audit->initialize();
+        $auditStore = new PdoAuditStore($database->pdo);
+        $auditStore->initialize();
+        $audit = new AuditLog($auditStore, $signer, $signer->publicKey(), new NativeClock());
         $links = new PasskeyLinks($database, $audit);
         $credentials = [];
         $users = [

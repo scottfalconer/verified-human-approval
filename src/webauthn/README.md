@@ -4,6 +4,8 @@ This package implements the core `ApprovalVerifier` with [`web-auth/webauthn-lib
 
 The bridge is independent of a Symfony kernel. Applications supply credential ownership/storage through `CredentialRepository`. The SQLite reference repository uses the **same PDO connection** as the approval store, authorization records and protected business mutation, so a failed action rolls back the credential counter as well as the action and proof.
 
+For signed enrollment, supply a raw `RevocableCredentialRepository` to `AnchoredCredentialRepository` together with the core `AuditLog`. This interface extends `CredentialRepository` with owner-and-tenant-scoped `revoke(Actor $owner, string $id): bool`; it does not require PDO. Wire the WebAuthn verifier to the anchored wrapper, and wire its inner repository explicitly to the raw host adapter. Credential insertion plus the enrollment anchor, and revocation plus its audit event, must each share the host transaction. A matched, unchanged credential source is a successful compare-and-replace even when its authenticator counter remains zero.
+
 ```php
 use VerifiedHumanApproval\WebAuthn\Configuration;
 use VerifiedHumanApproval\WebAuthn\PdoCredentialRepository;

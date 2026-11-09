@@ -140,7 +140,7 @@ $pdo = new PDO('sqlite:'.$runtime.'/application.sqlite');
 $signer = SodiumEvidenceSigner::fromEncoded(
     $settings['receipt_key_id'], $settings['receipt_secret_key'],
 );
-$audit = new AuditLog($pdo, $signer, $settings['receipt_public_key'], new NativeClock());
+$audit = new AuditLog(new \VerifiedHumanApproval\Core\Storage\PdoAuditStore($pdo), $signer, $settings['receipt_public_key'], new NativeClock());
 $credentials = new AnchoredCredentialRepository(new PdoCredentialRepository($pdo), $audit);
 $credential = $credentials->enrolled($credentialId)
     ?? throw new RuntimeException('No valid signed enrollment for this credential.');

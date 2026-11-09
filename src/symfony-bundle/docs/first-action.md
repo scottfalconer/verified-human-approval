@@ -147,6 +147,7 @@ services:
         arguments: ['%env(APP_SQLITE_PATH)%']
 
     VerifiedHumanApproval\Core\Storage\PdoApprovalStore: ~
+    VerifiedHumanApproval\Core\Storage\PdoAuditStore: ~
     VerifiedHumanApproval\WebAuthn\PdoCredentialRepository: ~
 
     VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner:
@@ -157,11 +158,14 @@ services:
 
     VerifiedHumanApproval\Core\Audit\AuditLog:
         arguments:
+            $store: '@VerifiedHumanApproval\Core\Storage\PdoAuditStore'
             $signer: '@VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner'
             $trustedPublicKey: '%env(APPROVAL_RECEIPT_PUBLIC_KEY)%'
             $clock: '@verified_human_approval.clock'
 
-    VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository: ~
+    VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository:
+        arguments:
+            $credentials: '@VerifiedHumanApproval\WebAuthn\PdoCredentialRepository'
     VerifiedHumanApproval\WebAuthn\CredentialRepository:
         alias: VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository
 
@@ -197,8 +201,8 @@ use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
-use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\Storage\PdoApprovalStore;
+use VerifiedHumanApproval\Core\Storage\PdoAuditStore;
 use VerifiedHumanApproval\WebAuthn\PdoCredentialRepository;
 
 #[AsCommand(name: 'app:approval:install', description: 'Create the approval, credential and audit tables.')]
@@ -207,7 +211,7 @@ final class InitializeApprovalStorageCommand extends Command
     public function __construct(
         private readonly PdoApprovalStore $store,
         private readonly PdoCredentialRepository $credentials,
-        private readonly AuditLog $audit,
+        private readonly PdoAuditStore $audit,
     ) {
         parent::__construct();
     }
