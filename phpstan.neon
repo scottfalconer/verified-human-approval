@@ -5,6 +5,7 @@ parameters:
         - src/webauthn/src
         - src/mcp/src
         - src/symfony-bundle/src
+        - src/doctrine/src
         - demo/src
         - src/webauthn/bin
     tmpDir: .phpstan
