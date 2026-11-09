@@ -76,7 +76,9 @@ In Terminal B, replace `REQUEST_ID` with the returned ID:
 php examples/mcp.php status REQUEST_ID
 ```
 
-Expect `status: completed`. Refresh [the public alerts page](http://localhost:8080/alerts) to see the approved alert.
+Expect `status: completed`. The result also carries the site's signed `receipt`. Refresh [the public alerts page](http://localhost:8080/alerts) to see the approved alert.
+
+Back on the review page, **Download your receipt** saves your own copy: the exact request, your passkey's signature on it, what ran, and the site's receipt signed as it ran. The site publishes the key that checks it at [/approval/receipt-key.json](http://localhost:8080/approval/receipt-key.json). [Verify a receipt](../docs/evidence.md#try-it-with-the-demo) checks your copy against that key, then shows an edited copy failing.
 
 To try a retry, repeat the original command with the same request key:
 

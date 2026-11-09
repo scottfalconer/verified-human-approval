@@ -56,6 +56,31 @@ A client clicking **Accept** is not human approval. If the application permits a
 
 The application must route every supported write path through the guarded action service. The bundle cannot protect an unrelated raw SQL write. See the [architecture](docs/overview.md) and [security model](docs/security-model.md) for the boundary.
 
+## What it refuses
+
+| Attempt | Result |
+| --- | --- |
+| A staff member's agent asks to issue the alert | Pending until that person approves with their passkey. The agent can't skip it |
+| A read-only colleague's agent asks | Refused: the rule doesn't let that role issue alerts |
+| The administrator changes the rule while a request waits | That request can no longer be approved |
+| The draft is edited after you reviewed it | Not issued: the proposal no longer matches |
+| The alerts page layout changes after review | Not issued: the layout is part of what you approved |
+| A signed approval is replayed for another request | Rejected: the signature covers one proposal's digest |
+| A client answers "accept" without your passkey | Still pending: accept only means the page was opened |
+| The same approval is repeated | The same receipt, and the alert issued once |
+| The rule lets a role act directly | It runs, and every page says it ran without a passkey |
+| A phone code is used twice, or after two minutes | Refused: each code works once |
+| Someone with only the password tries to add a passkey | Refused: the first needs a one-time link, any other an existing passkey |
+| A passkey row is added or changed directly in the database | It approves nothing: no signed enrollment record vouches for it |
+| A record is edited and its receipt deleted to hide it | The audit page flags it, and no evidence is signed for that record |
+| A passkey is revoked just after it confirmed adding another | The confirmation ends with it: no new passkey or passkey link |
+| An approval's record is edited in the database afterwards | The audit page's checks fail: the receipt was signed at commit, and the passkey signed the original |
+| The site's record changes after the person kept their receipt | Their copy no longer matches it, checked with only the site's published key |
+| An administrator's password alone tries to switch verification off | Pending: the rule change waits for the administrator's passkey |
+| Another account, or a read-only agent token | No access to the request, and no rights from a passkey |
+
+Each row is a test in [tests](tests).
+
 ## Check the original record later
 
 A completed approval has two checks:
@@ -66,6 +91,8 @@ A completed approval has two checks:
 | The application's receipt | The application signed this proposal, proof and execution report as the action committed. |
 
 The verifier uses public keys trusted separately from the downloaded record. Changing a signed field afterward makes verification fail. Deleting the original receipt does not cause the exporter to create a replacement.
+
+The person keeps their own copy. Once the action runs, the review page offers **Download your receipt**: the exact request, their passkey's signature on it and what ran, signed by the site as it ran. The agent's result carries the same signed receipt, and the site publishes the key that checks it at `/approval/receipt-key.json`. If the site's record were changed or deleted later, the person's copy would show it.
 
 This checks the **historical approval and execution record**. It does not monitor later edits to the live content, prove what the person understood, or independently witness the database change. Follow the [receipt walkthrough](docs/evidence.md) to verify a real demo receipt and then see an edited copy fail.
 

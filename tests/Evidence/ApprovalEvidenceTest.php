@@ -212,6 +212,11 @@ final class ApprovalEvidenceTest extends TestCase
             {
                 throw new \RuntimeException('Injected signer outage.');
             }
+
+            public function publicKey(): string
+            {
+                throw new \RuntimeException('Injected signer outage.');
+            }
         };
         try {
             (new EvidenceExporter($unavailable, signAtExport: true))->export($completed);
@@ -302,6 +307,24 @@ final class ApprovalEvidenceTest extends TestCase
         }
     }
 
+    public function testAReceiptChecksWithTheSitesKeyAloneAndSaysThePasskeyWasNotChecked(): void
+    {
+        // What a person holds: their receipt and the site's published key, but not their passkey's record.
+        $bundle = $this->exportPersisted($this->complete());
+        [$exit, $stdout, $stderr] = $this->runVerifier($bundle, withCredential: false);
+        self::assertSame(0, $exit, $stderr);
+        $result = json_decode($stdout, true, flags: \JSON_THROW_ON_ERROR);
+        self::assertNull($result['credentialApprovedExactProposal'], 'A passkey signed it, but nothing here checked that signature.');
+        self::assertTrue($result['applicationSignedExecutionReport']);
+        self::assertStringStartsWith('Verifies the application report. The passkey signature was not checked', $result['qualification'], 'It claims only what it checked.');
+
+        // The site's key alone still catches a record edited after the receipt.
+        $bundle['execution']->recordedAt = '2020-01-01T00:00:00.000000Z';
+        [$exit, , $stderr] = $this->runVerifier($bundle, withCredential: false);
+        self::assertSame(1, $exit);
+        self::assertStringContainsString('Verification failed', $stderr);
+    }
+
     public function testWhenAReceiptWasSignedIsPartOfWhatIsSigned(): void
     {
         $bundle = $this->exportPersisted($this->complete());
@@ -357,6 +380,11 @@ final class ApprovalEvidenceTest extends TestCase
             {
                 throw new \RuntimeException('Injected signer outage.');
             }
+
+            public function publicKey(): string
+            {
+                throw new \RuntimeException('Injected signer outage.');
+            }
         };
         [$service, $actor] = $this->signingService($unavailable);
         $pending = $service->request($actor, 'article.publish', ['id' => 1]);
@@ -406,7 +434,7 @@ final class ApprovalEvidenceTest extends TestCase
     }
 
     /** @return array{int, string, string} */
-    private function runVerifier(array $bundle, ?Credential $credential = null, ?string $script = null): array
+    private function runVerifier(array $bundle, ?Credential $credential = null, ?string $script = null, bool $withCredential = true): array
     {
         $credential ??= $this->trustedCredential;
         $directory = sys_get_temp_dir().'/verified-human-approval-evidence-'.bin2hex(random_bytes(8));
@@ -435,7 +463,7 @@ final class ApprovalEvidenceTest extends TestCase
                 $script ?? \dirname(__DIR__, 2).'/src/webauthn/bin/verify-evidence.php',
                 $directory.'/evidence.json',
                 $directory.'/application.json',
-                $directory.'/credential.json',
+                ...($withCredential ? [$directory.'/credential.json'] : []),
             ], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
             if (!\is_resource($process)) {
                 throw new \RuntimeException('Could not launch the independent verifier process.');

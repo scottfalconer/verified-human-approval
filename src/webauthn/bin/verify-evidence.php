@@ -25,8 +25,14 @@ if (!class_exists(ReceiptVerifier::class)) {
     exit(2);
 }
 
-if (4 !== $argc) {
-    fwrite(\STDERR, "Usage: vendor/bin/verify-evidence.php evidence.json trusted-application.json trusted-credential.json\nTrust files must come from an independently trusted registration/key source, not the evidence itself.\n");
+if (3 !== $argc && 4 !== $argc) {
+    fwrite(\STDERR, <<<'USAGE'
+        Usage: vendor/bin/verify-evidence.php receipt.json site-key.json [passkey.json]
+          receipt.json   a receipt (evidence bundle), as the person downloaded it
+          site-key.json  the site's published receipt key, saved from a source you trust, never taken from the receipt
+          passkey.json   optional: the approving passkey's trusted record; without it the passkey signature is not checked
+
+        USAGE);
     exit(2);
 }
 
@@ -55,11 +61,13 @@ try {
     };
     $bundle = $read($argv[1]);
     $application = $fields($read($argv[2]), ['keyId', 'publicKey', 'rpId', 'origin'], 'application');
-    $trusted = $fields($read($argv[3]), ['id', 'userId', 'tenantId', 'sourceJson'], 'credential');
+    $trusted = 4 === $argc ? $fields($read($argv[3]), ['id', 'userId', 'tenantId', 'sourceJson'], 'credential') : null;
     $verified = (new ReceiptVerifier())->verify($bundle, $application['keyId'], $application['publicKey']);
     $proof = $verified['proof'];
-    $human = false;
-    if (null !== $proof) {
+    // false: no passkey approved it (the rule did not require one). null: a passkey signed it, but without its
+    // trusted record that signature was not checked here.
+    $human = null === $proof ? false : null;
+    if (null !== $proof && null !== $trusted) {
         $repository = new class implements CredentialRepository {
             public function find(string $id): ?Credential
             {
@@ -97,7 +105,11 @@ try {
         // signed only when the evidence was exported; it cannot show an edit made before that.
         'applicationReportSignedAt' => $verified['receiptSignedAt'],
         'statement' => $verified['request']->statement(),
-        'qualification' => 'Verifies credential approval and the application report. It does not independently witness the database effect, display, historical revocation state or human understanding.'
+        'qualification' => match ($human) {
+            true => 'Verifies credential approval and the application report.',
+            false => 'Verifies the application report. No passkey approved this action: the application’s rule did not require one.',
+            null => 'Verifies the application report. The passkey signature was not checked: no trusted passkey record was given.',
+        }.' It does not independently witness the database effect, display, historical revocation state or human understanding.'
             .(Receipt::EXPORT === $verified['receiptSignedAt'] ? ' The report was signed when it was exported, not when the action committed.' : ''),
     ], \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_THROW_ON_ERROR), "\n";
 } catch (Throwable $error) {

@@ -47,6 +47,11 @@ final readonly class ApprovalPresenter implements ResultPresenter
         if (null !== $message) {
             $data['message'] = $message;
         }
+        if (null !== $state->receipt) {
+            // The site's signature over what ran, as it ran: a copy the person keeps, checked against the published key.
+            $data['receipt'] = $state->receipt;
+            $data['receipt_key_url'] = rtrim($this->publicOrigin, '/').$this->urls->generate('verified_human_approval_receipt_key');
+        }
         // The MCP App card reads these fixed names; it shows only what the application recorded.
         // It offers the phone only when a phone could reach the site: a public HTTPS address.
         $phone = str_starts_with($this->publicOrigin, 'https://') ? ApprovalHandoffTool::NAME : null;

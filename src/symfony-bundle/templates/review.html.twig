@@ -30,6 +30,21 @@
         </div>
         <p class="muted" data-return-hint>You can close this tab and return to Claude.</p>
         {% endblock %}
+        {# The person's own copy, signed as the action ran, so the site's record cannot change later without it showing. #}
+        {% block receipt %}
+        {% if receipts %}
+        <div class="receipt">
+            {% if scoped %}
+            <p class="muted small">Download your receipt from this request’s page in your signed-in browser.</p>
+            {% elseif state.receipt %}
+            <a class="button secondary" href="{{ path('verified_human_approval_evidence', {id: state.request.id}) }}" download>Download your receipt</a>
+            <p class="muted small">Your copy of this exact request{% if state.proof %}, your passkey’s signature on it,{% endif %} and what ran, signed by this site as it ran. Keep it: if the site’s record were changed later, your copy would show it. Anyone can check it against the site’s <a href="{{ path('verified_human_approval_receipt_key') }}">published key</a>.</p>
+            {% else %}
+            <p class="muted small">This site has no receipt recorded for this request.</p>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% endblock %}
     </div>
     {% else %}
     {# A stopped request never ran. The reason code is for whoever looks into it. #}

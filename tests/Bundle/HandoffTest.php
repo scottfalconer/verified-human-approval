@@ -90,6 +90,12 @@ final class HandoffTest extends TestCase
         $database = new DemoDatabase(DemoDatabase::connect($this->runtime.'/application.sqlite'));
         self::assertSame(1, (int) $database->alert('riverside-evacuation')['mutation_count']);
         self::assertSame('completed', $agent->callTool('approval_status', ['request_id' => $id])->structuredContent['status'], 'The card on the computer sees the outcome.');
+        // The receipt stays with the signed-in person: the phone is pointed there, and cannot download it.
+        $receipt = $phone->request('GET', self::ORIGIN.'/approval/'.$id)->filter('.approval-sheet .receipt');
+        self::assertSame('Download your receipt from this request’s page in your signed-in browser.', $receipt->text());
+        self::assertCount(0, $receipt->filter('a'));
+        $phone->request('GET', self::ORIGIN.'/approval/'.$id.'/evidence');
+        self::assertSame(302, $phone->getResponse()->getStatusCode());
     }
 
     public function testAConnectionWithoutTheReadScopeGetsNoCodeAndCodesHaveABudget(): void
