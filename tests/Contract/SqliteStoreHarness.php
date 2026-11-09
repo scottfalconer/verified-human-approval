@@ -11,10 +11,10 @@ use VerifiedHumanApproval\Core\ApprovalStore;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
 use VerifiedHumanApproval\Core\ExecutionGuard;
 use VerifiedHumanApproval\Core\Storage\PdoApprovalStore;
-use VerifiedHumanApproval\Tests\Support\CoreFixture;
 use VerifiedHumanApproval\Tests\Support\FixtureAction;
 use VerifiedHumanApproval\Tests\Support\FixtureAuthorizer;
 use VerifiedHumanApproval\Tests\Support\FixturePolicies;
+use VerifiedHumanApproval\Tests\Support\FixtureSchema;
 use VerifiedHumanApproval\Tests\Support\TestProofVerifier;
 
 /** The SQLite reference adapter, PdoApprovalStore, in SQLite's default rollback journal. The location is a database file. */
@@ -35,12 +35,14 @@ class SqliteStoreHarness extends StoreHarness
         $this->adapter = new PdoApprovalStore($this->pdo);
         $guard = new ExecutionGuard();
         $this->action = new FixtureAction($this->pdo, $guard);
+        $authorizer = new FixtureAuthorizer($this->pdo);
+        $authorizer->afterCheck = fn () => $this->faults->reach('authority_checked');
         // A real Ed25519 key: the same for every connection to this database, and new for every database.
         $this->signer = new SodiumEvidenceSigner('contract-key', sodium_crypto_sign_secretkey(sodium_crypto_sign_seed_keypair(hash('sha256', 'contract receipts '.$location, true))));
         $this->service = new ApprovalService(
             new ActionRegistry([$this->action]),
             new FixturePolicies($this->pdo),
-            new FixtureAuthorizer($this->pdo),
+            $authorizer,
             new FaultingStore($this->adapter, $this->faults),
             new TestProofVerifier($this->pdo),
             new MockClock('2026-11-08T10:00:00+00:00'),
@@ -57,7 +59,9 @@ class SqliteStoreHarness extends StoreHarness
             throw new \RuntimeException('SQLite did not switch to the '.static::JOURNAL.' journal.');
         }
         (new PdoApprovalStore($pdo))->initialize();
-        $pdo->exec(CoreFixture::APPLICATION_SCHEMA);
+        foreach (FixtureSchema::statements('sqlite') as $statement) {
+            $pdo->exec($statement);
+        }
 
         return $location;
     }
@@ -84,6 +88,11 @@ class SqliteStoreHarness extends StoreHarness
     public function store(): ApprovalStore
     {
         return $this->adapter;
+    }
+
+    public function action(): FixtureAction
+    {
+        return $this->action;
     }
 
     public function receiptPublicKey(): string
@@ -134,29 +143,27 @@ class SqliteStoreHarness extends StoreHarness
         $this->action->alterAfterWrite = 'postcondition' === $how;
     }
 
-    public function editArticle(int $id = 1): void
+    public function attempt(string $change, int $milliseconds): bool
     {
-        $this->write("UPDATE test_articles SET body = body || ' Edited.', revision = revision + 1 WHERE id = ?", [$id]);
+        [$sql, $parameters] = self::change($change, '%s || %s');
+        // An ordinary writer, outside the approval service, on its own connection.
+        $writer = self::open($this->location);
+        $writer->exec('PRAGMA busy_timeout = '.$milliseconds);
+        try {
+            $writer->prepare($sql)->execute($parameters);
+
+            return true;
+        } catch (\PDOException $error) {
+            if (str_contains($error->getMessage(), 'database is locked')) {
+                return false;
+            }
+            throw $error;
+        }
     }
 
-    public function revokeGrant(string $id = 'agent-1'): void
+    public function writeArticle(int $id, string $title, string $body): void
     {
-        $this->write('UPDATE test_delegations SET active = 0 WHERE id = ?', [$id]);
-    }
-
-    public function revokePermission(string $userId = 'alice'): void
-    {
-        $this->write("UPDATE test_users SET can_publish = 0 WHERE user_id = ? AND tenant = 'tenant-a'", [$userId]);
-    }
-
-    public function changePolicy(): void
-    {
-        $this->write('UPDATE test_policies SET version = CAST(version AS INTEGER) + 1', []);
-    }
-
-    public function revokeCredential(string $id = 'alice-key'): void
-    {
-        $this->write('UPDATE test_credentials SET active = 0 WHERE id = ?', [$id]);
+        self::open($this->location)->prepare('UPDATE test_articles SET title = ?, body = ?, revision = revision + 1 WHERE id = ?')->execute([$title, $body, $id]);
     }
 
     public function failInserts(string $what): void
@@ -199,13 +206,6 @@ class SqliteStoreHarness extends StoreHarness
     public function lockTimeout(int $milliseconds): void
     {
         $this->pdo->exec('PRAGMA busy_timeout = '.$milliseconds);
-    }
-
-    /** @param list<int|string> $parameters */
-    private function write(string $sql, array $parameters): void
-    {
-        // An ordinary writer, outside the approval service, on its own connection.
-        self::open($this->location)->prepare($sql)->execute($parameters);
     }
 
     private static function open(string $location): \PDO

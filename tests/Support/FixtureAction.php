@@ -19,9 +19,16 @@ final class FixtureAction implements ActionAdapter
     public int $executeCalls = 0;
     /** The approval the last execution ran under, as the guard reported it. */
     public ?ExecutingApproval $executing = null;
+    /** @var array<string, mixed> added to every proposal's effect, to give it a particular shape */
+    public array $extraEffect = [];
+    /** @var array<string, mixed> added to every execution's result */
+    public array $extraResult = [];
 
-    public function __construct(private readonly \PDO $pdo, private readonly ExecutionGuard $guard)
+    private readonly FixtureDatabase $database;
+
+    public function __construct(\PDO|FixtureDatabase $database, private readonly ExecutionGuard $guard)
     {
+        $this->database = $database instanceof \PDO ? new PdoFixtureDatabase($database) : $database;
     }
 
     public function id(): string
@@ -48,7 +55,7 @@ final class FixtureAction implements ActionAdapter
             $this->id(),
             $this->version(),
             ['application' => 'fixture', 'environment' => 'test', 'tenant' => $actor->tenantId, 'resource' => $input['id']],
-            ['title' => $row['title'], 'body' => $row['body'], 'asset_version' => $row['asset_version'], 'published' => true],
+            ['title' => $row['title'], 'body' => $row['body'], 'asset_version' => $row['asset_version'], 'published' => true] + $this->extraEffect,
             ['revision' => (int) $row['revision'], 'published' => (bool) $row['published'], 'content_digest' => $this->contentDigest($row), 'asset_version' => $row['asset_version']],
             ['title' => $row['title'], 'body' => $row['body'], 'consequence' => 'This exact content will become publicly visible.'],
             ['title' => $row['title'], 'revision' => (string) $row['revision']],
@@ -73,20 +80,20 @@ final class FixtureAction implements ActionAdapter
         $this->guard->assertExecuting($actor, $action);
         ++$this->executeCalls;
         $this->executing = $this->guard->current();
-        $update = $this->pdo->prepare('UPDATE test_articles SET published = 1, revision = revision + 1, publication_count = publication_count + 1 WHERE id = ? AND tenant = ? AND revision = ?');
-        $update->execute([$action->target['resource'], $actor->tenantId, $action->preconditions['revision']]);
-        if (1 !== $update->rowCount()) {
+        $changed = $this->database->execute('UPDATE test_articles SET published = 1, revision = revision + 1, publication_count = publication_count + 1 WHERE id = ? AND tenant = ? AND revision = ?', [$action->target['resource'], $actor->tenantId, $action->preconditions['revision']]);
+        if (1 !== $changed) {
             throw new ApprovalException('stale_resource', 'Conditional publication failed.');
         }
         if ($this->alterAfterWrite) {
-            $update = $this->pdo->prepare("UPDATE test_articles SET body = body || ' changed by a hook' WHERE id = ?");
-            $update->execute([$action->target['resource']]);
+            // The row is locked by this transaction, so reading and writing it back is safe on every database.
+            $body = (string) $this->row((int) $action->target['resource'])['body'];
+            $this->database->execute('UPDATE test_articles SET body = ? WHERE id = ?', [$body.' changed by a hook', $action->target['resource']]);
         }
         if ($this->failAfterWrite) {
             throw new \RuntimeException('Injected failure after the business write and before commit.');
         }
 
-        return ['resource' => $action->target['resource'], 'source_revision' => $action->preconditions['revision'], 'result_revision' => $action->preconditions['revision'] + 1, 'published' => true];
+        return ['resource' => $action->target['resource'], 'source_revision' => $action->preconditions['revision'], 'result_revision' => $action->preconditions['revision'] + 1, 'published' => true] + $this->extraResult;
     }
 
     public function assertPostconditions(Actor $actor, PreparedAction $action, array $result): void
@@ -99,13 +106,11 @@ final class FixtureAction implements ActionAdapter
         }
     }
 
-    /** @return array<string, mixed> */
+    /** @return array<string, mixed> the article as stored now, locked for writing where the database locks rows */
     private function row(int $id): array
     {
-        $query = $this->pdo->prepare('SELECT * FROM test_articles WHERE id = ?');
-        $query->execute([$id]);
-        $row = $query->fetch(\PDO::FETCH_ASSOC);
-        if (!\is_array($row)) {
+        $row = $this->database->row('SELECT * FROM test_articles WHERE id = ? '.$this->database->forUpdate(), [$id]);
+        if (null === $row) {
             throw new ApprovalException('missing_resource', 'The article does not exist.');
         }
 

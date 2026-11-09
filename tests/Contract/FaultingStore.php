@@ -11,7 +11,7 @@ use VerifiedHumanApproval\Core\Ceremony;
 
 /**
  * A real store with injected faults a mock cannot model: a failure just before commit, a commit that really
- * happened but whose answer was lost, and a store that cannot be reached for recovery.
+ * happened but whose answer was lost, a store that cannot be reached for recovery, and a pause just before commit.
  */
 final readonly class FaultingStore implements ApprovalStore
 {
@@ -25,8 +25,10 @@ final readonly class FaultingStore implements ApprovalStore
         if ('unavailable' === $fault) {
             throw new \RuntimeException('Injected: the store cannot be reached.');
         }
-        $result = $this->inner->transaction(static function () use ($callback, $fault): mixed {
+        $faults = $this->faults;
+        $result = $this->inner->transaction(static function () use ($callback, $fault, $faults): mixed {
             $result = $callback();
+            $faults->reach('before_commit');
             if ('before_commit' === $fault) {
                 throw new \RuntimeException('Injected failure just before commit.');
             }

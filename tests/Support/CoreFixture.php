@@ -20,61 +20,6 @@ use VerifiedHumanApproval\Core\Storage\PdoApprovalStore;
  */
 final class CoreFixture
 {
-    /** The fixture application's tables and seed rows: articles, users, delegations, policies and test credentials. */
-    public const APPLICATION_SCHEMA = <<<'SQL'
-            CREATE TABLE IF NOT EXISTS test_articles (
-                id INTEGER PRIMARY KEY,
-                tenant TEXT NOT NULL,
-                title TEXT NOT NULL,
-                body TEXT NOT NULL,
-                revision INTEGER NOT NULL,
-                asset_version TEXT NOT NULL,
-                published INTEGER NOT NULL DEFAULT 0,
-                publication_count INTEGER NOT NULL DEFAULT 0
-            );
-            CREATE TABLE IF NOT EXISTS test_users (
-                user_id TEXT NOT NULL,
-                tenant TEXT NOT NULL,
-                enabled INTEGER NOT NULL,
-                can_publish INTEGER NOT NULL,
-                PRIMARY KEY (user_id, tenant)
-            );
-            CREATE TABLE IF NOT EXISTS test_delegations (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                tenant TEXT NOT NULL,
-                active INTEGER NOT NULL,
-                can_publish INTEGER NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS test_policies (
-                action_id TEXT PRIMARY KEY,
-                version TEXT NOT NULL,
-                statement TEXT NOT NULL,
-                required INTEGER NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS test_credentials (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                tenant TEXT NOT NULL,
-                active INTEGER NOT NULL,
-                verification_count INTEGER NOT NULL DEFAULT 0
-            );
-            INSERT OR IGNORE INTO test_articles (id, tenant, title, body, revision, asset_version)
-            VALUES (1, 'tenant-a', 'Summer Campaign', 'Closing date: June 20.', 17, 'sha256:asset-v1');
-            INSERT OR IGNORE INTO test_articles (id, tenant, title, body, revision, asset_version)
-            VALUES (2, 'tenant-a', 'Another Campaign', 'Closing date: July 20.', 4, 'sha256:asset-v2');
-            INSERT OR IGNORE INTO test_articles (id, tenant, title, body, revision, asset_version)
-            VALUES (3, 'tenant-b', 'Other Organization', 'Private tenant B content.', 3, 'sha256:asset-v3');
-            INSERT OR IGNORE INTO test_users VALUES ('alice', 'tenant-a', 1, 1);
-            INSERT OR IGNORE INTO test_users VALUES ('bob', 'tenant-a', 1, 1);
-            INSERT OR IGNORE INTO test_users VALUES ('alice', 'tenant-b', 1, 1);
-            INSERT OR IGNORE INTO test_delegations VALUES ('agent-1', 'alice', 'tenant-a', 1, 1);
-            INSERT OR IGNORE INTO test_delegations VALUES ('agent-2', 'alice', 'tenant-a', 1, 1);
-            INSERT OR IGNORE INTO test_credentials (id, user_id, tenant, active) VALUES ('alice-key', 'alice', 'tenant-a', 1);
-            INSERT OR IGNORE INTO test_credentials (id, user_id, tenant, active) VALUES ('bob-key', 'bob', 'tenant-a', 1);
-            INSERT OR IGNORE INTO test_policies VALUES ('article.publish', '1', 'I approve publishing {{ title }}, revision {{ revision }}.', 1);
-        SQL;
-
     public readonly \PDO $pdo;
     public readonly PdoApprovalStore $store;
     public readonly MockClock $clock;
@@ -145,6 +90,8 @@ final class CoreFixture
 
     private function initializeApplication(): void
     {
-        $this->pdo->exec(self::APPLICATION_SCHEMA);
+        foreach (FixtureSchema::statements('sqlite') as $statement) {
+            $this->pdo->exec($statement);
+        }
     }
 }

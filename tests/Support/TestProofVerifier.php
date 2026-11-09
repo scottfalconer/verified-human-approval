@@ -14,15 +14,16 @@ final class TestProofVerifier implements ApprovalVerifier
 {
     public int $verifyCalls = 0;
 
-    public function __construct(private readonly \PDO $pdo)
+    private readonly FixtureDatabase $database;
+
+    public function __construct(\PDO|FixtureDatabase $database)
     {
+        $this->database = $database instanceof \PDO ? new PdoFixtureDatabase($database) : $database;
     }
 
     public function requestOptions(Actor $actor, string $challenge): array
     {
-        $query = $this->pdo->prepare('SELECT id FROM test_credentials WHERE user_id = ? AND tenant = ? AND active = 1');
-        $query->execute([$actor->userId, $actor->tenantId]);
-        $ids = $query->fetchAll(\PDO::FETCH_COLUMN);
+        $ids = array_map(static fn (array $row): string => (string) $row['id'], $this->database->rows('SELECT id FROM test_credentials WHERE user_id = ? AND tenant = ? AND active = 1 ORDER BY id', [$actor->userId, $actor->tenantId]));
         if ([] === $ids) {
             throw new ApprovalException('credential_unavailable', 'No accepted approval credential.');
         }
@@ -39,14 +40,12 @@ final class TestProofVerifier implements ApprovalVerifier
             || ($assertion['tenant'] ?? '') !== $actor->tenantId) {
             throw new ApprovalException('invalid_assertion', 'Test proof does not bind this proposal and account.');
         }
-        $query = $this->pdo->prepare('SELECT * FROM test_credentials WHERE id = ? AND user_id = ? AND tenant = ? AND active = 1');
-        $query->execute([$assertion['credential'] ?? '', $actor->userId, $actor->tenantId]);
-        $credential = $query->fetch(\PDO::FETCH_ASSOC);
-        if (!\is_array($credential)) {
+        // Locked for writing, as the counter below is: a revocation either commits first and is seen, or waits.
+        $credential = $this->database->row('SELECT * FROM test_credentials WHERE id = ? AND user_id = ? AND tenant = ? AND active = 1 '.$this->database->forUpdate(), [$assertion['credential'] ?? '', $actor->userId, $actor->tenantId]);
+        if (null === $credential) {
             throw new ApprovalException('credential_denied', 'The approval credential is no longer accepted for this person.');
         }
-        $update = $this->pdo->prepare('UPDATE test_credentials SET verification_count = verification_count + 1 WHERE id = ?');
-        $update->execute([$credential['id']]);
+        $this->database->execute('UPDATE test_credentials SET verification_count = verification_count + 1 WHERE id = ?', [$credential['id']]);
 
         return new VerifiedApproval((string) $credential['id'], ['test_only' => true, 'assertion' => $assertion]);
     }

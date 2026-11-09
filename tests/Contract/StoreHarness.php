@@ -8,6 +8,7 @@ use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalService;
 use VerifiedHumanApproval\Core\ApprovalStore;
 use VerifiedHumanApproval\Core\Ceremony;
+use VerifiedHumanApproval\Tests\Support\FixtureAction;
 
 /**
  * One storage adapter under the shared approval contract (ApprovalStoreContract).
@@ -18,9 +19,16 @@ use VerifiedHumanApproval\Core\Ceremony;
  * below, the way an ordinary writer would, and observe it through a fresh connection, never through the
  * adapter's own database handle. To run the contract for a new adapter, implement this class and extend
  * ApprovalStoreContract with it.
+ *
+ * The fixture application (FixtureAction, FixtureAuthorizer, FixturePolicies, TestProofVerifier) reads through a
+ * FixtureDatabase on the adapter's connection. On a database that locks rows, give it the lock clauses, so that
+ * it locks what its decision reads, as an application must.
  */
 abstract class StoreHarness
 {
+    /** The ordinary writers' changes a test can make: what attempt() and the named methods below perform. */
+    public const CHANGES = ['edit_article', 'revoke_grant', 'revoke_permission', 'revoke_credential', 'change_policy'];
+
     public readonly Faults $faults;
 
     public function __construct()
@@ -43,6 +51,9 @@ abstract class StoreHarness
     /** The adapter itself, for checking its own rules directly. */
     abstract public function store(): ApprovalStore;
 
+    /** The protected action the service runs, to give its proposals and results a particular shape. */
+    abstract public function action(): FixtureAction;
+
     abstract public function receiptPublicKey(): string;
 
     abstract public function receiptKeyId(): string;
@@ -59,15 +70,14 @@ abstract class StoreHarness
     /** Makes the protected action fail after its write ('after_write'), or break its postcondition ('postcondition'); null mends it. */
     abstract public function breakAction(?string $how): void;
 
-    abstract public function editArticle(int $id = 1): void;
+    /**
+     * Makes one of the CHANGES from a connection of its own, as an ordinary writer outside the approval service,
+     * waiting at most $milliseconds for a lock. Returns true if it committed, false if a lock held it off.
+     */
+    abstract public function attempt(string $change, int $milliseconds): bool;
 
-    abstract public function revokeGrant(string $id = 'agent-1'): void;
-
-    abstract public function revokePermission(string $userId = 'alice'): void;
-
-    abstract public function changePolicy(): void;
-
-    abstract public function revokeCredential(string $id = 'alice-key'): void;
+    /** Replaces an article's title and body, as an editor would, from a connection of its own. */
+    abstract public function writeArticle(int $id, string $title, string $body): void;
 
     /** Makes the next insert of an execution record or a receipt fail inside the storage itself. */
     abstract public function failInserts(string $what): void;
@@ -78,7 +88,9 @@ abstract class StoreHarness
     abstract public function withAmbientTransaction(callable $work): mixed;
 
     /**
-     * Holds the database's write lock from another connection until the returned callable is called.
+     * Holds, from another connection, the locks an approval needs before it can read anything: the database's write
+     * lock where there is one, or the rows of the approval records and the business content. Released when the
+     * returned callable is called.
      *
      * @return callable(): void
      */
@@ -86,6 +98,31 @@ abstract class StoreHarness
 
     /** Waits at most this long for a lock before failing. */
     abstract public function lockTimeout(int $milliseconds): void;
+
+    public function editArticle(): void
+    {
+        $this->mustCommit('edit_article');
+    }
+
+    public function revokeGrant(): void
+    {
+        $this->mustCommit('revoke_grant');
+    }
+
+    public function revokePermission(): void
+    {
+        $this->mustCommit('revoke_permission');
+    }
+
+    public function changePolicy(): void
+    {
+        $this->mustCommit('change_policy');
+    }
+
+    public function revokeCredential(): void
+    {
+        $this->mustCommit('revoke_credential');
+    }
 
     public function actor(): Actor
     {
@@ -101,5 +138,30 @@ abstract class StoreHarness
     public function proof(Ceremony $ceremony, string $user = 'alice', string $tenant = 'tenant-a'): array
     {
         return ['test_only' => true, 'challenge' => $ceremony->challenge, 'user' => $user, 'tenant' => $tenant, 'credential' => 'alice-key'];
+    }
+
+    /**
+     * The statement that makes one of the CHANGES, in SQL the fixture schema accepts on every database. An edit
+     * appends to the body in one statement, with the platform's concatenation: %1$s is the column, %2$s the text.
+     *
+     * @return array{string, list<int|string>}
+     */
+    protected static function change(string $change, string $concat): array
+    {
+        return match ($change) {
+            'edit_article' => ['UPDATE test_articles SET body = '.\sprintf($concat, 'body', '?').', revision = revision + 1 WHERE id = ?', [' Edited.', 1]],
+            'revoke_grant' => ['UPDATE test_delegations SET active = 0 WHERE id = ?', ['agent-1']],
+            'revoke_permission' => ["UPDATE test_users SET can_publish = 0 WHERE user_id = ? AND tenant = 'tenant-a'", ['alice']],
+            'revoke_credential' => ['UPDATE test_credentials SET active = 0 WHERE id = ?', ['alice-key']],
+            'change_policy' => ['UPDATE test_policies SET version = version + 1', []],
+            default => throw new \InvalidArgumentException('Unknown change: '.$change),
+        };
+    }
+
+    private function mustCommit(string $change): void
+    {
+        if (!$this->attempt($change, 15000)) {
+            throw new \RuntimeException('An ordinary writer could not make its change: '.$change);
+        }
     }
 }

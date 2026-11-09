@@ -89,6 +89,61 @@ final class ProcessRace
     }
 
     /**
+     * Starts one worker and lets it go as soon as it has connected, while the caller carries on, perhaps holding
+     * a lock the worker will wait for. Returns a function that waits for the worker and gives its answer.
+     *
+     * @param array<string, mixed> $payload
+     *
+     * @return \Closure(): array<string, mixed>
+     */
+    public static function background(string $script, array $payload, string $directory, float $timeout = 20.0): \Closure
+    {
+        $barrier = $directory.'/start-'.bin2hex(random_bytes(4));
+        $ready = $barrier.'-ready-0';
+        $pipes = [];
+        $process = proc_open([\PHP_BINARY, $script], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, \dirname(__DIR__, 2));
+        Assert::assertIsResource($process);
+        fwrite($pipes[0], json_encode($payload + ['ready' => $ready, 'barrier' => $barrier], \JSON_THROW_ON_ERROR)."\n");
+        fclose($pipes[0]);
+        $deadline = microtime(true) + 15;
+        clearstatcache();
+        while (!is_file($ready)) {
+            if (!proc_get_status($process)['running'] || microtime(true) >= $deadline) {
+                Assert::fail('The worker did not start: '.stream_get_contents($pipes[2]));
+            }
+            usleep(5000);
+            clearstatcache();
+        }
+        file_put_contents($barrier, 'start', \LOCK_EX);
+
+        return static function () use ($process, $pipes, $barrier, $timeout): array {
+            try {
+                $deadline = microtime(true) + $timeout;
+                while (proc_get_status($process)['running']) {
+                    Assert::assertLessThan($deadline, microtime(true), 'The worker finishes within the bounded test timeout.');
+                    usleep(5000);
+                }
+                $errors = (string) stream_get_contents($pipes[2]);
+                Assert::assertSame('', $errors, 'A worker must not hit an infrastructure exception.');
+                $result = json_decode((string) stream_get_contents($pipes[1]), true, 32, \JSON_THROW_ON_ERROR);
+                Assert::assertIsArray($result);
+
+                return $result;
+            } finally {
+                if (proc_get_status($process)['running']) {
+                    proc_terminate($process);
+                }
+                fclose($pipes[1]);
+                fclose($pipes[2]);
+                proc_close($process);
+                foreach (glob($barrier.'*') ?: [] as $file) {
+                    unlink($file);
+                }
+            }
+        };
+    }
+
+    /**
      * For a worker: its payload.
      *
      * @return array<string, mixed>

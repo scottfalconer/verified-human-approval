@@ -8,6 +8,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\ApprovalHistory;
 use VerifiedHumanApproval\Core\ApprovalState;
 use VerifiedHumanApproval\Core\CanonicalJson;
 use VerifiedHumanApproval\Core\Ceremony;
@@ -328,6 +329,133 @@ abstract class ApprovalStoreContract extends TestCase
         self::assertSame($approval['status'], $this->connect()->service()->get($harness->reviewer(), $request->request->id)->status);
     }
 
+    /** @return iterable<string, array{'authority_checked'|'before_commit', string}> */
+    public static function changesDuringAnApproval(): iterable
+    {
+        foreach (['authority_checked' => 'just after its authority check', 'before_commit' => 'just before its commit'] as $point => $when) {
+            foreach (StoreHarness::CHANGES as $change) {
+                yield str_replace('_', ' ', $change).', '.$when => [$point, $change];
+            }
+        }
+    }
+
+    /**
+     * The approval pauses, and another connection tries an ordinary change to what it read: the grant, the
+     * permission, the article, the passkey or the policy. Either the change waits until the approval has committed,
+     * or it commits first and the approval then never commits. A store that checked authority but let it change
+     * before the commit would commit an approval after a revocation that committed first; only end states would
+     * not show that.
+     *
+     * @param 'authority_checked'|'before_commit' $point
+     */
+    #[DataProvider('changesDuringAnApproval')]
+    public function testAChangeToWhatAnApprovalReadWaitsForItOrStopsIt(string $point, string $change): void
+    {
+        $harness = $this->connect();
+        [$request, $ceremony] = $this->pending($harness);
+        $committedFirst = null;
+        $harness->faults->pauses[$point] = static function () use ($harness, $change, &$committedFirst): void {
+            $committedFirst = $harness->attempt($change, 500);
+        };
+        try {
+            $outcome = $harness->service()->complete($harness->reviewer(), $ceremony->id, $harness->proof($ceremony))->status;
+        } catch (ApprovalException $error) {
+            $outcome = $error->reason;
+        }
+        self::assertNotNull($committedFirst, 'The approval reached its pause.');
+        $observer = $this->connect();
+        if ($committedFirst) {
+            self::assertNotSame('completed', $outcome, 'The approval committed after a change to what it read had committed.');
+            self::assertSame(0, $observer->counts()['effects']);
+            self::assertNotSame('completed', $observer->service()->get($harness->reviewer(), $request->request->id)->status);
+        } else {
+            self::assertSame('completed', $outcome, 'The change was held off, so nothing stood in the approval\'s way.');
+            self::assertSame(1, $observer->counts()['effects']);
+            self::assertTrue($harness->attempt($change, 15000), 'The change goes ahead once the approval has committed.');
+        }
+    }
+
+    /**
+     * A failed attempt retires its ceremony in a recovery transaction. A second completion of the same ceremony that
+     * waited meanwhile must read it as used, not as it was before the recovery committed.
+     */
+    public function testACeremonyRetiredAfterAFailedAttemptIsNotUsedByOneThatWaited(): void
+    {
+        $harness = $this->connect();
+        [$request, $ceremony] = $this->pending($harness);
+        $harness->breakAction('after_write');
+        $directory = $this->raceDirectory();
+        $waiting = null;
+        // The recovery transaction is the first to reach its commit: the failed attempt never does.
+        $harness->faults->pauses['before_commit'] = function () use ($harness, $ceremony, $directory, &$waiting): void {
+            $waiting = ProcessRace::background(__DIR__.'/store-worker.php', [
+                'operation' => 'complete', 'ceremonyId' => $ceremony->id, 'proof' => $harness->proof($ceremony),
+                'harness' => static::harness(), 'location' => $this->location,
+            ], $directory);
+            usleep(500000); // long enough for it to be waiting on what the recovery holds
+        };
+        try {
+            $harness->service()->complete($harness->reviewer(), $ceremony->id, $harness->proof($ceremony));
+            self::fail('The broken action was reported as completed.');
+        } catch (ApprovalException $error) {
+            self::assertSame('execution_failed', $error->reason);
+        } finally {
+            $other = null === $waiting ? null : $waiting();
+            rmdir($directory);
+        }
+        self::assertSame(['status' => 'rejected', 'reason' => 'ceremony_consumed', 'executeCalls' => 0], $other);
+        self::assertSame(['requests' => 1, 'effects' => 0, 'executions' => 0, 'receipts' => 0, 'credentialUses' => 0], $this->connect()->counts());
+        self::assertSame('pending', $this->connect()->service()->get($harness->actor(), $request->request->id)->status);
+    }
+
+    /**
+     * Canonical bytes survive the database: a proposal near the 256 KiB limit, U+2028 and 4-byte characters, and an
+     * empty object kept apart from an empty array, in the proposal and in the result.
+     */
+    public function testCanonicalDataKeepsItsBytesOnThisDatabase(): void
+    {
+        $harness = $this->connect();
+        $title = "Line\u{2028}and paragraph\u{2029} \u{1F600} \u{1D11E} caf\u{E9}";
+        $harness->writeArticle(1, $title, str_repeat("Approved text \u{2028} \u{1F600} \u{1D11E} ", 4400));
+        $harness->action()->extraEffect = ['tags' => [], 'meta' => new \stdClass(), 'nested' => ['none' => null, 'object' => new \stdClass(), 'list' => []]];
+        $harness->action()->extraResult = ['notes' => [], 'context' => new \stdClass()];
+        [$request, $ceremony] = $this->pending($harness);
+        self::assertGreaterThan(240 * 1024, \strlen($request->request->canonical), 'The proposal is near the 256 KiB limit.');
+        $completed = $harness->service()->complete($harness->reviewer(), $ceremony->id, $harness->proof($ceremony));
+        self::assertSame('completed', $completed->status);
+
+        $stored = $this->connect()->service()->get($harness->actor(), $request->request->id);
+        self::assertSame($request->request->canonical, $stored->request->canonical, 'The proposal comes back byte for byte.');
+        self::assertSame($title, $stored->request->prepared()->effect['title']);
+        $effect = CanonicalJson::encode((object) $stored->request->prepared()->effect);
+        self::assertStringContainsString('"meta":{}', $effect);
+        self::assertStringContainsString('"nested":{"list":[],"none":null,"object":{}}', $effect);
+        self::assertStringContainsString('"tags":[]', $effect);
+        self::assertSame(CanonicalJson::encode((object) $completed->result), CanonicalJson::encode((object) $stored->result));
+        self::assertStringContainsString('"context":{},"notes":[]', CanonicalJson::encode((object) $stored->result));
+        self::assertSame(CanonicalJson::encode((object) $completed->execution), CanonicalJson::encode((object) $stored->execution));
+        self::assertSame(CanonicalJson::encode((object) $completed->proof), CanonicalJson::encode((object) $stored->proof));
+        self::assertSame(Receipt::COMMIT, (new ReceiptVerifier())->verify(self::export($stored), $harness->receiptKeyId(), $harness->receiptPublicKey())['receiptSignedAt']);
+    }
+
+    public function testTheHistoryOfAResourceListsItsRequestsNewestFirst(): void
+    {
+        $harness = $this->connect();
+        $history = $harness->store();
+        if (!$history instanceof ApprovalHistory) {
+            self::markTestSkipped('This store keeps no history by resource.');
+        }
+        $first = $harness->service()->request($harness->actor(), 'article.publish', ['id' => 1], 'history-1');
+        $second = $harness->service()->request($harness->actor(), 'article.publish', ['id' => 1], 'history-2');
+        $other = $harness->service()->request($harness->actor(), 'article.publish', ['id' => 2]);
+        $ids = static fn (array $states): array => array_map(static fn (ApprovalState $state): string => $state->request->id, $states);
+        self::assertSame([$second->request->id, $first->request->id], $ids($history->forResource('tenant-a', '1')));
+        self::assertSame([$other->request->id], $ids($history->forResource('tenant-a', '2')));
+        self::assertSame([], $history->forResource('tenant-b', '1'), 'Another tenant has no history here.');
+        self::assertSame([], $history->forResource('Tenant-A', '1'), 'Tenants compare exactly.');
+        self::assertSame([$second->request->id], $ids($history->forResource('tenant-a', '1', 1)));
+    }
+
     public function testALockTimeoutLeavesNothingHalfDoneAndRunsNothingTwice(): void
     {
         $harness = $this->connect();
@@ -379,15 +507,22 @@ abstract class ApprovalStoreContract extends TestCase
      */
     private function race(array $payloads): array
     {
-        if (!\function_exists('proc_open')) {
-            self::markTestSkipped('Real concurrency needs proc_open.');
-        }
-        $directory = sys_get_temp_dir().'/verified-human-approval-contract-race-'.bin2hex(random_bytes(6));
-        mkdir($directory, 0700);
+        $directory = $this->raceDirectory();
         try {
             return ProcessRace::run(__DIR__.'/store-worker.php', array_map(fn (array $payload): array => $payload + ['harness' => static::harness(), 'location' => $this->location], $payloads), $directory);
         } finally {
             rmdir($directory);
         }
+    }
+
+    private function raceDirectory(): string
+    {
+        if (!\function_exists('proc_open')) {
+            self::markTestSkipped('Real concurrency needs proc_open.');
+        }
+        $directory = sys_get_temp_dir().'/verified-human-approval-contract-race-'.bin2hex(random_bytes(6));
+        mkdir($directory, 0700);
+
+        return $directory;
     }
 }

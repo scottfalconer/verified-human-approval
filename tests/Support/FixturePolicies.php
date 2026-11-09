@@ -11,16 +11,17 @@ use VerifiedHumanApproval\Core\PolicyProvider;
 
 final class FixturePolicies implements PolicyProvider
 {
-    public function __construct(private readonly \PDO $pdo)
+    private readonly FixtureDatabase $database;
+
+    public function __construct(\PDO|FixtureDatabase $database)
     {
+        $this->database = $database instanceof \PDO ? new PdoFixtureDatabase($database) : $database;
     }
 
     public function get(string $actionId, ?Actor $actor = null): ApprovalPolicy
     {
-        $query = $this->pdo->prepare('SELECT * FROM test_policies WHERE action_id = ?');
-        $query->execute([$actionId]);
-        $row = $query->fetch(\PDO::FETCH_ASSOC);
-        if (!\is_array($row)) {
+        $row = $this->database->row('SELECT * FROM test_policies WHERE action_id = ? '.$this->database->forShare(), [$actionId]);
+        if (null === $row) {
             throw new ApprovalException('unknown_policy', 'No configured policy.');
         }
 
