@@ -12,7 +12,7 @@ use VerifiedHumanApproval\Demo\OAuth\Storage\PdoAuthorizationCodeManager;
 /**
  * league/oauth2-server issues an authorization code only after the person allowed the client on the consent page,
  * bound to that person, client and scopes. Its first save is therefore when the agent connection its tokens will
- * belong to is opened. (A listener on the authorization event cannot do this: approving stops that event.)
+ * belong to is opened. A listener on the authorization event cannot do this, because approving stops that event.
  */
 final readonly class ConnectionOpeningCodeManager implements AuthorizationCodeManagerInterface
 {
@@ -33,7 +33,7 @@ final readonly class ConnectionOpeningCodeManager implements AuthorizationCodeMa
         if ($new && null !== $user) {
             $client = $authCode->getClient();
             // A client that names no scope gets the default ones, all of them, as the consent page told the person.
-            $scopes = array_values(array_map('strval', $authCode->getScopes())) ?: array_keys(ConsentExtension::SCOPE_DESCRIPTIONS);
+            $scopes = array_map('strval', $authCode->getScopes()) ?: array_keys(ConsentExtension::SCOPE_DESCRIPTIONS);
             $this->connections->open((string) $user['id'], (string) $user['tenant_id'], $client->getIdentifier(), $client->getName(), $scopes);
         }
     }

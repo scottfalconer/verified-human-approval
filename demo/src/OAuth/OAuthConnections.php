@@ -36,7 +36,7 @@ final readonly class OAuthConnections
                 ->execute([$userId, $tenantId, $clientId]);
             $id = 'oauth-'.bin2hex(random_bytes(8));
             $this->database->pdo->prepare('INSERT INTO demo_grants (id, user_id, tenant_id, token_hash, active, scopes, client_id, client_name, created_at) VALUES (?, ?, ?, NULL, 1, ?, ?, ?, ?)')
-                ->execute([$id, $userId, $tenantId, json_encode(array_values($scopes), \JSON_THROW_ON_ERROR), $clientId, $clientName, time()]);
+                ->execute([$id, $userId, $tenantId, json_encode($scopes, \JSON_THROW_ON_ERROR), $clientId, $clientName, time()]);
 
             return $id;
         });

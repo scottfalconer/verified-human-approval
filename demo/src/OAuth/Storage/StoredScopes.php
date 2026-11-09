@@ -20,6 +20,8 @@ final class StoredScopes
     {
         $names = json_decode((string) $json, true, 4, \JSON_THROW_ON_ERROR);
 
-        return \is_array($names) ? array_values(array_map(static fn (string $name): Scope => new Scope($name), array_filter($names, 'is_string'))) : [];
+        $names = \is_array($names) ? array_filter($names, static fn (mixed $name): bool => \is_string($name) && '' !== $name) : [];
+
+        return array_values(array_map(static fn (string $name): Scope => new Scope($name), $names));
     }
 }

@@ -51,7 +51,9 @@ final readonly class PdoClientManager implements ClientManagerInterface
 
     public function list(?ClientFilter $clientFilter): array
     {
-        $clients = array_map(self::client(...), $this->database->pdo->query('SELECT * FROM oauth2_clients ORDER BY identifier')->fetchAll());
+        $query = $this->database->pdo->prepare('SELECT * FROM oauth2_clients ORDER BY identifier');
+        $query->execute();
+        $clients = array_values(array_map(self::client(...), $query->fetchAll()));
         if (null === $clientFilter) {
             return $clients;
         }
@@ -84,11 +86,11 @@ final readonly class PdoClientManager implements ClientManagerInterface
         return json_encode(array_values(array_map('strval', $values)), \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES);
     }
 
-    /** @return list<string> */
+    /** @return list<non-empty-string> */
     private static function decodeList(mixed $json): array
     {
         $values = json_decode((string) $json, true, 4, \JSON_THROW_ON_ERROR);
 
-        return \is_array($values) ? array_values(array_filter($values, 'is_string')) : [];
+        return \is_array($values) ? array_values(array_filter($values, static fn (mixed $value): bool => \is_string($value) && '' !== $value)) : [];
     }
 }
