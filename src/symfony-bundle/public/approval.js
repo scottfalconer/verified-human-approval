@@ -54,9 +54,12 @@ async function post(url, csrf, body = {}) {
         throw new Refusal(null, {uncertain: true});
     }
     if (!response.ok) {
-        throw new Refusal(value.message ?? 'This request could not be completed. Reload the page and try again.', {
-            uncertain: value.reason === 'execution_uncertain',
-            requestStatus: value.request_status ?? null,
+        // Only the site's own refusal is definite. Any other error, such as a gateway's or a server error, means
+        // the site's answer was lost on the way: the call may still have taken effect.
+        const refused = response.status < 500 && ['rejected', 'rate_limited'].includes(value?.status) && value.reason !== 'execution_uncertain';
+        throw new Refusal(value?.message ?? 'This request could not be completed. Reload the page and try again.', {
+            uncertain: !refused,
+            requestStatus: value?.request_status ?? null,
         });
     }
     return value;

@@ -147,19 +147,38 @@ def main():
                 page.unroute("**/approval/*/complete")
                 page.reload()
                 expect(page.locator(".approval-sheet .notice")).to_contain_text("Approved with your passkey", timeout=15000)
+
+                # A gateway in front of the site replaces the site's answer with its own JSON error. Only the
+                # site's own refusal is definite, so the page says it can't confirm rather than "refused".
+                with sqlite3.connect(runtime / "application.sqlite") as db:
+                    db.execute("UPDATE demo_alerts SET revision = revision + 1, body = body || ' Fourth draft.' WHERE id = 'riverside-evacuation'")
+                gateway = mcp("publish", "riverside-evacuation", "browser-gateway-error")["structuredContent"]
+                page.goto(gateway["review_url"])
+
+                def gateway_error(route):
+                    route.fetch()
+                    route.fulfill(status=502, content_type="application/json", body='{"message": "Bad gateway"}')
+
+                page.route("**/approval/*/complete", gateway_error)
+                page.locator("[data-approve]").click()
+                expect(page.locator("[data-message]")).to_contain_text("we can’t confirm whether your approval was saved", timeout=15000)
+                assert row()["mutation_count"] == 3, "The site published; a gateway's error must not read as a refusal"
+                page.unroute("**/approval/*/complete")
+                page.reload()
+                expect(page.locator(".approval-sheet .notice")).to_contain_text("Approved with your passkey", timeout=15000)
                 assert errors == [], errors
                 browser.close()
 
             # Exercise Symfony AI's actual Agent/McpToolbox, with a clearly labelled scripted model.
             agent = subprocess.run([PHP, str(ROOT / "examples/agent.php"), "--scripted"], env=env, capture_output=True, text=True, check=True, timeout=30)
             assert "pending" in agent.stdout and "review_url" in agent.stdout, agent.stdout
-            assert row()["mutation_count"] == 2
+            assert row()["mutation_count"] == 3
             print(json.dumps({
                 "passed": True,
                 "mcp_transport": "official PHP SDK over real HTTP to Symfony MCP Bundle",
                 "browser": "Chromium, headless; native WebAuthn API with CDP virtual authenticator",
-                "checks": ["tool discovery", "pending before approval", "human login", "passkey enrollment", "exact content review", "verified approval commits once", "MCP status", "idempotent request replay", "stale proposal refuses execution and shows as stopped", "a lost answer is reported as unconfirmed, not guessed", "Symfony AI scripted runner uses real MCP"],
-                "committed_effects": 2,
+                "checks": ["tool discovery", "pending before approval", "human login", "passkey enrollment", "exact content review", "verified approval commits once", "MCP status", "idempotent request replay", "stale proposal refuses execution and shows as stopped", "a lost answer is reported as unconfirmed, not guessed", "a gateway error after sending is unconfirmed, not a refusal", "Symfony AI scripted runner uses real MCP"],
+                "committed_effects": 3,
                 "physical_biometrics_tested": False,
                 "external_hosted_clients_tested": False,
                 "live_model_calls": 0,
