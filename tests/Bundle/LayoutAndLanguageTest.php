@@ -226,16 +226,18 @@ final class LayoutAndLanguageTest extends TestCase
         $agent = $this->requestAction($browser);
         $this->approve($browser, $agent);
         $done = $browser->request('GET', self::ORIGIN.'/approval/'.$agent);
-        self::assertSame('Back to Aria', $done->filter('[data-return-app]')->text());
+        // The hidden ways back answer Claude's own approval card (#return=claude-…) and open Claude, so they say Claude.
+        self::assertSame('Back to Claude', $done->filter('[data-return-app]')->text());
         self::assertSame('claude://', $done->filter('[data-return-app]')->attr('href'), 'The card in Claude asks for this link with #return=claude-desktop or claude-mobile.');
-        self::assertSame('Back to your Aria tab', $done->filter('[data-return-tab]')->text());
+        self::assertSame('Back to your Claude tab', $done->filter('[data-return-tab]')->text());
         self::assertSame('You can close this tab and return to Aria.', $done->filter('[data-return-hint]')->text());
         self::assertSame([
-            'returnApp' => 'Aria already shows the result. This tab can be closed.',
+            'returnApp' => 'Claude already shows the result. This tab can be closed.',
             'returnHandoff' => 'Done. Aria on your computer already shows the result.',
-            'returnTab' => 'Switch back to your Aria tab: it already shows the result.',
+            'returnTab' => 'Switch back to your Claude tab: it already shows the result.',
         ], $this->messages($done, '[data-return]'));
-        self::assertStringNotContainsString('Claude', (string) $browser->getResponse()->getContent());
+        self::assertNotNull($done->filter('[data-return]')->attr('hidden'), 'The ways back stay hidden until the card asks for one.');
+        self::assertCount(0, $done->filterXPath("//body//text()[contains(., 'Claude')][not(ancestor::*[@hidden])]"), 'Nothing a person sees by default names Claude.');
 
         $expired = $browser->request('GET', self::ORIGIN.self::NO_CODE);
         self::assertSame(410, $browser->getResponse()->getStatusCode());
@@ -248,6 +250,22 @@ final class LayoutAndLanguageTest extends TestCase
         self::assertSame('Your request Requested by you, on this site.', $mine->filter('.approval-sheet .requester')->text());
         self::assertCount(0, $mine->filter('[data-return], [data-return-hint]'));
         self::assertStringNotContainsString('Aria', (string) $browser->getResponse()->getContent());
+    }
+
+    public function testSymfonysOwnTranslatorReadsTheBundlesCatalogueAndTheApplicationsLanguage(): void
+    {
+        // An application's French catalogue for two of the bundle's messages; the rest fall back to the bundle's English.
+        $path = $this->runtime.'/app-translations';
+        mkdir($path, 0700, true);
+        file_put_contents($path.'/VerifiedHumanApproval.fr.php', '<?php return '.var_export(['en' => 'fr', 'Approve with your passkey' => 'Approuver avec votre clé d’accès'], true).';');
+        $browser = $this->browser(realTranslator: ['locale' => 'fr', 'path' => $path]);
+        $id = $this->requestAction($browser);
+
+        $page = $browser->request('GET', self::ORIGIN.'/approval/'.$id);
+        self::assertTrue($browser->getContainer()->has('translator'), 'Symfony’s own translator, found the bundle’s catalogue with no configuration.');
+        self::assertSame('fr', $page->filter('html')->attr('lang'), 'The page declares the language it is written in.');
+        self::assertSame('Approuver avec votre clé d’accès', $page->filter('[data-approve]')->text());
+        self::assertSame('Cancel request', $page->filter('[data-cancel]')->text(), 'What the application did not translate falls back to the bundle’s English.');
     }
 
     public function testWithoutATranslatorThePagesReadInEnglishAsBefore(): void
@@ -319,7 +337,8 @@ final class LayoutAndLanguageTest extends TestCase
         // The script's own English is the catalogue's, so a page that hands over no wording reads the same.
         foreach (self::english() as $key => $english) {
             if (!\in_array($key, ['registered', 'unconfirmedRegistration', 'unconfirmedConfirm'], true)) {
-                self::assertArrayHasKey(str_replace('Claude', '%agent%', $english), $catalogue, $key);
+                // The ways back that open Claude name Claude; the rest name the configured agent.
+                self::assertArrayHasKey(\in_array($key, ['returnApp', 'returnTab'], true) ? $english : str_replace('Claude', '%agent%', $english), $catalogue, $key);
             }
         }
     }
@@ -328,9 +347,10 @@ final class LayoutAndLanguageTest extends TestCase
      * @param array<string, mixed>                      $approval
      * @param array<string, array<string, string>>|null $translations
      */
-    private function browser(array $approval = [], ?array $translations = null, ?string $templates = null): KernelBrowser
+    /** @param array{locale: string, path: string}|null $realTranslator */
+    private function browser(array $approval = [], ?array $translations = null, ?string $templates = null, ?array $realTranslator = null): KernelBrowser
     {
-        $browser = new KernelBrowser(new ReviewKernel($this->runtime, $approval, $translations, $templates), ['HTTP_HOST' => 'app.example', 'HTTPS' => 'on']);
+        $browser = new KernelBrowser(new ReviewKernel($this->runtime, $approval, $translations, $templates, $realTranslator), ['HTTP_HOST' => 'app.example', 'HTTPS' => 'on']);
         $this->browsers[] = $browser;
 
         return $browser;

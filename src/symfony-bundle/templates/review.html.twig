@@ -25,12 +25,14 @@
             {% if return_path %}<div class="actions sheet-back"><a class="button" href="{{ return_path }}">{{ 'Back to %application%'|trans({'%application%': application}) }}</a></div>{% endif %}
             {% if agent %}
             <div class="actions" data-return hidden data-messages="{{ {
-                returnApp: '%agent% already shows the result. This tab can be closed.'|trans({'%agent%': agent_name}),
+                returnApp: 'Claude already shows the result. This tab can be closed.'|trans,
                 returnHandoff: 'Done. %agent% on your computer already shows the result.'|trans({'%agent%': agent_name}),
-                returnTab: 'Switch back to your %agent% tab: it already shows the result.'|trans({'%agent%': agent_name}),
+                returnTab: 'Switch back to your Claude tab: it already shows the result.'|trans,
             }|json_encode }}">
-                <a class="button" href="claude://" data-return-app hidden>{{ 'Back to %agent%'|trans({'%agent%': agent_name}) }}</a>
-                <button type="button" data-return-tab hidden>{{ 'Back to your %agent% tab'|trans({'%agent%': agent_name}) }}</button>
+                {# These answer the approval card in Claude, which asks for them with #return=claude-…: they open Claude, so
+                   they say Claude whatever agent_name is. The visible wording below uses agent_name. #}
+                <a class="button" href="claude://" data-return-app hidden>{{ 'Back to Claude'|trans }}</a>
+                <button type="button" data-return-tab hidden>{{ 'Back to your Claude tab'|trans }}</button>
             </div>
             <p class="muted" data-return-hint>{{ 'You can close this tab and return to %agent%.'|trans({'%agent%': agent_name}) }}</p>
             {% endif %}

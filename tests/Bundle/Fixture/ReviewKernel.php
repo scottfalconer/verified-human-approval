@@ -43,6 +43,8 @@ final class ReviewKernel extends Kernel
         private readonly array $approval = [],
         private readonly ?array $translations = null,
         private readonly ?string $templates = null,
+        /** @var array{locale: string, path: string}|null Symfony's own translator, in this locale, with the application's catalogues in this directory */
+        private readonly ?array $realTranslator = null,
     ) {
         parent::__construct('test', false);
     }
@@ -102,6 +104,9 @@ final class ReviewKernel extends Kernel
             'session' => ['handler_id' => null, 'storage_factory_id' => 'session.storage.factory.mock_file'],
             'csrf_protection' => true,
             'lock' => 'flock',
+            // Off unless a test asks for Symfony's own translator, so "no translator" stays true when the component is installed.
+            'translator' => null === $this->realTranslator ? ['enabled' => false] : ['enabled' => true, 'default_path' => $this->realTranslator['path'], 'fallbacks' => ['en']],
+            'default_locale' => $this->realTranslator['locale'] ?? 'en',
         ]);
         $container->extension('twig', ['strict_variables' => true] + (null === $this->templates ? [] : ['default_path' => $this->templates]));
         $container->extension('verified_human_approval', [
@@ -141,6 +146,6 @@ final class ReviewKernel extends Kernel
         $shared = getenv('VERIFIED_HUMAN_APPROVAL_TEST_CACHE');
         $root = \is_string($shared) && '' !== $shared ? $shared : sys_get_temp_dir().'/verified-human-approval-review-kernel';
 
-        return $root.'/review-kernel-'.hash('xxh128', serialize([$this->approval, $this->translations, $this->templates]));
+        return $root.'/review-kernel-'.hash('xxh128', serialize([$this->approval, $this->translations, $this->templates, $this->realTranslator]));
     }
 }

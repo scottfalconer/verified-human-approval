@@ -107,14 +107,15 @@
                 <target>Back to %application%</target>
                 <note>Leads back to the page on the site where the person made the request.</note>
             </trans-unit>
-            <trans-unit id="review.back.agent_app">
-                <source>Back to %agent%</source>
-                <target>Back to %agent%</target>
-                <note>Opens the agent's desktop or mobile app. %agent% is the bundle's agent_name.</note>
+            <trans-unit id="review.back.claude_app">
+                <source>Back to Claude</source>
+                <target>Back to Claude</target>
+                <note>Opens Claude's desktop or mobile app (claude://). Shown only when Claude's approval card opened the page, so it names Claude whatever agent_name is.</note>
             </trans-unit>
-            <trans-unit id="review.back.agent_tab">
-                <source>Back to your %agent% tab</source>
-                <target>Back to your %agent% tab</target>
+            <trans-unit id="review.back.claude_tab">
+                <source>Back to your Claude tab</source>
+                <target>Back to your Claude tab</target>
+                <note>Closes this tab, back to Claude on the web. Shown only when Claude's approval card opened the page.</note>
             </trans-unit>
             <trans-unit id="review.back.hint">
                 <source>You can close this tab and return to %agent%.</source>
@@ -311,9 +312,9 @@
                 <target>The connection dropped before the site answered, so we can’t confirm whether the request was cancelled. Reload this page to see where it stands.</target>
             </trans-unit>
             <trans-unit id="script.return.app">
-                <source>%agent% already shows the result. This tab can be closed.</source>
-                <target>%agent% already shows the result. This tab can be closed.</target>
-                <note>Shown after approval when the person came from the agent's desktop or mobile app.</note>
+                <source>Claude already shows the result. This tab can be closed.</source>
+                <target>Claude already shows the result. This tab can be closed.</target>
+                <note>Shown after approval when Claude's approval card in its desktop or mobile app opened the page.</note>
             </trans-unit>
             <trans-unit id="script.return.handoff">
                 <source>Done. %agent% on your computer already shows the result.</source>
@@ -321,8 +322,9 @@
                 <note>Shown on a phone that opened the approval with a one-time code from the computer.</note>
             </trans-unit>
             <trans-unit id="script.return.tab">
-                <source>Switch back to your %agent% tab: it already shows the result.</source>
-                <target>Switch back to your %agent% tab: it already shows the result.</target>
+                <source>Switch back to your Claude tab: it already shows the result.</source>
+                <target>Switch back to your Claude tab: it already shows the result.</target>
+                <note>Shown when Claude's approval card on the web opened the page.</note>
             </trans-unit>
 
             <trans-unit id="handoff.title">
@@ -352,6 +354,69 @@
             <trans-unit id="handoff.expired.explanation">
                 <source>Each phone code works once, for two minutes. Show a new code in %agent% and scan it again.</source>
                 <target>Each phone code works once, for two minutes. Show a new code in %agent% and scan it again.</target>
+            </trans-unit>
+
+            <trans-unit id="badge.label">
+                <source>Approved with a passkey · %date%</source>
+                <target>Approved with a passkey · %date%</target>
+                <note>The badge on the application’s own page. %date% is when the person approved.</note>
+            </trans-unit>
+            <trans-unit id="verified.title">
+                <source>Approved with a passkey</source>
+                <target>Approved with a passkey</target>
+            </trans-unit>
+            <trans-unit id="verified.title_unverified">
+                <source>Approval not verified</source>
+                <target>Approval not verified</target>
+            </trans-unit>
+            <trans-unit id="verified.eyebrow">
+                <source>Verified approval · %application%</source>
+                <target>Verified approval · %application%</target>
+            </trans-unit>
+            <trans-unit id="verified.outcome">
+                <source>A person approved this exact change with their passkey, and this site signed a receipt as it took effect.</source>
+                <target>A person approved this exact change with their passkey, and this site signed a receipt as it took effect.</target>
+            </trans-unit>
+            <trans-unit id="verified.took_effect">
+                <source>Took effect</source>
+                <target>Took effect</target>
+            </trans-unit>
+            <trans-unit id="verified.receipt">
+                <source>Receipt</source>
+                <target>Receipt</target>
+            </trans-unit>
+            <trans-unit id="verified.receipt_detail">
+                <source>Signed as the change committed, and it verifies against this site’s %published_key% (%key_id%).</source>
+                <target>Signed as the change committed, and it verifies against this site’s %published_key% (%key_id%).</target>
+                <note>%published_key% becomes a link to the published key, whose words are the separate “published key” message.</note>
+            </trans-unit>
+            <trans-unit id="verified.meaning_heading">
+                <source>What this shows, and what it doesn’t</source>
+                <target>What this shows, and what it doesn’t</target>
+            </trans-unit>
+            <trans-unit id="verified.meaning">
+                <source>The person who asked approved this exact statement and content with the passkey enrolled for their account, which their device unlocks with a fingerprint, face, PIN or similar. The change ran once, and the site signed its receipt as the change committed. A page shows this badge only while it shows exactly the approved content.</source>
+                <target>The person who asked approved this exact statement and content with the passkey enrolled for their account, which their device unlocks with a fingerprint, face, PIN or similar. The change ran once, and the site signed its receipt as the change committed. A page shows this badge only while it shows exactly the approved content.</target>
+            </trans-unit>
+            <trans-unit id="verified.privacy">
+                <source>This page does not name the person. It shows the signed receipt, which holds only digests; the person who approved keeps the full record, which anyone can check against the same key.</source>
+                <target>This page does not name the person. It shows the signed receipt, which holds only digests; the person who approved keeps the full record, which anyone can check against the same key.</target>
+            </trans-unit>
+            <trans-unit id="verified.signed_receipt">
+                <source>The signed receipt</source>
+                <target>The signed receipt</target>
+            </trans-unit>
+            <trans-unit id="verified.signature">
+                <source>Signature</source>
+                <target>Signature</target>
+            </trans-unit>
+            <trans-unit id="verified.unverified_heading">
+                <source>This approval can’t be verified here</source>
+                <target>This approval can’t be verified here</target>
+            </trans-unit>
+            <trans-unit id="verified.unverified">
+                <source>There is no approval with a passkey on record for this link, or its record no longer verifies.</source>
+                <target>There is no approval with a passkey on record for this link, or its record no longer verifies.</target>
             </trans-unit>
         </body>
     </file>

@@ -1,2 +1,4 @@
+{% trans_default_domain 'VerifiedHumanApproval' %}
 {# Shown only when PublicVerification confirmed it. Include `bundles/verifiedhumanapproval/badge.css`, or style `.vha-badge` yourself. #}
-{% if link %}<a class="vha-badge" href="{{ link }}">{% else %}<span class="vha-badge">{% endif %}<span class="vha-badge-check" aria-hidden="true">✓</span><span>Approved with a passkey · {{ approval.approvedAt|date('j M Y, H:i T') }}</span>{% if link %}</a>{% else %}</span>{% endif %}
+{% set label = 'Approved with a passkey · %date%'|trans({'%date%': approval.approvedAt|date('j M Y, H:i T')}) %}
+{% if link %}<a class="vha-badge" href="{{ link }}">{% else %}<span class="vha-badge">{% endif %}<span class="vha-badge-check" aria-hidden="true">✓</span><span>{{ label }}</span>{% if link %}</a>{% else %}</span>{% endif %}
