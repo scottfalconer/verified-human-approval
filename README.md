@@ -113,7 +113,7 @@ The engine is independent of Symfony. The supported Symfony example uses a singl
 
 The [Drupal module](src/drupal-module/README.md) uses the core and WebAuthn packages directly to approve an exact node revision through Drupal accounts, forms, permissions, and database transactions. Its first publication action supports Drupal 11.4, SQLite, default node storage, and one untranslated plain-text draft. It includes browser passkey enrollment, protected publication, and original receipt downloads.
 
-This is a development preview requiring the library changes in [portability PR #3](https://github.com/scottfalconer/verified-human-approval/pull/3). The [module guide](src/drupal-module/README.md) covers installation and the current limits; the [MCP notes](src/drupal-module/docs/mcp-integration.md) describe an optional host integration through an existing endpoint. The module does not install OAuth or an MCP server.
+This is a development preview. The [module guide](src/drupal-module/README.md) covers installation and the current limits; the [MCP notes](src/drupal-module/docs/mcp-integration.md) describe an optional host integration through an existing endpoint. The module does not install OAuth or an MCP server.
 
 ## Built with Symfony and MCP
 

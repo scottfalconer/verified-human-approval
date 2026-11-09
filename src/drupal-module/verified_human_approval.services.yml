@@ -9,10 +9,10 @@ services:
     arguments: ['@verified_human_approval.settings']
   verified_human_approval.actor_provider:
     class: Drupal\verified_human_approval\DrupalActorProvider
-    arguments: ['@current_user', '@entity_type.manager', '@config.factory', '@cache_tags.invalidator', '@request_stack', '@verified_human_approval.settings']
+    arguments: ['@current_user', '@entity_type.manager', '@config.factory', '@request_stack', '@verified_human_approval.settings']
   verified_human_approval.transaction:
     class: Drupal\verified_human_approval\Storage\DrupalTransaction
-    arguments: ['@database', '@entity_type.manager']
+    arguments: ['@database', '@entity.memory_cache', '@cache.access_policy_memory', '@cache_tags.invalidator.checksum']
   verified_human_approval.store:
     class: Drupal\verified_human_approval\Storage\DrupalApprovalStore
     arguments: ['@database', '@verified_human_approval.transaction']
@@ -60,10 +60,10 @@ services:
     arguments: ['@verified_human_approval.action_registry', '@verified_human_approval.policy_provider', '@verified_human_approval.authorizer', '@verified_human_approval.store', '@verified_human_approval.verifier', '@verified_human_approval.execution_guard']
   verified_human_approval.approval_manager:
     class: Drupal\verified_human_approval\ApprovalManager
-    arguments: ['@service_container', '@verified_human_approval.actor_provider', '@verified_human_approval.transaction', '@verified_human_approval.signer', '@flood', '@verified_human_approval.settings']
+    arguments: ['@service_container', '@verified_human_approval.actor_provider', '@verified_human_approval.signer', '@flood', '@verified_human_approval.settings']
   verified_human_approval.passkey_manager:
     class: Drupal\verified_human_approval\PasskeyManager
-    arguments: ['@service_container', '@database', '@verified_human_approval.transaction', '@verified_human_approval.actor_provider', '@entity_type.manager', '@request_stack', '@verified_human_approval.clock', '@flood', '@verified_human_approval.settings']
+    arguments: ['@service_container', '@database', '@verified_human_approval.transaction', '@verified_human_approval.actor_provider', '@entity_type.manager', '@request_stack', '@verified_human_approval.clock', '@flood']
   verified_human_approval.headers:
     class: Drupal\verified_human_approval\EventSubscriber\SecurityHeadersSubscriber
     tags:

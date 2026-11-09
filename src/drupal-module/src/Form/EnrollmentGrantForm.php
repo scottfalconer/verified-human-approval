@@ -60,6 +60,8 @@ final class EnrollmentGrantForm extends FormBase {
   }
 
   public function submitForm(array &$form, FormStateInterface $form_state): void {
+    // A rebuilt POST form is cached for hours by default; the one-time token shown here must not be.
+    $form_state->disableCache();
     try {
       $grant = $this->passkeys->issueEnrollmentGrant((int) $form_state->getValue('uid'));
       $form_state->set('issued_grant', $grant);

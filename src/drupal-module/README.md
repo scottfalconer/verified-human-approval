@@ -21,12 +21,11 @@ The Symfony bundle and demo application are not dependencies.
 | Browser identity | An active Drupal account authenticated by a cookie session. |
 | Approval | WebAuthn with user verification required. The device may use a PIN, fingerprint, face recognition, or another supported local method. |
 
-The module and VHA library packages are not available from Packagist. The
-module also requires the library contracts in
-[upstream portability PR #3](https://github.com/scottfalconer/verified-human-approval/pull/3).
-Use a checkout that contains both this module and those library changes. An
-older upstream checkout does not provide the required audit and credential
-repository interfaces.
+The module and VHA library packages are not available from Packagist. Use a
+checkout of this repository, which contains both the module and the library's
+`AuditStore` and `RevocableCredentialRepository` interfaces it needs (on `main`
+since [PR #3](https://github.com/scottfalconer/verified-human-approval/pull/3)).
+An older checkout does not provide them.
 
 ## 1. Install from a local checkout
 
@@ -307,6 +306,19 @@ revision before completing. These checks make the normal Drupal entity save
 path enforce the approval rule, including a later presave hook that tries to
 publish a draft.
 
+The review shows the title, summary, body, owner, authored date, URL alias,
+promotion and sticky flags, all frozen with the proposal. Nodes with a menu
+link are refused, because this release does not review menu links, and so is
+any site with Workspaces enabled, because a save in a workspace does not
+publish to the live site.
+
+Every save that would leave protected content published outside this flow is
+refused, and today that refusal is an error rather than a form message. That
+includes bulk promote or sticky actions on live content, reverting to a
+published revision, REST or JSON:API edits of live content, and cancelling an
+account with "reassign content to Anonymous", which re-saves that person's
+published nodes.
+
 This guarantee covers supported database changes on the shared connection. It
 does not roll back email, remote HTTP calls, external caches or queues, or other effects
 that a site's hooks may perform. Direct SQL, custom storage, trusted code that
@@ -337,4 +349,7 @@ an enabled feature of this module.
 - [Library security model](../../docs/security-model.md)
 
 The Drupal module is licensed under GPL-2.0-or-later; see [LICENSE.txt](LICENSE.txt).
-The reusable VHA library packages retain their MIT license.
+The reusable VHA library packages retain their MIT license. The module's browser
+script and approval store are adapted from MIT-licensed files in this repository,
+as their headers say, and the copied test authenticator keeps its MIT notice
+beside it (`tests/src/Support/LICENSE-MIT.txt`).

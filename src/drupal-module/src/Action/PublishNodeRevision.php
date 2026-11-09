@@ -79,6 +79,9 @@ final class PublishNodeRevision implements ActionAdapter {
         'language' => $node->language()->getId(),
         'source_revision' => (string) $node->getRevisionId(),
         'owner_uid' => $content['owner_id'],
+        'owner_name' => $node->getOwner()?->getDisplayName() ?? '',
+        'created' => gmdate('Y-m-d H:i', $content['created']) . ' UTC',
+        'url_alias' => $content['alias'],
         'promoted_to_front_page' => $content['promoted'] ? 'Yes' : 'No',
         'sticky' => $content['sticky'] ? 'Yes' : 'No',
         'resulting_change' => 'Create a new published default revision with exactly this stored content.',
@@ -118,7 +121,7 @@ final class PublishNodeRevision implements ActionAdapter {
       'source_revision' => (int) $action->preconditions['source_revision'],
       'published_revision' => (int) $node->getRevisionId(),
       'langcode' => $node->language()->getId(),
-      'content_digest' => hash('sha256', CanonicalJson::encode((object) $this->content($node))),
+      'published_content_digest' => hash('sha256', CanonicalJson::encode((object) $this->content($node))),
     ];
   }
 
@@ -170,6 +173,16 @@ final class PublishNodeRevision implements ActionAdapter {
     if ($node->hasField('moderation_state')) {
       throw new ApprovalException('unsupported_moderation', 'Content Moderation transitions require a dedicated action adapter.');
     }
+    // In a workspace, a save does not make the live default revision, so a receipt would describe a
+    // publication that never went live.
+    if ($this->entities->hasDefinition('workspace')) {
+      throw new ApprovalException('unsupported_workflow', 'Workspaces is not supported: a save in a workspace does not publish to the live site.');
+    }
+    // A menu link goes live with the node but is not part of what the review shows.
+    if ($this->entities->hasDefinition('menu_link_content') && $node->id() !== NULL
+      && (int) $this->entities->getStorage('menu_link_content')->getQuery()->accessCheck(FALSE)->condition('link.uri', ['entity:node/' . $node->id(), 'internal:/node/' . $node->id()], 'IN')->count()->execute() > 0) {
+      throw new ApprovalException('unsupported_menu_link', 'This release does not review menu links. Remove the menu link before requesting publication.');
+    }
     foreach ($this->fields->getFieldDefinitions('node', $node->bundle()) as $name => $definition) {
       if ($name === 'body' && ($definition->getType() !== 'text_with_summary' || $definition->getFieldStorageDefinition()->getCardinality() !== 1)) {
         throw new ApprovalException('unsupported_field', 'The plain-content adapter requires a single text_with_summary body field.');
@@ -195,6 +208,8 @@ final class PublishNodeRevision implements ActionAdapter {
       'body_format' => $node->hasField('body') ? (string) ($node->get('body')->format ?? '') : '',
       'owner_id' => (string) $node->getOwnerId(),
       'created' => (int) $node->getCreatedTime(),
+      // The URL alias goes live with the node, so it is reviewed and frozen with the content.
+      'alias' => $node->hasField('path') ? (string) ($node->get('path')->alias ?? '') : '',
       'promoted' => $node->isPromoted(),
       'sticky' => $node->isSticky(),
     ];

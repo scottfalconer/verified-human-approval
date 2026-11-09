@@ -8,6 +8,7 @@ use Drupal\Core\Site\Settings;
 use Drupal\field\Entity\FieldConfig;
 use Drupal\field\Entity\FieldStorageConfig;
 use Drupal\KernelTests\KernelTestBase;
+use Drupal\menu_link_content\Entity\MenuLinkContent;
 use Drupal\node\Entity\Node;
 use Drupal\node\Entity\NodeType;
 use Drupal\node\NodeInterface;
@@ -365,6 +366,50 @@ final class ApprovalIntegrationTest extends KernelTestBase {
       self::assertSame($auditCount, $this->countRows('vha_audit'));
       $used = $this->container->get('database')->select('vha_enrollment_grant', 'g')->fields('g', ['consumed'])->condition('token_hash', hash('sha256', $grant['token']))->execute()->fetchField();
       self::assertSame(0, (int) $used);
+    }
+  }
+
+  public function testTheReviewShowsTheUrlAliasOwnerAndAuthoredDate(): void {
+    // What goes live with the node is shown and frozen with the proposal, not just the title and body.
+    $this->enableModules(['path_alias', 'path']);
+    $this->installEntitySchema('path_alias');
+    $this->container->get('entity_field.manager')->clearCachedFieldDefinitions();
+    $node = $this->freshNode();
+    $node->set('path', ['alias' => '/reviewed-draft']);
+    $node->setCreatedTime(1700000000);
+    $node->save();
+    $this->draft = $this->freshNode();
+    $display = $this->request()->request->prepared()->display;
+    self::assertSame('/reviewed-draft', $display['url_alias']);
+    self::assertSame('2023-11-14 22:13 UTC', $display['created']);
+    self::assertSame('editor', $display['owner_name']);
+    self::assertSame((string) $this->editor->id(), $display['owner_uid']);
+  }
+
+  public function testANodeWithAMenuLinkIsRefused(): void {
+    // A menu link would go live with the node without being reviewed.
+    $this->enableModules(['link', 'menu_link_content']);
+    $this->installEntitySchema('menu_link_content');
+    MenuLinkContent::create(['title' => 'Reviewed draft', 'menu_name' => 'main', 'link' => ['uri' => 'entity:node/' . $this->draft->id()]])->save();
+    try {
+      $this->request();
+      self::fail('A node with a menu link must not be proposed.');
+    }
+    catch (ApprovalException $error) {
+      self::assertSame('unsupported_menu_link', $error->reason);
+    }
+    self::assertFalse($this->freshNode()->isPublished());
+  }
+
+  public function testWorkspacesIsRefused(): void {
+    // In a workspace a save does not publish to the live site, so a receipt would describe nothing that went live.
+    $this->enableModules(['workspaces']);
+    try {
+      $this->request();
+      self::fail('Workspaces must not be supported silently.');
+    }
+    catch (ApprovalException $error) {
+      self::assertSame('unsupported_workflow', $error->reason);
     }
   }
 

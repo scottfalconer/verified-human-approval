@@ -5,11 +5,9 @@ A host module can expose its `verified_human_approval.approval_manager` service
 through an existing Drupal MCP installation. The browser approval and passkey
 enrollment still use the human's Drupal cookie session.
 
-The approval module itself requires the library portability changes in
-[upstream PR #3](https://github.com/scottfalconer/verified-human-approval/pull/3).
-Use a library checkout containing those changes until an appropriate upstream
-package version includes them. This prerequisite is separate from the existing
-MCP and OAuth installation.
+The approval module itself needs the library's portable storage contracts, on
+`main` since [PR #3](https://github.com/scottfalconer/verified-human-approval/pull/3).
+This prerequisite is separate from the existing MCP and OAuth installation.
 
 ## Verified extension points
 

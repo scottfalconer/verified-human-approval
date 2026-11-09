@@ -4,21 +4,26 @@ declare(strict_types=1);
 
 namespace Drupal\verified_human_approval\Storage;
 
+use Drupal\Core\Cache\CacheBackendInterface;
+use Drupal\Core\Cache\CacheTagsChecksumInterface;
+use Drupal\Core\Cache\MemoryCache\MemoryCacheInterface;
 use Drupal\Core\Database\Connection;
-use Drupal\Core\Entity\EntityTypeManagerInterface;
 
 /** Owns the SQLite root transaction shared by the action and its evidence. */
 final class DrupalTransaction
 {
     private bool $active = false;
 
+    /**
+     * Node hooks build this service for every node save, so it never refuses to exist: an unsupported database
+     * refuses approval work in run() instead, and ordinary saves of unprotected content keep working.
+     */
     public function __construct(
         private readonly Connection $database,
-        private readonly EntityTypeManagerInterface $entityTypes,
+        private readonly MemoryCacheInterface $entityMemory,
+        private readonly CacheBackendInterface $accessPolicyMemory,
+        private readonly CacheTagsChecksumInterface $checksums,
     ) {
-        if ('sqlite' !== $database->driver()) {
-            throw new \LogicException('Verified Human Approval currently supports Drupal SQLite only.');
-        }
     }
 
     /**
@@ -32,6 +37,9 @@ final class DrupalTransaction
      */
     public function run(callable $callback): mixed
     {
+        if ('sqlite' !== $this->database->driver()) {
+            throw new \LogicException('Verified Human Approval currently supports Drupal SQLite only.');
+        }
         if ($this->active || $this->database->inTransaction()) {
             throw new \LogicException('Approval execution must own the outer Drupal database transaction.');
         }
@@ -80,13 +88,16 @@ final class DrupalTransaction
         }
     }
 
-    /** Fresh authority/content checks must not reuse entities from before the lock. */
+    /**
+     * Fresh authority and content checks must not reuse what this request loaded or calculated before the lock.
+     * Only this request's memory is cleared: the entities it loaded, its calculated permissions, and its copy of
+     * cache tag checksums, so persistent cache entries are checked against current invalidations. The site's
+     * persistent caches stay, and each check also resets the exact entities it reads.
+     */
     public function resetEntityCaches(): void
     {
-        foreach (['node', 'user', 'user_role'] as $type) {
-            if ($this->entityTypes->hasDefinition($type)) {
-                $this->entityTypes->getStorage($type)->resetCache();
-            }
-        }
+        $this->entityMemory->deleteAll();
+        $this->accessPolicyMemory->deleteAll();
+        $this->checksums->reset();
     }
 }

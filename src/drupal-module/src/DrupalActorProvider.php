@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Drupal\verified_human_approval;
 
-use Drupal\Core\Cache\CacheTagsInvalidatorInterface;
 use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Session\AccountProxyInterface;
@@ -20,7 +19,6 @@ final class DrupalActorProvider implements ActorProviderInterface {
     private readonly AccountProxyInterface $currentUser,
     private readonly EntityTypeManagerInterface $entities,
     private readonly ConfigFactoryInterface $config,
-    private readonly CacheTagsInvalidatorInterface $cacheTags,
     private readonly RequestStack $requests,
     private readonly ModuleSettings $settings,
   ) {}
@@ -31,7 +29,10 @@ final class DrupalActorProvider implements ActorProviderInterface {
 
   public function interactive(): Actor {
     $request = $this->requests->getCurrentRequest();
-    if ($this->currentUser->isAnonymous() || $request === NULL || $request->headers->has('Authorization') || !$request->hasSession() || (string) $request->getSession()->get('uid') !== (string) $this->currentUser->id()) {
+    // Browsers resend Basic credentials (a staging site's password, the Shield module) on every request, so
+    // those are tolerated; any other Authorization scheme, a bearer token above all, is refused.
+    $authorization = $request?->headers->get('Authorization');
+    if ($this->currentUser->isAnonymous() || $request === NULL || ($authorization !== NULL && !preg_match('/^Basic\s/i', $authorization)) || !$request->hasSession() || (string) $request->getSession()->get('uid') !== (string) $this->currentUser->id()) {
       throw new ApprovalException('interactive_login_required', 'Use your Drupal browser login. A bearer token cannot enroll a passkey or approve a request.');
     }
     $storage = $this->entities->getStorage('user');
@@ -48,14 +49,17 @@ final class DrupalActorProvider implements ActorProviderInterface {
       throw new ApprovalException('delegation_unsupported', 'This integration requires a matching site and a supported, currently valid identity context.');
     }
     $storage = $this->entities->getStorage('user');
-    $storage->resetCache();
+    // Inside the approval transaction, DrupalTransaction has already dropped this request's calculated
+    // permissions. Reload this account and its roles' configuration from the database, and nothing else.
     $this->entities->getStorage('user_role')->resetCache();
     $this->config->reset();
-    // Route checks may have populated calculated permissions before the writer
-    // reservation. Recalculate them for the authoritative transaction.
-    $this->cacheTags->invalidateTags(['access_policies']);
-    $users = $storage->loadByProperties(['uuid' => $actor->userId]);
-    $user = reset($users);
+    $ids = $storage->getQuery()->accessCheck(FALSE)->condition('uuid', $actor->userId)->range(0, 2)->execute();
+    $user = NULL;
+    if (count($ids) === 1) {
+      $uid = reset($ids);
+      $storage->resetCache([$uid]);
+      $user = $storage->load($uid);
+    }
     if (!$user instanceof UserInterface || !$user->isActive() || $user->isAnonymous()) {
       throw new ApprovalException('permission_denied', 'This Drupal account is no longer active.');
     }

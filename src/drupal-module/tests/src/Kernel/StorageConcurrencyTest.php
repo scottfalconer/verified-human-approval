@@ -79,7 +79,7 @@ final class StorageConcurrencyTest extends KernelTestBase {
       'primary key' => ['id'],
     ]);
     $this->first->insert('ordinary_content')->fields(['id' => 1, 'version' => 0])->execute();
-    $this->transactions = new DrupalTransaction($this->first, $this->container->get('entity_type.manager'));
+    $this->transactions = new DrupalTransaction($this->first, $this->container->get('entity.memory_cache'), $this->container->get('cache.access_policy_memory'), $this->container->get('cache_tags.invalidator.checksum'));
     $this->store = new DrupalApprovalStore($this->first, $this->transactions);
     $this->credentials = new DrupalCredentialRepository($this->first, $this->transactions);
     $this->signer = new SodiumEvidenceSigner('storage-test', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
@@ -269,6 +269,22 @@ final class StorageConcurrencyTest extends KernelTestBase {
 
   private function countRows(string $table, ?Connection $database = NULL): int {
     return (int) ($database ?? $this->first)->select($table)->countQuery()->execute()->fetchField();
+  }
+
+  public function testTheTransactionForgetsOnlyWhatThisRequestCalculatedBeforeTheLock(): void {
+    // A route check may have loaded entities and calculated permissions before the writer lock. The approval
+    // transaction drops this request's copies of both, and leaves the site's persistent caches alone.
+    $permissions = $this->container->get('cache.access_policy_memory');
+    $entities = $this->container->get('entity.memory_cache');
+    $siteCache = $this->container->get('cache.entity');
+    $permissions->set('calculated-before-the-lock', TRUE);
+    $entities->set('loaded-before-the-lock', TRUE);
+    $siteCache->set('another-entity', TRUE);
+    $this->transactions->run(function () use ($permissions, $entities): void {
+      self::assertFalse($permissions->get('calculated-before-the-lock'));
+      self::assertFalse($entities->get('loaded-before-the-lock'));
+    });
+    self::assertNotFalse($siteCache->get('another-entity'), 'Approval work does not empty the site-wide entity cache.');
   }
 
 }

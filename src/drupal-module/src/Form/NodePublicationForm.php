@@ -66,8 +66,9 @@ final class NodePublicationForm {
       return;
     }
     // Use Drupal's submitted entity, including values from accessible widgets.
-    $node = $form_state->getFormObject()->buildEntity($form, $form_state);
-    if (!$node->isPublished()) {
+    $formObject = $form_state->getFormObject();
+    $node = $formObject instanceof EntityFormInterface ? $formObject->buildEntity($form, $form_state) : NULL;
+    if (!$node instanceof NodeInterface || !$node->isPublished()) {
       return;
     }
     $message = $node->hasField('moderation_state')

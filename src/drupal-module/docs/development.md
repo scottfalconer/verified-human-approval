@@ -4,11 +4,9 @@ The Drupal tests use a separate Composer project with real Drupal core. The
 monorepo's root `composer.json` replaces its library packages and installs the
 Symfony demo; installing only that root project does not test a Drupal consumer.
 
-This module requires the portable audit and credential repository contracts in
-[upstream portability PR #3](https://github.com/scottfalconer/verified-human-approval/pull/3).
-Until those changes are merged and available in a suitable package version,
-use a library checkout containing that PR. The local path repositories below
-consume this working tree, including those changes; an older upstream checkout
+This module requires the portable audit and credential repository contracts,
+on `main` since [PR #3](https://github.com/scottfalconer/verified-human-approval/pull/3).
+The local path repositories below consume this working tree; an older checkout
 does not provide the required contracts.
 
 ## Requirements
@@ -70,9 +68,9 @@ VHA_DRUPAL_ROOT="$VHA_DRUPAL_CONSUMER/web" \
 The bootstrap loads Drupal's own test bootstrap from the consumer. Tests live
 in `src/drupal-module/tests/src` and use the normal
 `Drupal\Tests\verified_human_approval` namespace. Drupal discovers them through
-the installed module. The consumer also exposes the repository's synthetic
-WebAuthn authenticator fixture under its test namespace; it does not load the
-Symfony demo test bootstrap.
+the installed module. The module's tests carry their own copy of the
+repository's synthetic WebAuthn authenticator (`tests/src/Support`); the suite
+does not load the Symfony demo test bootstrap.
 
 The configuration defaults to `sqlite://localhost/:memory:`. Kernel tests
 install the schemas they need and use isolated table prefixes. An individual

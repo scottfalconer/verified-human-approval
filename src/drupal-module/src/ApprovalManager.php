@@ -6,7 +6,6 @@ namespace Drupal\verified_human_approval;
 
 use Drupal\Core\Flood\FloodInterface;
 use Drupal\verified_human_approval\Action\PublishNodeRevision;
-use Drupal\verified_human_approval\Storage\DrupalTransaction;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalService;
@@ -21,7 +20,6 @@ final class ApprovalManager {
   public function __construct(
     private readonly \Symfony\Component\DependencyInjection\ContainerInterface $container,
     private readonly ActorProviderInterface $actors,
-    private readonly DrupalTransaction $transactions,
     private readonly SettingsEvidenceSigner $signer,
     private readonly FloodInterface $flood,
     private readonly ModuleSettings $settings,
@@ -81,13 +79,15 @@ final class ApprovalManager {
     return $this->container->get('verified_human_approval.approval');
   }
 
+  /**
+   * A read check needs no writer lock: it checks the account as stored now. Anything that changes state
+   * checks authority again inside its own transaction.
+   */
   private function assertRead(Actor $actor, bool $request = FALSE): void {
-    $this->transactions->run(function () use ($actor, $request): void {
-      $account = $this->actors->accountFor($actor);
-      if (!$account->hasPermission('use verified human approval') || ($request && !$account->hasPermission('request verified human approval'))) {
-        throw new ApprovalException('permission_denied', 'Your current account cannot access approval records.');
-      }
-    });
+    $account = $this->actors->accountFor($actor);
+    if (!$account->hasPermission('use verified human approval') || ($request && !$account->hasPermission('request verified human approval'))) {
+      throw new ApprovalException('permission_denied', 'Your current account cannot access approval records.');
+    }
   }
 
   private function limit(Actor $actor, string $operation, int $threshold): void {

@@ -28,7 +28,7 @@ final class Authorizer implements AuthorizerInterface {
       throw new ApprovalException('permission_denied', 'Your current account cannot request verified publication.');
     }
     $storage = $this->entities->getStorage('node');
-    $storage->resetCache();
+    $storage->resetCache([(int) $action->target['node_id']]);
     $node = $storage->load((int) $action->target['node_id']);
     $access = $this->entities->getAccessControlHandler('node');
     $access->resetCache();

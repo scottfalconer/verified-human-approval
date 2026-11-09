@@ -11,8 +11,16 @@
       <dt>{{ 'Source revision'|t }}</dt><dd>{{ display.source_revision }}</dd>
       <dt>{{ 'Language'|t }}</dt><dd>{{ display.language }}</dd>
       <dt>{{ 'Change'|t }}</dt><dd>{{ display.resulting_change }}</dd>
-      {% if display.owner_uid is defined %}
+      {% if display.owner_name is defined %}
+        <dt>{{ 'Content owner'|t }}</dt><dd>{{ display.owner_name }} ({{ 'user ID'|t }} {{ display.owner_uid }})</dd>
+      {% elseif display.owner_uid is defined %}
         <dt>{{ 'Content owner (user ID)'|t }}</dt><dd>{{ display.owner_uid }}</dd>
+      {% endif %}
+      {% if display.created is defined %}
+        <dt>{{ 'Authored on'|t }}</dt><dd>{{ display.created }}</dd>
+      {% endif %}
+      {% if display.url_alias is defined %}
+        <dt>{{ 'URL alias'|t }}</dt><dd>{{ display.url_alias != '' ? display.url_alias : 'None'|t }}</dd>
       {% endif %}
       {% if display.promoted_to_front_page is defined %}
         <dt>{{ 'Promoted to front page'|t }}</dt><dd>{{ display.promoted_to_front_page }}</dd>

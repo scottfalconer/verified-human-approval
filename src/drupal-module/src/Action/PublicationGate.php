@@ -51,6 +51,11 @@ final class PublicationGate {
 
   /** Catch later generic presave hooks before Drupal commits the entity save. */
   public function assertStoredSaveAllowed(NodeInterface $node): void {
+    $protected = $this->settings->protectedBundles();
+    $original = $node->getOriginal();
+    if (!in_array($node->bundle(), $protected, TRUE) && !($original instanceof NodeInterface && in_array($original->bundle(), $protected, TRUE))) {
+      return;
+    }
     $rows = $this->database->select('node_field_data', 'n')->fields('n', ['type', 'status'])->condition('nid', $node->id())->execute()->fetchAll();
     // Saving a non-default revision does not update node_field_data. Inspect
     // its persisted translation statuses too, while the save can roll back.
@@ -59,8 +64,7 @@ final class PublicationGate {
     $revision->fields('r', ['status'])->fields('n', ['type']);
     $revision->condition('r.nid', $node->id())->condition('r.vid', $node->getRevisionId());
     $rows = array_merge($rows, $revision->execute()->fetchAll());
-    $protected = $this->settings->protectedBundles();
-    $originalProtected = $node->getOriginal() instanceof NodeInterface && in_array($node->getOriginal()->bundle(), $protected, TRUE);
+    $originalProtected = $original instanceof NodeInterface && in_array($original->bundle(), $protected, TRUE);
     foreach ($rows as $row) {
       if ((bool) $row->status && ($originalProtected || in_array($row->type, $protected, TRUE)) && ($this->allowedNode !== $node || !$this->transactions->isActive())) {
         throw new ApprovalException('approval_required', 'This content type requires verified publication. A later save hook cannot bypass approval.');

@@ -32,16 +32,14 @@ final class PasskeyManager {
     private readonly RequestStack $requests,
     private readonly Clock $clock,
     private readonly FloodInterface $flood,
-    private readonly ModuleSettings $settings,
   ) {}
 
   /** @return list<Credential> */
   public function credentials(): array {
+    // Listing passkeys only reads, so it takes no writer lock.
     $actor = $this->actors->interactive();
-    return $this->transactions->run(function () use ($actor): array {
-      $this->assertUser($actor);
-      return $this->repository()->forActor($actor);
-    });
+    $this->assertUser($actor);
+    return $this->repository()->forActor($actor);
   }
 
   /** @return array{token: string, expires_at: int, uid: int} */

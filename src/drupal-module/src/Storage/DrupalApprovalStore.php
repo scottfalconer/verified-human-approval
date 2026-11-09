@@ -13,7 +13,12 @@ use VerifiedHumanApproval\Core\ApprovalStore;
 use VerifiedHumanApproval\Core\CanonicalJson;
 use VerifiedHumanApproval\Core\Ceremony;
 
-/** Native Drupal storage; the same root transaction also contains the node save. */
+/**
+ * Native Drupal storage; the same root transaction also contains the node save.
+ *
+ * Adapted from VerifiedHumanApproval\Core\Storage\PdoApprovalStore, which is MIT licensed (see the
+ * repository's LICENSE).
+ */
 final readonly class DrupalApprovalStore implements ApprovalStore
 {
     private const SELECT = 'SELECT r.*, e.record AS execution, c.key_id AS receipt_key_id, c.manifest AS receipt_manifest, c.signature AS receipt_signature

@@ -1,5 +1,8 @@
 /**
  * Drupal browser ceremonies. The server determines what can be approved.
+ *
+ * Adapted from src/symfony-bundle/public/approval.js in the Verified Human
+ * Approval repository, which is MIT licensed (see the repository's LICENSE).
  */
 (function (Drupal, once) {
   'use strict';
@@ -92,9 +95,12 @@
       clearTimeout(timer);
     }
     if (!response.ok) {
+      // Only the site's own refusal is definite. Any other error, such as a gateway's or a server error, means
+      // the site's answer was lost on the way: the call may still have taken effect.
+      const refused = response.status < 500 && data.status === 'rejected' && data.reason !== 'execution_uncertain';
       throw new Refusal(
         data.message || Drupal.t('The request was refused. Reload the page and check that you are signed in.'),
-        data.reason === 'execution_uncertain',
+        !refused,
         data.request_status,
       );
     }
