@@ -62,8 +62,14 @@ final class TestDatabase
             throw new \InvalidArgumentException('Not a test database: '.$location);
         }
         $server = self::server($kind);
-        // Any connection a test left open is ended with it.
-        $server->executeStatement('postgresql' === $kind ? 'DROP DATABASE IF EXISTS '.$location.' WITH (FORCE)' : 'DROP DATABASE IF EXISTS '.$location);
+        if ('postgresql' === $kind) {
+            // Any connection a test left open is ended with it.
+            $server->executeStatement('DROP DATABASE IF EXISTS '.$location.' WITH (FORCE)');
+        } else {
+            // A transaction a failed test left open would otherwise hold the drop for MySQL's default of a year.
+            $server->executeStatement('SET SESSION lock_wait_timeout = 60');
+            $server->executeStatement('DROP DATABASE IF EXISTS '.$location);
+        }
         $server->close();
     }
 
