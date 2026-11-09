@@ -1,84 +1,163 @@
-# Riverside Council alerts: the demo application
+# Riverside Council demo
 
-A complete Symfony application using the Verified Human Approval bundle. It is the public alerts site of a fictional council. Issuing a public alert is high-stakes, so the administrator's rule says who may issue one directly, who must approve the exact alert with a passkey first, and who may not issue one at all. An agent such as Claude can ask for the alert through MCP; the site decides.
+This Symfony application runs a fictional council's public alerts site. An agent can ask to issue an alert. The application's rule decides whether the caller may issue it directly, must approve it with a passkey, or is refused.
 
-Everything here is demo code, not part of the bundle: the accounts and their roles, the alert content and its page, the per-role policy form, the audit page, the passkey links, and a small stand-in OAuth server for remote clients such as claude.ai. All commands below run from the repository root.
+The walkthrough uses the real MCP SDK client supplied in this repository. You do not need Claude, a model API key, or a paid model. You will request an alert, review the exact proposal, approve it, and check the recorded result.
 
-## Run it in five minutes
+The accounts, alert pages, administrator screens, and OAuth server are demo code. For your own application, start with the [Symfony bundle guide](../src/symfony-bundle/README.md).
 
-You need PHP 8.3+ with the `pdo_sqlite`, `sodium` and `openssl` extensions, Composer, and Chrome or Safari. To see the Claude side, you also need Claude Desktop or Claude Code.
+## Run the demo
+
+### 1. Start the application
+
+You need:
+
+- PHP 8.3 or later and Composer. Enable `pdo_sqlite`, `sodium`, `openssl`, `mbstring`, and XML support. The default Composer install also needs DOM and XMLWriter for development tools; Composer checks the full extension requirements.
+- A browser and device that support passkeys, such as Chrome or Safari with a compatible authenticator.
+- Two terminal windows. The commands below use Bash or zsh on macOS or Linux and run from the repository root.
+
+In **Terminal A**:
 
 ```bash
 git clone https://github.com/scottfalconer/verified-human-approval.git
 cd verified-human-approval
 composer install
 php demo/bin/setup.php
+```
+
+Setup prints each account's `password`, `personal_token`, and `passkey_link`. Save this output privately before continuing: credentials are shown only once. Setup also writes the editor's token to a private header file for the optional Claude Desktop connection.
+
+Start the server in the same terminal and leave it running:
+
+```bash
 PHP_CLI_SERVER_WORKERS=4 php -S localhost:8080 -t demo/public demo/public/index.php
 ```
 
-Setup prints fresh passwords, personal agent tokens and one-time passkey links once, plus the exact commands for connecting Claude. The server runs several workers because the card's polling, the model's calls and your browser reach it at the same time. If you ran an earlier version, start fresh with `php demo/bin/setup.php --reset`.
+The four workers allow browser requests and MCP calls to run at the same time. Use `localhost` consistently; the passkey configuration is for that hostname.
 
-The administrator's rule starts like this:
+### 2. Add the editor's passkey
 
-| Account | Role | Issuing a public alert |
+1. Open [the local site](http://localhost:8080) and sign in as `editor`, using the password from setup.
+2. Open that account's `passkey_link` from the same setup output, in the same browser.
+3. Register a passkey using the browser's prompt.
+
+The first passkey requires this one-time link, which expires after seven days. A password alone cannot enroll it. Adding another passkey requires an existing passkey.
+
+Your device may use a fingerprint, face recognition, or a device PIN to unlock the passkey. The application verifies a WebAuthn signature; it does not receive your biometric data.
+
+### 3. Request an alert through MCP
+
+In **Terminal B**, change to the same checkout. Enter the editor's `personal_token` at this prompt. Use the token, not the account password. These commands work in Bash and zsh and hide the pasted value:
+
+```bash
+printf 'Editor personal token: '
+read -r -s VERIFIED_HUMAN_APPROVAL_TOKEN
+printf '\n'
+export VERIFIED_HUMAN_APPROVAL_TOKEN
+
+php examples/mcp.php list
+php examples/mcp.php read riverside-evacuation
+php examples/mcp.php publish riverside-evacuation first-demo-request
+```
+
+`list` discovers the tools. `read` shows the draft and current published content. `publish` returns a tool result containing `requestId`, `status: pending`, and `review_url`.
+
+Keep the request ID. At this point, [the public alerts page](http://localhost:8080/alerts) still says **No active alerts**. A pending request has not issued anything.
+
+### 4. Review, approve, and check the result
+
+Open the returned `review_url` while signed in as `editor`. The page shows the frozen alert and the statement you are approving. Check both, then approve with your passkey. Successful approval executes the action; there is no separate publish step.
+
+Approval requests expire after ten minutes. If a request expires, publish with a new request key and review the new proposal.
+
+In Terminal B, replace `REQUEST_ID` with the returned ID:
+
+```bash
+php examples/mcp.php status REQUEST_ID
+```
+
+Expect `status: completed`. The result also carries the site's signed `receipt`. Refresh [the public alerts page](http://localhost:8080/alerts) to see the approved alert.
+
+Back on the review page, **Download your receipt** saves your own copy: the exact request, your passkey's signature on it, what ran, and the site's receipt signed as it ran. The site publishes the key that checks it at [/approval/receipt-key.json](http://localhost:8080/approval/receipt-key.json). [Verify a receipt](../docs/evidence.md#try-it-with-the-demo) checks your copy against that key, then shows an edited copy failing.
+
+To try a retry, repeat the original command with the same request key:
+
+```bash
+php examples/mcp.php publish riverside-evacuation first-demo-request
+```
+
+For this unchanged proposal, the command returns the existing request and result. It does not issue the alert again. If a retry is refused or a connection drops, read the existing request's status before trying a new request. Opening a link, dismissing a client prompt, or losing a connection does not establish the outcome.
+
+### 5. Inspect the evidence and policy
+
+Sign out, sign in as `manager`, and open **Audit log**. Find the completed action. The page shows the requester, rule, outcome, receipt check, and passkey check. It rechecks completed records when you open it. The **Evidence** link downloads the record for independent verification.
+
+The application signs the receipt when the action commits. This lets a later verifier detect changes to the stored approval or execution record. See [Evidence and verification](../docs/evidence.md) for the trust keys, verification commands, and limits.
+
+These are the initial account rules:
+
+| Account | Role | Issuing an alert |
 | --- | --- | --- |
-| `manager` | Emergency manager, the administrator | Directly |
-| `editor` | County staff | Only after approving the exact alert with their own passkey |
-| `reader` | Read-only colleague | Not allowed |
-| `other` | Another organization | Cannot see these alerts |
+| `editor` | County staff | Requires approval with the editor's passkey |
+| `manager` | Emergency manager and administrator | Allowed directly |
+| `reader` | Read-only colleague | Refused |
+| `other` | Another organization | Cannot see this organization's alerts |
 
-1. **Add a passkey.** Open http://localhost:8080, sign in as `editor`, then open the editor's `passkey_link` from setup and register a passkey. On a Mac, Touch ID works. A password alone cannot add an approval passkey: the first one needs this one-time link, and any further one needs an existing passkey.
-2. **Connect Claude** as the editor, using the commands setup printed:
-   - **Claude Desktop:** add the printed `verified-human-approval` entry under `mcpServers` in `claude_desktop_config.json`, then restart Claude. It uses `mcp-remote`, and keeps the token in a private file.
-   - **Claude Code:** run the printed `claude mcp add --transport http …` command.
-3. **Ask Claude:** "Issue the Riverside Road evacuation alert."
-4. **Approve.** Claude Desktop shows an approval card, and Claude Code shows an "Open link" prompt. Either one opens the review page, which shows the exact alerts page residents will see. Approve with your passkey, and the card updates to show it's done.
-5. **Check the result** at http://localhost:8080/alerts. It said "No active alerts" until you approved. Now it shows the alert you approved. The review page now offers **Download your receipt**. To check it, save the site's key from http://localhost:8080/approval/receipt-key.json and run `vendor/bin/verify-evidence.php` with the two files.
+To try a policy change, enroll the manager's passkey using its own setup link, then open **Administrator settings**. Changing the rule requires the manager's passkey approval. Requests still waiting under the previous rule cannot be approved under the new one.
 
-Sign in as `manager`, add the manager's passkey with its link, and open **Administrator settings** to change the rule. You can let staff issue directly, or stop them issuing at all. Changing the rule is itself high-stakes, so proposing a change takes you to a review page, and nothing changes until you approve it with your passkey. Then any request still waiting under the old rule can no longer be approved.
+## Run it again
 
-**Audit log**, also for the administrator, shows how every change happened:
-- who asked, through which agent;
-- under which rule;
-- whether a person verified it, and with which passkey.
+To take down the alert while keeping accounts, passkeys, connections, and past records:
 
-It re-checks every record each time it opens. It also lists passkeys, agent connections and the signed security log, and can revoke either a passkey or a connection.
+```bash
+php demo/bin/console demo:all-clear
+```
 
-To start over for another run, use `php demo/bin/setup.php --reset`.
+This operator command records the take-down in the security log. Use a new request key, such as `second-demo-request`, for the next publication.
 
-On a Mac, `demo/bin/server start` runs the site under launchd instead, so it keeps running when the terminal or Claude quits. It also takes `stop`, `restart` and `status`. For local development, `APP_DEBUG=1` turns on Symfony's debug mode (stack traces, and a container that rebuilds when code changes); never set it for the public copy.
+To start with a completely fresh local demo, stop the server, run `php demo/bin/setup.php --reset`, save the new credentials, and restart the server. Reset removes the previous local demo data and keys; enroll a passkey and set the new token again.
 
-## claude.ai, and approving on your phone
+On macOS, `demo/bin/server start` runs an initialized demo under launchd so it survives terminal restarts. Use this instead of the foreground server. It also accepts `stop`, `restart`, and `status`. For local debug mode, add `APP_DEBUG=1` before the foreground PHP server command. Keep debug mode off for the public demo.
 
-claude.ai and phones need the site on a public HTTPS address. On a Mac with `cloudflared` installed:
+## Use an agent client
+
+Before trying another client, run `php demo/bin/console demo:all-clear` and sign back in as `editor` in the browser. If you changed the staff rule, restore its requirement for passkey approval first.
+
+Setup prints connection instructions for the editor account:
+
+- **Claude Desktop:** install Node.js/npm so `npx` is available. Add the printed `verified-human-approval` entry under `mcpServers` in `claude_desktop_config.json`, then restart Claude. The `mcp-remote` bridge reads the token from the private header file.
+- **Claude Code:** run the printed `claude mcp add --transport http …` command with Claude Code installed. It contains your personal token; keep it private.
+
+Ask: **“Issue the Riverside Road evacuation alert.”** A compatible client shows an approval card or an open-link prompt. Otherwise, use the returned review URL. Review and approve on the application, then check the recorded status. See [the example clients](../examples/README.md) for Symfony AI integration.
+
+## Optional: public access and phone approval
+
+Phones and claude.ai need a reachable HTTPS address. On macOS with `cloudflared` installed:
 
 ```bash
 demo/bin/public start
 ```
 
-This opens a Cloudflare quick tunnel and starts a second copy of the demo behind it, under launchd. It prints the public address and the connector URL. The new accounts' passwords are in `var/public-demo-setup.txt`. A quick tunnel gets a new hostname each time it starts, and passkeys belong to a hostname, so a new hostname gets a fresh demo.
+This starts a second demo and a Cloudflare quick tunnel under launchd. It prints the address and MCP connector URL. Its credentials and passkey links are in `var/public-demo-setup.txt`; keep that file private. A new tunnel hostname creates a fresh demo because passkeys belong to a hostname.
 
-1. Open the public address, sign in as `editor`, open the editor's `passkey_link` from `var/public-demo-setup.txt` and add a passkey. With iCloud Keychain or Google Password Manager, the same passkey reaches your phone.
-2. In claude.ai, open **Settings → Connectors**, add a custom connector, and paste the printed `https://…/mcp` URL. Claude signs in through the demo's OAuth: sign in as `editor` and allow access.
-3. Ask Claude to issue the alert. In the card, **Review and approve** opens the review in a new tab. **Approve on your phone** shows a QR code instead: scan it with the phone's camera, check the alert, and approve with Face ID. The card shows the result either way.
+1. Open the public address, sign in as its `editor`, and enroll a passkey through that editor's link. Use a passkey available on the phone if you want to approve there.
+2. Add the printed HTTPS MCP URL as a custom connector in claude.ai. Sign in as the public demo's editor and grant access through the demo's OAuth flow.
+3. Request the alert. Use **Review and approve**, or **Approve on your phone** when the client displays the card. Scan the QR code, review the alert, and approve with the enrolled passkey.
 
-The phone code works once, for two minutes, and opens only that one review. It is not a sign-in: the phone can't reach anything else on the site, and approving still takes the person's own passkey.
+The phone code works once for two minutes. It opens only that review, without granting a general login, and still requires the person's passkey.
 
-To run it again, `demo/bin/public all-clear` takes the alert down and keeps the accounts, passkeys and the claude.ai connection; the take-down is recorded in the audit log. `demo/bin/public reset` starts a fresh copy on the same address. Stop it with `demo/bin/public stop`.
+`demo/bin/public all-clear` takes down the alert and keeps the accounts, passkeys, and connector. `demo/bin/public reset` replaces the public demo data on the same address. `demo/bin/public stop` stops it.
 
-## Where things are
+## Source map
 
-| Path | What it shows |
+| Path | Purpose |
 | --- | --- |
-| [`src/DemoKernel.php`](src/DemoKernel.php) | The bundle's configuration, the two firewalls (a session firewall for people, a stateless one for `/mcp`), the review routes' request matcher, and the account and admin pages opting in to the review pages' security headers |
-| [`src/Mcp/DemoTools.php`](src/Mcp/DemoTools.php) | The MCP tools: `read_alert`, the protected `publish_alert`, and the scope checks around them |
-| [`src/Action/PublishAlert.php`](src/Action/PublishAlert.php) | The action adapter: what exactly is frozen, its version, preconditions and postconditions |
-| [`src/Action/AlertPublisher.php`](src/Action/AlertPublisher.php) | The guarded mutation: it refuses to run outside a validated execution |
-| [`src/Action/ChangeAlertRule.php`](src/Action/ChangeAlertRule.php), [`src/Action/DemoPolicyProvider.php`](src/Action/DemoPolicyProvider.php) | The administrator's per-role rule, and changing it as an approved action |
-| [`src/Security`](src/Security) | Accounts, personal agent tokens, the actor provider and the requester label |
-| [`src/Controller/AccountController.php`](src/Controller/AccountController.php) | Passkey enrollment: one-time links for the first passkey, an existing passkey for the next |
-| [`src/Controller/AuditController.php`](src/Controller/AuditController.php) | The audit page, which re-checks every receipt and passkey signature as it opens |
-| [`src/OAuth`](src/OAuth), [`src/Controller/OAuthController.php`](src/Controller/OAuthController.php) | The stand-in MCP OAuth server for remote clients: metadata, PKCE, client ID metadata documents, rotating refresh tokens |
-| [`bin/setup.php`](bin/setup.php), [`bin/server`](bin/server), [`bin/public`](bin/public) | Setup and the launchd scripts for the local and public copies |
-
-The clients in [`../examples`](../examples) drive this application over real MCP: `mcp.php` with the official SDK client, and `agent.php` with Symfony AI's `Agent` and `McpToolbox`, scripted or against a real model. The tests in [`../tests`](../tests) boot this kernel for the Symfony, OAuth, phone-code and evidence suites, and the Python scripts there drive it with real browsers and a virtual passkey.
+| [`src/DemoKernel.php`](src/DemoKernel.php) | Bundle configuration, firewalls, routes, and service wiring |
+| [`src/Mcp/DemoTools.php`](src/Mcp/DemoTools.php) | Read and publish tools, with connection scope checks |
+| [`src/Action/PublishAlert.php`](src/Action/PublishAlert.php) | Frozen proposal, version, preconditions, and postconditions |
+| [`src/Action/AlertPublisher.php`](src/Action/AlertPublisher.php) | The guarded database mutation |
+| [`src/Action/DemoPolicyProvider.php`](src/Action/DemoPolicyProvider.php) | The administrator's rules |
+| [`src/Controller/AccountController.php`](src/Controller/AccountController.php) | Passkey enrollment and confirmation |
+| [`src/Controller/AuditController.php`](src/Controller/AuditController.php) | Receipt and passkey checks in the administrator view |
+| [`src/OAuth`](src/OAuth) | Demo OAuth server for remote clients |
+| [`../examples/README.md`](../examples/README.md) | SDK and Symfony AI clients |

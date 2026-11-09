@@ -1,46 +1,83 @@
-# Verified Human Approval for Symfony (`verified-human-approval/symfony-bundle`)
+# Add Verified Human Approval to Symfony
 
-A thin Symfony integration for the shared PHP approval engine. An existing MCP tool requests a protected local action, returns a review URL, and later reads the result. The application validates a fresh passkey assertion and executes the frozen proposal in its own database transaction.
+The bundle lets an MCP tool request an action, send the person to a review page on your site, and read the result. The person approves the frozen proposal with a passkey. Your application checks current permissions, executes the stored action, and signs its receipt in the same database transaction.
 
-This package does not create an OAuth server, replace application permissions or secure arbitrary writes automatically. Register a precise action and put the mandatory execution guard at every supported mutation entry point for that action.
+**The supplied store supports SQLite only.** The business write, account and delegation checks, approval records, credential updates and receipts must use **one shared PDO connection**. The approval service owns the outer transaction; do not call it inside an existing transaction. A separate Doctrine connection, another database or an external API call is not included automatically. For another database, implement and test the `ApprovalStore` transaction contract before relying on this guarantee.
 
-## Run the reference application
+For a runnable application, start with the [demo guide](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/README.md). To integrate your own application, follow this page and the [first protected action](first-action.md). That example includes the action, identity adapter, current permission checks, database setup, signing keys and service definitions.
 
-The repository’s [demo](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/README.md) is a complete Symfony application using this bundle: Riverside Council’s public alerts site. From the repository root, with PHP 8.3+ and Composer:
+## What you need to supply
+
+| Part | Responsibility |
+| --- | --- |
+| Existing application | Browser login, authenticated users and tenants, personal MCP authentication, live permissions and delegation records |
+| Your action adapter | Exact proposed change, stale-data checks, guarded mutation and postconditions |
+| Your policy provider | Whether approval is required, the statement and its version |
+| Your account process | Trusted passkey enrollment and recovery; an agent token cannot use it |
+| This bundle | Review routes and templates, CSRF checks, rate limiting, action discovery, MCP status/card/handoff services, the person's receipt download and the public receipt key |
+| Core and WebAuthn packages | Proposal binding, WebAuthn verification, transactional execution and signed receipts |
+| Demo only | Its accounts, OAuth server, administrator forms and audit pages |
+
+The bundle does not add an approval check to existing writes by itself. Every supported route, command and job that performs the protected mutation must use the same guarded application boundary.
+
+## 1. Install from a checkout
+
+The packages are not published on Packagist yet. The current installation path is a local Composer path repository. Do not install the monorepo root package into your application.
+
+Use PHP 8.3 or later and a compatible Symfony 7.4 or 8 application; Composer enforces the selected Symfony version's PHP requirement. This guide uses `json`, `mbstring`, `openssl`, `pdo`, `pdo_sqlite` and `sodium`, plus FrameworkBundle, SecurityBundle and TwigBundle.
+
+From your application's root:
 
 ```bash
-composer install
-php demo/bin/setup.php
-php -S localhost:8080 -t demo/public demo/public/index.php
+git clone https://github.com/scottfalconer/verified-human-approval.git ../verified-human-approval
 ```
 
-Setup creates private local state under `var/demo` and displays random development passwords and personal MCP tokens once. No plaintext account password or personal token is stored. Keep those credentials privately. The example is a local development application, not a production OAuth implementation.
+Choose and record the commit you intend to use. Add this entry to your application's existing `composer.json` `repositories` array:
 
-1. Open `http://localhost:8080/login` and sign in as `editor` using the generated password.
-2. Open the editor's `passkey_link` from setup's output, then register a passkey through the browser's prompt. A password alone cannot add an approval passkey: the first one needs this one-time link, and any further one a confirmation with an existing passkey.
-3. Optionally sign in as `manager`, the administrator, and open **Administrator settings** to choose which roles must verify and to edit the required statement.
-4. Choose **Issue alert** on the page, or connect an MCP client to `http://localhost:8080/mcp` using the editor's personal bearer token.
-5. Open the returned review URL, inspect the final alerts page and the statement, and choose **Approve with your passkey**.
-6. Read `approval_status` using the returned `requestId`. The application has already committed the stored action; this status tool does not execute it.
+```json
+{
+    "type": "path",
+    "url": "../verified-human-approval/src/*",
+    "options": {
+        "symlink": false,
+        "versions": {
+            "verified-human-approval/core": "dev-main",
+            "verified-human-approval/webauthn": "dev-main",
+            "verified-human-approval/mcp": "dev-main",
+            "verified-human-approval/symfony-bundle": "dev-main"
+        }
+    }
+}
+```
 
-The demo provides `publish_alert`, `read_alert` and `approval_status`, plus the card's app-only `approval_handoff`. Its alert ID is `riverside-evacuation`. Under the starting rule, `manager` issues alerts directly, `editor` must approve each exact alert with a passkey, and `reader` can read but not issue them. The `other` account belongs to another tenant and cannot read or approve the first tenant's requests.
+Then install all four packages at the same development version. The explicit beta flag allows the MCP bundle used by this project without changing your application's global stability setting:
 
-`VERIFIED_HUMAN_APPROVAL_RUNTIME` selects another private runtime directory. `VERIFIED_HUMAN_APPROVAL_ORIGIN` sets the initial origin during setup; choose a stable HTTPS origin before enrolling real passkeys for a hosted demonstration. HTTP `localhost` is the development exception. Hostname, WebAuthn origin and RP ID must agree. The bundled PHP development server is for local use.
+```bash
+composer require --no-scripts \
+  verified-human-approval/core:dev-main \
+  verified-human-approval/webauthn:dev-main \
+  verified-human-approval/mcp:dev-main \
+  verified-human-approval/symfony-bundle:dev-main \
+  'symfony/mcp-bundle:^1.0@beta'
+```
 
-The packages are not published on Packagist yet. The repository’s root `composer.json` replaces them, so the demo and the tests run from a checkout; the README shows how another application installs them from a path repository.
+`--no-scripts` lets you add the required configuration before Symfony boots. Commit the resulting Composer files. Keep the checked-out source available when installing from that lock file. There is no published Flex recipe for this bundle; register it and configure it explicitly.
 
-## Add the bundle to an existing application
+## 2. Enable and configure the bundle
 
-Enable the existing MCP Bundle and this bundle, along with normal FrameworkBundle, SecurityBundle and TwigBundle:
+Add these entries to `config/bundles.php`, keeping the application's other bundles:
 
 ```php
+<?php
+// config/bundles.php
 return [
+    // Keep the application's other bundles here.
     Symfony\AI\McpBundle\McpBundle::class => ['all' => true],
     VerifiedHumanApproval\Bundle\VerifiedHumanApprovalBundle::class => ['all' => true],
 ];
 ```
 
-Configure the host service adapters explicitly. These are service IDs, not user-controlled request fields:
+The [worked example](first-action.md) defines these application services and all constructor arguments. Use the same names while following it:
 
 ```yaml
 # config/packages/verified_human_approval.yaml
@@ -51,14 +88,16 @@ verified_human_approval:
     authorizer: App\Approval\CurrentAuthority
     store: VerifiedHumanApproval\Core\Storage\PdoApprovalStore
     verifier: VerifiedHumanApproval\WebAuthn\WebAuthnVerifier
-    attempts_per_minute: 30
-    # Optional but recommended: sign each execution's receipt inside the completing transaction.
     receipt_signer: VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner
+    relying_party_id: '%env(APP_RP_ID)%'
+    attempts_per_minute: 30
 ```
 
-With `receipt_signer` set, a later edit to an approval's record no longer matches its receipt, and if signing fails nothing executes. The person can then download their receipt from the completed review page, and the signer's public key is published for anyone to check it (see [Receipts](#receipts-the-person-keeps)); set `relying_party_id` when your passkeys use a parent domain rather than the public origin's host. To show who made a request on the approval sheet, implement `VerifiedHumanApproval\Bundle\RequesterLabel` and set `requester_label` to its service id (a service aliased to the interface is used when the key is unset). For example, it can name the agent connection, such as "Claude (claude.ai), an agent you connected to your account". `clock` defaults to the framework's `clock` service, so a clock you swap in for tests reaches the approvals too.
+`receipt_signer` is required for the stored-record tamper evidence described in this guide. It signs the receipt before commit. A signing failure rolls the action back. Store the private signing key outside the database, and retain a trusted copy of its public key separately from exported evidence. With a signer configured, the completed review page offers the person their receipt, and the bundle publishes the public key; see [Stored receipts](#stored-receipts-and-later-verification).
 
-Import the review routes:
+`public_origin` is a fixed, trusted setting such as `https://app.example.com`. Use it for the WebAuthn configuration too. `relying_party_id` is optional: it is published with the receipt key so a receipt's passkey signature can be checked offline, and defaults to the public origin's host. Do not derive it from a request's Host header. Choose the origin and RP ID before enrolling passkeys. HTTP `localhost` is allowed for local development.
+
+Import the routes:
 
 ```yaml
 # config/routes/verified_human_approval.yaml
@@ -66,7 +105,44 @@ verified_human_approval:
     resource: '@VerifiedHumanApprovalBundle/config/routes.php'
 ```
 
-Configure the normal MCP endpoint and select your tools:
+Enable sessions, CSRF protection and assets in your existing framework configuration. After completing the example's service wiring and installation step, run:
+
+```bash
+php bin/console cache:clear
+php bin/console assets:install
+```
+
+Action adapters are discovered when their services are autoconfigured. If you configure services manually, tag each adapter `verified_human_approval.action`. The bundle provides autowiring aliases for `ApprovalService`, `ExecutionGuard`, `ActorProvider`, `ApprovalPresenter` and `ApprovalFlow`, and, with a receipt signer, for `EvidenceExporter` and `ReceiptKey`. Its default clock is Symfony's `clock` service; `verified_human_approval.clock` points to that same clock.
+
+## 3. Connect existing authentication
+
+Keep the review routes on your application's normal session firewall. Keep `/mcp` on a separate stateless firewall that authenticates a personal bearer token on every request. Your MCP authenticator must pass its **validated** `Mcp\Server\Authorization\AccessToken` to the SDK as the request attribute named `AccessToken::class`.
+
+The [example identity adapter](first-action.md#3-map-the-authenticated-person) specifies the principal fields and token claims it expects. It never accepts a user ID or tenant ID from tool arguments.
+
+`ActorProvider` has three jobs:
+
+- `current()` returns the authenticated account, tenant and optional delegation ID.
+- `interactive()` also requires the trusted browser account flow. An agent credential must fail this check.
+- `assertCanReadApproval()` checks current read authority before a stored result is exposed, including any delegated read scope.
+
+Execution authority is separate. `Authorizer::assertAllowed()` reloads current account and delegation permissions inside the final transaction. A person may lose permission to publish while retaining permission to read the reason a request stopped.
+
+Add this rule **before broader access-control rules**, keeping your existing rules and firewalls. The phone handoff needs it to open a review, and it makes the receipt key public:
+
+```yaml
+# Merge into config/packages/security.yaml
+security:
+    access_control:
+        - { request_matcher: verified_human_approval.review_request_matcher, roles: PUBLIC_ACCESS }
+        # Keep the application's existing rules after this entry.
+```
+
+The matcher covers only the bundle's own routes: review, handoff, the person's receipt download and the public receipt key. The controller still requires the signed-in owner or a session scoped to one request, and the receipt download requires the signed-in owner; approval still requires that person's passkey. It does not make your own enrollment or administration routes public.
+
+## 4. Register the MCP tools and card
+
+The worked example defines `App\Mcp\PublishDocumentTool`. Register it with the bundle's status tool and optional card/phone handoff:
 
 ```yaml
 # config/packages/mcp.yaml
@@ -78,217 +154,61 @@ mcp:
                 allowed_hosts: ['app.example.com']
             registry:
                 tools:
-                    - App\Mcp\PublishAlertTool
+                    - App\Mcp\PublishDocumentTool
                     - VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool
-                    - VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool   # the card's phone code; conforming hosts hide it from the model
+                    - VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool
                 apps:
                     - VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp
             session:
-                lock: { enabled: true }                 # the card polls approval_status while the model calls tools
+                lock: { enabled: true }
             request_state:
-                key: '%env(MCP_REQUEST_STATE_KEY)%'     # signs the URL prompt's retry; its own key, at least 32 bytes
-                ttl: 900                                # longer than your approval lifetime, so a retry after a slow approval still reads the outcome
+                key: '%env(MCP_REQUEST_STATE_KEY)%'
+                ttl: 900
 ```
 
-Keep your existing MCP route import (`resource: '.', type: mcp`). Handshake-era clients such as Claude Desktop and claude.ai keep a session, and the card polls it while the model calls tools, so turn the MCP bundle's session lock on. The request-state TTL should outlive your approval lifetime: an expired state makes the retry fail with a protocol error, which the model recovers from by calling `approval_status` with the request id named in the prompt. Register action adapters as autoconfigured services; the bundle collects implementations of `VerifiedHumanApproval\Core\ActionAdapter` into its registry (or tag them `verified_human_approval.action`).
+Set `allowed_hosts` to your application's host. Keep the MCP route import (`resource: '.', type: mcp`) supplied by your MCP integration. The session lock prevents the card's polling and a tool call from overwriting each other's session state. The request-state key must be at least 32 bytes and separate from the receipt key. Its TTL should exceed your approval lifetime; this example uses a 600-second approval lifetime.
 
-Publish the review page's script and stylesheet from the bundle's `public/` directory. Symfony Flex runs this after every `composer install`; without Flex, run it yourself:
+The [tool example](first-action.md#6-expose-the-action-through-mcp) checks the validated token's `approval.read` scope **before** calling `ApprovalFlow::respond()`. This matters because a retry may return a stored result without executing the action again. The tool also declares `ApprovalFlow::OUTPUT_SCHEMA`, uses `ApprovalCard::TOOL_META` and returns structured errors.
 
-```bash
-php bin/console assets:install
-```
+A pending response is a normal tool outcome. It contains a `requestId`, `review_url`, status and instructions. The agent must not say the action is completed while it is pending. Reuse a `request_key` for a retry; call `approval_status` to read the outcome. Status reads never perform the business mutation.
 
-### Services
+URL-mode elicitation is optional and off by default. Enable it only for clients you have tested. The card and review link do not depend on it. See [MCP presentation](https://github.com/scottfalconer/verified-human-approval/blob/main/src/mcp/README.md) for client and protocol details.
 
-The bundle defines its services explicitly under `verified_human_approval.` ids, and aliases the classes you inject to them, so autowiring keeps working:
+## 5. Connect passkey enrollment and the review screen
 
-| Inject | Service id | What it is |
-| --- | --- | --- |
-| `VerifiedHumanApproval\Core\ApprovalService` | `verified_human_approval.approval_service` | Requests, reviews, completes and cancels approvals |
-| `VerifiedHumanApproval\Mcp\ApprovalFlow` | `verified_human_approval.flow` | Presents a protected tool's result: the card, the link and the optional URL prompt |
-| `VerifiedHumanApproval\Core\ExecutionGuard` | `verified_human_approval.execution_guard` | Call `assertExecuting()` in every code path that performs a protected mutation |
-| `VerifiedHumanApproval\Bundle\ActorProvider` | `verified_human_approval.actor_provider` | Your actor provider, under its alias |
-| `VerifiedHumanApproval\Bundle\ApprovalPresenter` | `verified_human_approval.presenter` | The result shape for MCP and the browser |
-| — | `verified_human_approval.review_request_matcher` | Matches the review routes, for `access_control` |
-| — | `verified_human_approval.status_tool`, `.handoff_tool`, `.card_app` | The MCP elements, tagged `mcp.tool` and `mcp.app` |
+WebAuthn already supports authenticator verification such as Touch ID, Face ID or a PIN. The application requires user verification; it does not choose or prove which local biometric method was used. No additional authentication mechanism is needed for those cases.
 
-The review routes need `framework.csrf_protection` on, and they carry the route default `_verified_human_approval_headers`, which sets a strict content security policy, `frame-ancestors 'none'`, `no-store` and `no-referrer`. Set the same default on your own sensitive pages, such as passkey enrollment and administration:
+Enrollment belongs to your existing trusted account process. The [worked example](first-action.md#7-connect-trusted-passkey-enrollment) shows the registration and signed-enrollment hooks. The [WebAuthn guide](https://github.com/scottfalconer/verified-human-approval/blob/main/src/webauthn/README.md) describes credential and user-handle adapters for existing passkeys. An ordinary agent token must never enroll or recover an approval credential.
 
-```yaml
-account_passkeys:
-    path: /account/passkeys
-    controller: App\Controller\PasskeyController::index
-    defaults: { _verified_human_approval_headers: true }
-```
+Override templates in `templates/bundles/VerifiedHumanApprovalBundle/`. `base.html.twig` offers `header`, `site_name` and `footer`; `review.html.twig` offers `preview`, `return` and `receipt`, the person's receipt download. Render the preview from the **frozen `prepared.effect`**, as the example does. Do not reload today's draft into an older review page.
 
-The bundled review controller uses a trusted interactive account session and CSRF protection. Put its routes behind the application's normal session firewall. Keep a separate stateless firewall for personally authenticated MCP requests. An agent bearer token must not qualify as an interactive browser account or enroll approval credentials. The reference application's `DemoKernel` shows this separation using standard Symfony Security firewalls and a form login.
+Give every action a clear `display.title` and `display.consequence`: what will change, and what happens as soon as approval completes. Keep the exact statement, expiry, passkey button and truthful completion state visible. If a response is lost after submitting approval, ask the person to reload and check the recorded state; do not claim either success or failure without it. An optional `RequesterLabel` service can name the agent connection on the sheet; set its service ID in `requester_label`.
 
-Configure Symfony trusted hosts, HTTPS/session cookie policy and the application's existing OAuth integration for its real environment. `public_origin` is configured explicitly; review links are never assembled from arbitrary forwarded host headers.
+## Stored receipts and later verification
 
-## Map the current account
+The signed receipt protects the historical proposal, proof and execution report against later alteration. It does not claim that today's live document still equals the document published then. A normal `approval_status` read does not perform full cryptographic verification.
 
-Implement `VerifiedHumanApproval\Bundle\ActorProvider`:
+With a `receipt_signer`, the bundle gives the person their own copy, so a later change to the stored record would show:
 
-```php
-interface ActorProvider
-{
-    public function current(): VerifiedHumanApproval\Core\Actor;
-    public function interactive(): VerifiedHumanApproval\Core\Actor;
-    public function assertCanReadApproval(VerifiedHumanApproval\Core\ApprovalState $state): void;
-}
-```
-
-`current()` derives the user, tenant and optional delegation reference from the authenticated Symfony principal. `interactive()` also requires your trusted human account flow. It must reject the ordinary agent credential. Neither method reads a claimed user ID from MCP arguments or request JSON.
-
-`assertCanReadApproval()` checks the current read grant before exposing a stored result. Ownership by itself is insufficient when different personal connections have different scopes. The status tool calls this after the core verifies ownership. Custom tools that return prior outcomes through an idempotency lookup must check read authority too. The demo uses a separate `approval.read` scope and rechecks it for publication retries.
-
-The core `Authorizer` is a different interface: it checks the initiating actor's **current execution authority** within the final transaction. Reload the account and delegated grant; do not reuse roles captured when the proposal was created. A user may still read a denial after losing publication permission.
-
-## Wrap a normal MCP tool
-
-The MCP integration is ordinary SDK tool code:
-
-```php
-use VerifiedHumanApproval\Core\ApprovalService;
-use VerifiedHumanApproval\Core\ApprovalState;
-use VerifiedHumanApproval\Mcp\ApprovalCard;
-use VerifiedHumanApproval\Mcp\ApprovalFlow;
-use VerifiedHumanApproval\Bundle\ActorProvider;
-use Mcp\Capability\Attribute\McpTool;
-use Mcp\Schema\Result\CallToolResult;
-use Mcp\Schema\Result\InputRequiredResult;
-use Mcp\Server\RequestContext;
-
-final readonly class PublishAlertTool
-{
-    public function __construct(
-        private ApprovalService $approvals,
-        private ActorProvider $actors,
-        private ApprovalFlow $flow,
-    ) {}
-
-    #[McpTool(name: 'publish_alert', meta: ApprovalCard::TOOL_META)]
-    public function publish(RequestContext $context, string $alert_id, ?string $request_key = null): CallToolResult|InputRequiredResult
-    {
-        // Apply the host's delegated scope/read checks here, as in DemoTools.
-        $actor = $this->actors->current();
-
-        // The flow returns the card's result, or for an opted-in client a URL-mode elicitation.
-        return $this->flow->respond(
-            $context, $actor, 'publish_alert', ['alert_id' => $alert_id, 'request_key' => $request_key],
-            fn (): ApprovalState => $this->approvals->request($actor, 'alert.publish', ['alert_id' => $alert_id], $request_key),
-        );
-    }
-}
-```
-
-The presenter returns `requestId`, `status`, `reason` and `result`, plus the card's view under `approval`. A pending result also has `review_url` and a message explaining the browser handoff. Pending approval is a normal tool outcome, not an HTTP authentication failure. URL-mode elicitation is optional and opt-in per client (see below). It opens the same URL without changing the verification boundary.
-
-The completion route accepts a ceremony identifier and a WebAuthn response only. It does not accept replacement content or an execution token. The original MCP request is not held open while the person reads the page.
-
-## Register an action and protect its mutation
-
-The reusable core's `ActionAdapter` separates preparation, preconditions, execution and postconditions. The demo adapter is `demo/src/Action/PublishAlert.php`.
-
-It freezes:
-
-- Application, environment, tenant and target alert.
-- Source revision, title and body.
-- Current published-revision precondition and intended published state.
-- Action behavior version, policy version and exact resolved statement.
-
-`AlertPublisher::publish()` calls `ExecutionGuard::assertExecuting()` before its conditional SQL update. The execution context exists only while the core is applying a validated stored action. Calling the same publisher directly without that context fails. Browser publication and MCP publication both enter through `ApprovalService`.
-
-An action's execution and postconditions must use the **same transaction and PDO connection** as approval consumption, credential counter updates and the execution record. The supplied `PdoApprovalStore` is a SQLite reference adapter. It does not automatically enlist a different ORM connection, remote database, email send or downstream MCP call. Integrate another database by implementing the store's transaction contract and running its concurrency/rollback tests.
-
-Publication is distinct from draft editing. Saving a new draft does not change published fields and invalidates any pending approval bound to the prior draft revision. Meaning-changing hooks must run before freezing, or be covered by postconditions before transaction commit.
-
-## Passkeys, policies and review screens
-
-The core depends on `ApprovalVerifier`; the separate WebAuthn package supplies `WebAuthnVerifier`, using the existing PHP WebAuthn library. It requires user verification and validates credential ownership, origin, RP ID, challenge and signature. User verification can be a biometric, PIN or other authenticator verification method; it does not prove fingerprint-only use.
-
-Credential registration belongs to the application's trusted account process, and a password alone must not be enough for it. The demo handles a person's passkeys like this:
-- **First passkey:** needs a one-time link, issued at setup or by an administrator confirming with their own passkey.
-- **Further passkeys:** need a fresh confirmation with an existing passkey.
-- **Every registration** is recorded with its public key in the core's signed `AuditLog`. The verifier uses `AnchoredCredentialRepository`, so only passkeys with a signed enrollment record can approve.
-
-Its MCP token cannot reach enrollment, policy administration or the audit page.
-
-The demo administrator form uses Symfony Form and Validator. For each role it sets whether that role issues alerts directly, must approve each exact alert with a passkey, or may not issue them, plus a plain-text statement template with known placeholders.
-
-Saving does not change anything by itself. It proposes a `policy.change` action, which the administrator approves with their own passkey like any other, and its policy is fixed in code. Approving it increments the policy version. A role set to issue directly lets **new** authorized requests from that role execute without proof. It cannot make an older pending proposal eligible under its previous policy. Your own `PolicyProvider` receives the requesting `Actor`, so the rule can depend on whatever your application knows about the person.
-
-The review templates live in the bundle's `templates/` directory, and its browser script, published by `assets:install`, uses `navigator.credentials.create()` / `navigator.credentials.get()`. Override them the usual way, in `templates/bundles/VerifiedHumanApprovalBundle/`, keeping the full frozen action and the required statement: `base.html.twig` has `header`, `site_name` and `footer` blocks for your layout, and `review.html.twig` has `preview`, to show the effect as its audience will see it, `return`, the way back to the agent, and `receipt`, the person's receipt download. The page reads two keys of the action's `display`: `title` for its heading and `consequence`, shown next to the button while the request waits, for what happens the moment it is approved. A refusal on the JSON routes, such as a stale CSRF token or a ceremony from another page, is a JSON answer with a `reason` the page shows; a refusal about a request also carries its `request_status`, and when that is no longer `pending` the page reloads to show the request as finished or stopped. When the connection drops after the passkey response is sent, the page says it cannot confirm the outcome and asks the person to reload; it never guesses.
-
-The browser approval budget is an ordinary framework rate limiter named `verified_human_approval`: 30 attempts per person per minute across all requests, set by `attempts_per_minute`. It uses the framework's `cache.rate_limiter` pool and, when `framework.lock` is on, its lock. Override any of it in your own configuration, per environment too:
-
-```yaml
-framework:
-    rate_limiter:
-        verified_human_approval: { policy: sliding_window, limit: 10, interval: '1 minute' }
-```
-
-Or point `rate_limiter` at a `RateLimiterFactoryInterface` service of your own. The phone code's single redemption takes a lock from `lock_factory`: by default a file lock on this host; set it to `lock.factory` with a shared store when several hosts serve the application, and give them a shared `cache.app` for the codes.
-
-## Receipts the person keeps
-
-With a `receipt_signer`, every completed request has a receipt signed inside the transaction that ran it. The bundle gives the person a copy, so a later change to the site's own record would show:
-
-- **On the completed review page**, "Download your receipt" (route `verified_human_approval_evidence`, `GET /approval/{id}/evidence`) returns the evidence bundle (`verified-human-approval/evidence/v2`) as `receipt-<id>.json`: the frozen proposal, the person's passkey signature on it, the execution record and the receipt. Only the signed-in owner gets it, not a phone session opened by a one-time code. Nothing is signed at download: a request that has not run, or whose receipt is missing, is refused (`not_completed`, `receipt_missing`), and the page says when no receipt is recorded.
+- **On the completed review page**, "Download your receipt" (route `verified_human_approval_evidence`, `GET /approval/{id}/evidence`) returns the evidence bundle (`verified-human-approval/evidence/v2`) as `receipt-<id>.json`: the frozen proposal, the person's passkey signature on it, the execution record and the original receipt. Only the signed-in owner gets it; a phone session opened by a one-time code is pointed back to the signed-in browser.
+- **Nothing is signed at download.** A request that has not run is refused (`not_completed`), and so is one whose original receipt is missing (`receipt_missing`); the page says when no receipt is recorded. Do not create a fresh signature over a record at download time to claim it was unchanged since approval.
 - **In the agent's result**, a completed request carries `receipt` (the signed manifest, `keyId` and `signature`) and `receipt_key_url`, so a copy also lands in the conversation.
-- **The key that checks them** is public at `GET /approval/receipt-key.json` (route `verified_human_approval_receipt_key`): `keyId`, `publicKey`, `rpId` and `origin`. Anyone can save it once and check later receipts against that copy.
+- **The key that checks them** is public at `GET /approval/receipt-key.json` (route `verified_human_approval_receipt_key`), with `format`, `keyId`, `publicKey`, `rpId` and `origin`. It needs the access-control rule above to be reachable without signing in. Anyone can save it once and check later receipts against that copy.
 
-To check a receipt without trusting the site's records:
-
-```bash
-vendor/bin/verify-evidence.php receipt-apr_….json receipt-key.json
-```
-
-Add the approving passkey's trusted registration record as a third file to check the passkey signature as well; without it, the output says that signature was not checked. Keys inside a downloaded file are never trusted. See [evidence verification](https://github.com/scottfalconer/verified-human-approval/blob/main/docs/evidence.md).
-
-## Validation
-
-Run the integration tests from the repository root:
+An administrator's export of other people's records is your application's to build, with its own owner and read checks; the demo's audit page shows one. Follow the [evidence guide](https://github.com/scottfalconer/verified-human-approval/blob/main/docs/evidence.md) to check a receipt offline:
 
 ```bash
-composer test -- --testsuite symfony
+vendor/bin/verify-evidence.php receipt-REQUEST_ID.json receipt-key.json
 ```
 
-They use the real Symfony kernel, session firewall, CSRF handling, MCP Bundle, SDK HTTP transport and genuine synthetic ES256 assertions validated by the production WebAuthn bridge. They check pending/complete/status, unchanged publication, stale content, current delegation, read scopes, administrator forms, account/tenant isolation, credential enrollment separation and the mutation guard.
+Add the approving passkey's trusted registration record as a third file to check the passkey signature as well; without it, the output says that signature was not checked.
 
-Synthetic authenticators prove the protocol and server checks. Real Mac Touch ID, iPhone Face ID and external Claude/ChatGPT client runs are separate integration checks and are not claimed by these tests.
+## Before deployment
 
-## Approval card and native prompt
+Keep the application database and signing keys persistent across deploys. Restore and back up them deliberately; generating a replacement key on every boot breaks trust in earlier records. Protect your signing key separately from database write access.
 
-Pending results carry a view for the shared MCP App approval card. To show it, add `VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp` to your MCP server's `registry.apps` list, `VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool` to `registry.tools`, and give each protected tool `meta: ApprovalCard::TOOL_META`. The app serves the card resource and enables the MCP Apps extension through the MCP bundle's `#[AsMcpApp]`; the phone-code tool is an ordinary `#[McpTool]` whose `_meta.ui` links it to the card with app-only visibility, so it carries annotations and an output schema like every other tool. Every tool of this bundle declares `title`, `outputSchema` and `openWorldHint: false`; declare them on your protected tools too, with `outputSchema: ApprovalFlow::OUTPUT_SCHEMA`.
+The browser rate limiter defaults to 30 attempts per person per minute. Override the `verified_human_approval` framework limiter or point `rate_limiter` to your own `RateLimiterFactoryInterface` service. The phone handoff uses `cache.app` and a lock; multiple web servers need a shared cache and a shared lock store configured through `lock_factory`. Its default file lock is local to one host.
 
-A protected tool takes the SDK's `RequestContext` and returns `ApprovalFlow::respond()`. To also send a URL-mode elicitation to clients you have tested:
+The phone link is single-use and lasts two minutes. Opening it shows a Continue button; Continue redeems it and creates a session for that request only. It grants no general login and cannot cancel a request. App-only tool visibility is a client convention; the server still checks ownership and read permission.
 
-```php
-'verified_human_approval' => [
-    // ...
-    'url_elicitation' => ['enabled' => true, 'clients' => ['claude-code']],
-],
-```
-
-It is off by default, applies only under MCP 2026-07-28 or later, and its retry is bound to the same caller, tool and arguments. The demo enables it for Claude Code. See [MCP presentation](https://github.com/scottfalconer/verified-human-approval/blob/main/src/mcp/README.md).
-
-### Approve on your phone
-
-When `public_origin` is HTTPS, the card also offers **Approve on your phone**. It calls the app-only `approval_handoff` tool, which issues a one-time link to `/approval/handoff/{token}` (single use, two minutes) and returns it as QR modules that the card draws itself.
-- **Opening the link** shows a Continue button. A link previewer fetching the URL cannot use the code up.
-- **Continue** redeems the code once, under a lock, and starts a session scoped to that one request's review, for the same person.
-- **That session** is not a sign-in. It reaches no other page, it cannot cancel the request (cancelling needs the signed-in person), and approving still takes the person's passkey.
-
-The tool applies the same read check as `approval_status` and a per-person budget. "App only" visibility is a convention hosts follow, not a server boundary, so treat the tool as callable by any client holding the person's token.
-
-Your firewall must let the phone link and the review routes through without a sign-in. The bundle's request matcher names exactly those routes, so this one line does it, and never widens to routes of your own:
-
-```yaml
-security:
-    access_control:
-        - { request_matcher: verified_human_approval.review_request_matcher, roles: PUBLIC_ACCESS }
-        # ... your other rules
-```
-
-The controller then requires either the signed-in person or that scoped session. Codes are kept in `cache.app`, so several web servers need a shared cache pool.
+Verify the [worked example's acceptance checks](first-action.md#8-check-the-integration) with your actual account and storage adapters. The repository's Symfony suite can be run from its root with `composer test -- --testsuite symfony`. Protocol tests do not replace checks with the browsers, authenticators and MCP clients you plan to support.
