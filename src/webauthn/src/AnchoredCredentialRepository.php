@@ -12,6 +12,9 @@ use VerifiedHumanApproval\Core\Audit\AuditLog;
  * The record is signed with the application's evidence key, which lives outside the database, so a
  * credential inserted or altered directly in the database can never approve anything, and an
  * administrator can re-check any past approval against the key that was actually enrolled.
+ *
+ * It wraps any RevocableCredentialRepository, so a host can keep passkeys in its own storage. Wire the
+ * verifier's CredentialRepository to this wrapper and give the wrapper the raw adapter, never itself.
  */
 final readonly class AnchoredCredentialRepository implements CredentialRepository
 {
@@ -21,7 +24,7 @@ final readonly class AnchoredCredentialRepository implements CredentialRepositor
     /** The parts of a registration that never change after enrollment; the counter does. */
     private const IDENTITY = ['publicKeyCredentialId', 'credentialPublicKey', 'userHandle'];
 
-    public function __construct(private PdoCredentialRepository $credentials, private AuditLog $audit)
+    public function __construct(private RevocableCredentialRepository $credentials, private AuditLog $audit)
     {
     }
 
@@ -60,7 +63,8 @@ final readonly class AnchoredCredentialRepository implements CredentialRepositor
     }
 
     /**
-     * Revokes one of the owner's passkeys and records who did it.
+     * Revokes one of the owner's passkeys and records who did it. Call it inside the host's transaction:
+     * the revocation and its signed entry must commit together, and a failure must undo both.
      *
      * @param array<string, mixed> $context
      */

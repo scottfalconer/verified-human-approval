@@ -30,6 +30,7 @@ use VerifiedHumanApproval\Core\Storage\PdoApprovalStore;
 use VerifiedHumanApproval\Demo\Account\AgentConnections;
 use VerifiedHumanApproval\Demo\Account\PasskeyConfirmation;
 use VerifiedHumanApproval\Demo\Account\PasskeyLinks;
+use VerifiedHumanApproval\Demo\Account\PasskeyRevocation;
 use VerifiedHumanApproval\Demo\DemoDatabase;
 use VerifiedHumanApproval\Demo\Security\Authenticators;
 use VerifiedHumanApproval\Demo\Security\DemoRequesterLabel;
@@ -57,6 +58,7 @@ final readonly class AuditController
         private AnchoredCredentialRepository $anchored,
         private AuditLog $audit,
         private AgentConnections $connections,
+        private PasskeyRevocation $revocation,
         private PasskeyLinks $links,
         private PasskeyConfirmation $confirmation,
         private DemoDatabase $database,
@@ -120,10 +122,7 @@ final readonly class AuditController
     {
         $admin = $this->admin();
         $this->assertCsrf($request);
-        $credential = $this->credentials->find($id);
-        if (null !== $credential && $credential->tenantId === $admin->tenantId) {
-            $this->anchored->revoke(new Actor($credential->userId, $credential->tenantId), $id, ['by' => $admin->userId, 'reason' => 'revoked by an administrator']);
-        }
+        $this->revocation->byAdministrator($admin, $id);
 
         return new RedirectResponse('/admin/audit');
     }

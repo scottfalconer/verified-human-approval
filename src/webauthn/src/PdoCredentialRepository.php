@@ -8,7 +8,7 @@ use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
 
 /** SQLite reference adapter. Supply the very same PDO connection used by the approval store. */
-final readonly class PdoCredentialRepository implements CredentialRepository
+final readonly class PdoCredentialRepository implements RevocableCredentialRepository
 {
     public function __construct(private \PDO $pdo)
     {

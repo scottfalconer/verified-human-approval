@@ -222,7 +222,9 @@ final class DemoKernel extends Kernel
         $services->set(PdoAuditStore::class);
         $services->alias(AuditStore::class, PdoAuditStore::class);
         $services->set(AuditLog::class)->args([service(AuditStore::class), service(SodiumEvidenceSigner::class), '%env(DEMO_RUNTIME_RECEIPT_PUBLIC_KEY)%', service('verified_human_approval.clock')]);
-        $services->set(AnchoredCredentialRepository::class);
+        // Verification reads passkeys through the anchored wrapper; the wrapper reads the raw rows. Wired
+        // explicitly, so the inner repository can never resolve back to the wrapper.
+        $services->set(AnchoredCredentialRepository::class)->arg('$credentials', service(PdoCredentialRepository::class));
         $services->alias(CredentialRepository::class, AnchoredCredentialRepository::class);
         $services->set(Configuration::class)->args(['%env(DEMO_RUNTIME_RP_ID)%', $origin]);
         $services->set(WebAuthnVerifier::class);
