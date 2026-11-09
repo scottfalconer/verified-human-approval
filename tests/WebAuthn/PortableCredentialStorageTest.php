@@ -15,12 +15,12 @@ use VerifiedHumanApproval\Tests\Support\InMemoryCredentialRepository;
 use VerifiedHumanApproval\Tests\Support\VirtualAuthenticator;
 use VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository;
 use VerifiedHumanApproval\WebAuthn\Configuration;
-use VerifiedHumanApproval\WebAuthn\Credential;
-use VerifiedHumanApproval\WebAuthn\PdoCredentialRepository;
-use VerifiedHumanApproval\WebAuthn\RevocableCredentialRepository;
 use VerifiedHumanApproval\WebAuthn\WebAuthnVerifier;
 
-/** Signed enrollment, approval and revocation over a host's own storage, with no PDO anywhere. */
+/**
+ * Signed enrollment, approval and revocation over a host's own storage, with no PDO anywhere. What every raw
+ * passkey store must do, the in-memory one included, is the passkey storage contract in tests/Contract.
+ */
 final class PortableCredentialStorageTest extends TestCase
 {
     private InMemoryCredentialRepository $stored;
@@ -57,30 +57,6 @@ final class PortableCredentialStorageTest extends TestCase
         self::assertFalse($this->anchored->revoke($this->actor, $credential->id, ['by' => 'editor']), 'Revoking again changes nothing.');
         self::assertCount(2, $this->auditRows->rows, 'One enrollment and one revocation: no second revocation entry.');
         self::assertSame($credential->sourceJson, $this->anchored->enrolled($credential->id)?->sourceJson, 'The signed enrollment outlives the revocation, for checking past approvals.');
-    }
-
-    public function testAZeroCounterPasskeyCanWriteBackTheSameSource(): void
-    {
-        $credential = new Credential('key-1', 'editor', 'acme', '{"counter":0}', false, 'Passkey');
-        $sqlite = new PdoCredentialRepository(new \PDO('sqlite::memory:', options: [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]));
-        $sqlite->initialize();
-        foreach (['in memory' => $this->stored, 'SQLite' => $sqlite] as $name => $repository) {
-            /* @var RevocableCredentialRepository $repository */
-            $repository->add($credential);
-            $repository->update($credential, $credential->sourceJson); // identical source: still the expected row
-            try {
-                $repository->update($credential, '{"counter":5}');
-                self::fail($name.': an update matched a source that was not there.');
-            } catch (ApprovalException $error) {
-                self::assertSame('credential_changed', $error->reason);
-            }
-            try {
-                $repository->add($credential);
-                self::fail($name.': an existing credential ID was added again.');
-            } catch (ApprovalException $error) {
-                self::assertSame('credential_exists', $error->reason);
-            }
-        }
     }
 
     private function approves(VirtualAuthenticator $authenticator): bool
