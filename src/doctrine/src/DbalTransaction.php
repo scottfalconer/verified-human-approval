@@ -78,6 +78,10 @@ final class DbalTransaction
         } catch (\Throwable $error) {
             // DBAL counts a transaction whose BEGIN failed as open.
             $this->abandon();
+            // SQLite's PDO driver does not see a transaction begun with plain SQL; SQLite itself refuses the BEGIN.
+            if (str_contains($error->getMessage(), 'within a transaction')) {
+                throw new \LogicException(self::NESTED, 0, $error);
+            }
             throw $error;
         }
         $this->active = true;

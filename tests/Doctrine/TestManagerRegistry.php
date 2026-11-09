@@ -7,6 +7,7 @@ namespace VerifiedHumanApproval\Tests\Doctrine;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\Persistence\AbstractManagerRegistry;
+use Doctrine\Persistence\Proxy;
 
 /** One connection and one entity manager, which resetManager() replaces with a fresh one, as Symfony's registry does. */
 final class TestManagerRegistry extends AbstractManagerRegistry
@@ -17,7 +18,8 @@ final class TestManagerRegistry extends AbstractManagerRegistry
     /** @param \Closure(): EntityManagerInterface $factory */
     public function __construct(private readonly Connection $connection, private readonly \Closure $factory)
     {
-        parent::__construct('ORM', ['default' => 'connection'], ['default' => 'manager'], 'default', 'default');
+        // doctrine/persistence 3 requires the proxy interface; 4 accepts it.
+        parent::__construct('ORM', ['default' => 'connection'], ['default' => 'manager'], 'default', 'default', Proxy::class);
         $this->manager = ($factory)();
     }
 

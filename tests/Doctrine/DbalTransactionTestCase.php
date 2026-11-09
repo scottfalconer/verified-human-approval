@@ -73,6 +73,13 @@ abstract class DbalTransactionTestCase extends TestCase
         self::assertTrue($native->inTransaction());
         $native->rollBack();
 
+        // Begun with plain SQL, which neither DBAL nor, on SQLite, PDO counts.
+        $this->connection->executeStatement('mysql' === TestDatabase::platform(static::KIND) ? 'START TRANSACTION' : 'BEGIN');
+        $this->connection->insert('notes', ['id' => 7, 'note' => 'the host’s own']);
+        $refused();
+        $this->connection->executeStatement('ROLLBACK');
+        self::assertSame([], $this->notes(), 'The host’s own transaction was left to the host, and it rolled back.');
+
         $this->transaction->run(function () use ($refused): void {
             $refused();
             $this->note(2);
