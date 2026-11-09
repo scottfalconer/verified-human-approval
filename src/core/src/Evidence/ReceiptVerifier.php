@@ -15,13 +15,21 @@ final class ReceiptVerifier
     /**
      * Trust keys must be supplied out-of-band. No public key contained in evidence is accepted.
      *
+     * Pass the application's TrustedKeys as $trustedKeyId, or, as before, one key id and its public key, which
+     * are a one-key set without a window. The receipt names its key: an id the set does not list fails. A receipt signed at
+     * commit was signed when its execution record says the action was recorded (`recordedAt`, which the
+     * receipt signs), and that time must fall inside its key's window. A receipt signed at export does not
+     * sign when it was exported, only that it came after the action was recorded, so its key must not have
+     * been retired before then.
+     *
      * @param array<string, mixed> $bundle
      *
-     * @return array{request: ApprovalRequest, proof: array<string, mixed>|null, execution: array<string, mixed>, applicationSignatureValid: true, receiptSignedAt: Receipt::COMMIT|Receipt::EXPORT}
+     * @return array{request: ApprovalRequest, proof: array<string, mixed>|null, execution: array<string, mixed>, applicationSignatureValid: true, receiptSignedAt: Receipt::COMMIT|Receipt::EXPORT, keyId: string}
      */
-    public function verify(array $bundle, string $trustedKeyId, string $trustedPublicKey): array
+    public function verify(array $bundle, TrustedKeys|string $trustedKeyId, ?string $trustedPublicKey = null): array
     {
         try {
+            $keys = $trustedKeyId instanceof TrustedKeys ? $trustedKeyId : TrustedKeys::single($trustedKeyId, $trustedPublicKey ?? throw new \InvalidArgumentException('A trusted key id needs its public key.'));
             if (($bundle['format'] ?? null) !== EvidenceExporter::FORMAT || !\is_string($bundle['proposal'] ?? null)) {
                 throw new \UnexpectedValueException('Unknown evidence format.');
             }
@@ -36,12 +44,15 @@ final class ReceiptVerifier
             if (!\in_array($signedAt, [Receipt::COMMIT, Receipt::EXPORT], true)) {
                 throw new \UnexpectedValueException('The receipt does not say when it was signed.');
             }
+            // The receipt names its key; only a key the verifier was given out of band can vouch for it.
+            $keyId = \is_string($receipt['keyId'] ?? null) ? $receipt['keyId'] : '';
+            $key = $keys->get($keyId) ?? throw new \UnexpectedValueException(\sprintf('The receipt is signed with key "%s", which the trusted keys do not list.', $keyId));
             $expected = CanonicalJson::encode([
-                'format' => Receipt::FORMAT, 'keyId' => $trustedKeyId, 'signedAt' => $signedAt, 'proposalDigest' => $digest,
+                'format' => Receipt::FORMAT, 'keyId' => $key->keyId, 'signedAt' => $signedAt, 'proposalDigest' => $digest,
                 'proofDigest' => hash('sha256', CanonicalJson::encode($bundle['proof'])),
                 'executionDigest' => hash('sha256', CanonicalJson::encode($bundle['execution'])),
             ]);
-            if ($receipt['keyId'] !== $trustedKeyId || !hash_equals($expected, $receipt['manifest'])
+            if (!hash_equals($expected, $receipt['manifest'])
                 || 'verified-human-approval/execution/v1' !== $execution['format']
                 || $execution['requestId'] !== $request->id || !hash_equals($digest, $execution['proposalDigest'])
                 || CanonicalJson::encode($execution['actor']) !== CanonicalJson::encode((object) $request->actor()->toArray())
@@ -62,13 +73,35 @@ final class ReceiptVerifier
                     throw new \UnexpectedValueException('The proof is not bound to the proposal.');
                 }
             }
-            if (!\is_string($receipt['signature'] ?? null) || !Receipt::signatureValid($trustedPublicKey, $receipt['manifest'], $receipt['signature'])) {
+            if (!\is_string($receipt['signature'] ?? null) || !$key->signed($receipt['manifest'], $receipt['signature'])) {
                 throw new \UnexpectedValueException('The trusted application signature is invalid.');
             }
+            // The time it claims is signed too, through the execution digest: it must fall inside its key's window.
+            if (!self::withinWindow($key, $signedAt, $execution['recordedAt'] ?? null)) {
+                throw new \UnexpectedValueException(\sprintf('The receipt claims a time outside the window of its key "%s".', $key->keyId));
+            }
 
-            return ['request' => $request, 'proof' => $proof, 'execution' => $execution, 'applicationSignatureValid' => true, 'receiptSignedAt' => $signedAt];
+            return ['request' => $request, 'proof' => $proof, 'execution' => $execution, 'applicationSignatureValid' => true, 'receiptSignedAt' => $signedAt, 'keyId' => $key->keyId];
         } catch (\Throwable $error) {
             throw new ApprovalException('invalid_evidence', 'The evidence does not verify with the supplied trusted application key.', $error);
+        }
+    }
+
+    /** @param Receipt::COMMIT|Receipt::EXPORT $signedAt */
+    private static function withinWindow(TrustedKey $key, string $signedAt, mixed $recordedAt): bool
+    {
+        if (Receipt::COMMIT === $signedAt) {
+            // Signed inside the completing transaction, as the action was recorded.
+            return $key->coversClaim($recordedAt);
+        }
+        if (null === $key->validUntil) {
+            return true;
+        }
+        // Signed at some unrecorded time after the action was recorded: a key retired before then cannot have.
+        try {
+            return \is_string($recordedAt) && TrustedKey::time($recordedAt) <= $key->validUntil;
+        } catch (\InvalidArgumentException) {
+            return false;
         }
     }
 }

@@ -7,6 +7,7 @@ use VerifiedHumanApproval\Core\CanonicalJson;
 use VerifiedHumanApproval\Core\ChallengeBinding;
 use VerifiedHumanApproval\Core\Evidence\Receipt;
 use VerifiedHumanApproval\Core\Evidence\ReceiptVerifier;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 use VerifiedHumanApproval\WebAuthn\Configuration;
 use VerifiedHumanApproval\WebAuthn\Credential;
 use VerifiedHumanApproval\WebAuthn\CredentialRepository;
@@ -27,10 +28,11 @@ if (!class_exists(ReceiptVerifier::class)) {
 
 if (3 !== $argc && 4 !== $argc) {
     fwrite(\STDERR, <<<'USAGE'
-        Usage: vendor/bin/verify-evidence.php receipt.json site-key.json [passkey.json]
-          receipt.json   a receipt (evidence bundle), as the person downloaded it
-          site-key.json  the site's published receipt key, saved from a source you trust, never taken from the receipt
-          passkey.json   optional: the approving passkey's trusted record; without it the passkey signature is not checked
+        Usage: vendor/bin/verify-evidence.php receipt.json site-keys.json [passkey.json]
+          receipt.json    a receipt (evidence bundle), as the person downloaded it
+          site-keys.json  the site's published keys, saved from a source you trust, never taken from the receipt:
+                          its key set (receipt-keys.json, every key with its window) or its one-key file (receipt-key.json)
+          passkey.json    optional: the approving passkey's trusted record; without it the passkey signature is not checked
 
         USAGE);
     exit(2);
@@ -60,9 +62,17 @@ try {
         return $file;
     };
     $bundle = $read($argv[1]);
-    $application = $fields($read($argv[2]), ['keyId', 'publicKey', 'rpId', 'origin'], 'application');
+    // The key set lists every key the site has signed with, each with its window; the earlier file names one
+    // key (keyId and publicKey) and trusts it at any time. Both name the passkey relying party and origin.
+    $application = $read($argv[2]);
+    $application = $fields($application, TrustedKeys::FORMAT === ($application['format'] ?? null) ? ['rpId', 'origin'] : ['keyId', 'publicKey', 'rpId', 'origin'], 'application');
+    try {
+        $keys = TrustedKeys::fromDocument($application);
+    } catch (InvalidArgumentException $error) {
+        throw new RuntimeException('The trusted application file is not a key file this command reads: '.$error->getMessage(), 0, $error);
+    }
     $trusted = 4 === $argc ? $fields($read($argv[3]), ['id', 'userId', 'tenantId', 'sourceJson'], 'credential') : null;
-    $verified = (new ReceiptVerifier())->verify($bundle, $application['keyId'], $application['publicKey']);
+    $verified = (new ReceiptVerifier())->verify($bundle, $keys);
     $proof = $verified['proof'];
     // false: no passkey approved it (the rule did not require one). null: a passkey signed it, but without its
     // trusted record that signature was not checked here.
@@ -104,6 +114,8 @@ try {
         // "commit": signed as the action committed, so an edit made afterwards would not verify. "export":
         // signed only when the evidence was exported; it cannot show an edit made before that.
         'applicationReportSignedAt' => $verified['receiptSignedAt'],
+        // Which of the trusted keys vouched for the report, inside its window.
+        'applicationKeyId' => $verified['keyId'],
         'statement' => $verified['request']->statement(),
         'qualification' => match ($human) {
             true => 'Verifies credential approval and the application report.',
@@ -113,6 +125,8 @@ try {
             .(Receipt::EXPORT === $verified['receiptSignedAt'] ? ' The report was signed when it was exported, not when the action committed.' : ''),
     ], \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_THROW_ON_ERROR), "\n";
 } catch (Throwable $error) {
-    fwrite(\STDERR, 'Verification failed: '.$error->getMessage()."\n");
+    // The verifier's own refusals say what did not match, such as a key the trusted file does not list.
+    $reason = $error->getPrevious() instanceof UnexpectedValueException ? ' '.$error->getPrevious()->getMessage() : '';
+    fwrite(\STDERR, 'Verification failed: '.$error->getMessage().$reason."\n");
     exit(1);
 }
