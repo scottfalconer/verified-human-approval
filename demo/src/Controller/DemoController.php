@@ -48,7 +48,7 @@ final readonly class DemoController
         $query = $this->database->pdo->prepare('SELECT * FROM demo_alerts WHERE tenant_id = ? ORDER BY id');
         $query->execute([$actor->tenantId]);
 
-        return new Response($this->twig->render('home.html.twig', ['alerts' => $query->fetchAll(), 'actor' => $actor]));
+        return new Response($this->twig->render('home.html.twig', ['alerts' => $query->fetchAll()]));
     }
 
     public function requestPublication(Request $request, string $id): Response
@@ -114,6 +114,6 @@ final readonly class DemoController
         }
         $preview = (new ApprovalPolicy('alert.publish', (string) $row['version'], $row['statement']))->statement($this->action->prepare($actor, ['alert_id' => 'riverside-evacuation']));
 
-        return new Response($this->twig->render('policy.html.twig', ['form' => $form->createView(), 'preview' => $preview]));
+        return new Response($this->twig->render('policy.html.twig', ['form' => $form->createView(), 'current' => $modes, 'preview' => $preview]));
     }
 }

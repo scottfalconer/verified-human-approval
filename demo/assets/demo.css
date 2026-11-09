@@ -1,0 +1,16 @@
+/* The demo application's own pages around the approval: the header, the alert list and the rule page.
+   The council's public look is riverside.css, which is part of the alert action's version; this file is not. */
+body > header.site {align-items: center; flex-wrap: wrap; row-gap: .6rem;}
+.site-nav {display: flex; flex-wrap: wrap; gap: .3rem 1rem; margin-right: auto; font-size: .92rem;}
+body > header .site-nav a {font-weight: 600; color: #33454f;} body > header .site-nav a:hover, body > header .site-nav a[aria-current=page] {color: #176452; text-decoration: underline; text-underline-offset: .3em;}
+.site-user {display: flex; align-items: center; gap: .6rem; margin-left: auto;} .site-user form {margin: 0;} .site-user button {padding: .35rem .8rem; font-size: .85rem;}
+.alert-status {display: flex; flex-wrap: wrap; gap: .4rem; margin: 0 0 .2rem;}
+/* The preview's frame: its address, then which revision it is; on a narrow screen the badge takes its own line. */
+.rc-frame-bar {flex-wrap: wrap; row-gap: 6px;} .rc-frame-bar .pill {margin-left: auto; font-family: system-ui, sans-serif;}
+table.rule-table {margin-bottom: .5rem;} table.rule-table th, table.rule-table td {vertical-align: middle;} table.rule-table th[scope=row] label {margin: 0;}
+table.rule-table thead th {color: #5b6c77; font-size: .8rem; letter-spacing: .06em; text-transform: uppercase;} table.rule-table select {min-width: 15rem;}
+@media (max-width: 600px) {
+  body > header.site {padding: .9rem 1rem;} .site-nav, .site-user {margin-top: .5rem;} .site-user {margin-left: 0;}
+  table.rule-table thead {display: none;} table.rule-table tr {display: block; padding: .6rem 0; border-bottom: 1px solid #dce4e8;}
+  table.rule-table th, table.rule-table td {display: block; padding: .25rem 0; border: 0;} table.rule-table select {min-width: 0;}
+}

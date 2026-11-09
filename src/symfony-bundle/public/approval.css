@@ -34,3 +34,15 @@ table.audit, table.rule-change { width: 100%; border-collapse: collapse; font-si
 table.audit th, table.audit td, table.rule-change th, table.rule-change td { text-align: left; vertical-align: top; padding: 8px 10px 8px 0; border-bottom: 1px solid #e5e7eb; }
 table.rule-change tr.changed td { font-weight: 600; background: #fef3c7; }
 td.checks { min-width: 14em; }
+
+/* Pills: who asked, and a thing's state at a glance. */
+.pill {display: inline-block; padding: .1rem .6rem; border: 1px solid #d5dee3; border-radius: 999px; background: #eef2f4; color: #33454f; font-size: .78rem; font-weight: 700; line-height: 1.6; white-space: nowrap; vertical-align: .1em;}
+.pill-agent {background: #ece9fb; border-color: #d3cbf5; color: #3f2f8f;} .pill-person, .pill-ok {background: #e3f2ec; border-color: #bfdccf; color: #14513f;}
+.pill-warn {background: #fdf1d8; border-color: #efd398; color: #714700;} .pill-off {background: #f1f3f5; border-color: #dde3e7; color: #5b6c77;} .pill-live {background: #fbe4e2; border-color: #efbab4; color: #8f2727;}
+.pill.dot::before {content: "●"; margin-right: .35rem; font-size: .75em; vertical-align: .1em;}
+/* What it changes, inside the sheet and before the button. */
+.sheet-preview {margin-top: 1.4rem;} .sheet-preview > h2 {margin: 0 0 .3rem; color: #5b6c77; font-size: .78rem; letter-spacing: .1em; text-transform: uppercase;}
+/* A stopped request: unmistakable, and plain about what happened. */
+.notice.stopped {border-left: 6px solid #b3261e; border-radius: 4px 8px 8px 4px; padding: .9rem 1.1rem;} .stopped p {margin: .15rem 0;} .stopped-title {font-size: 1.15rem; font-weight: 750;}
+/* On a phone the sheet keeps its order and gets to the preview sooner. */
+@media (max-width: 600px) {.approval-sheet {padding: 1.1rem;} .approval-sheet h1 {font-size: 1.45rem;} .statement {font-size: 1.05rem;}}

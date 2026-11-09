@@ -1,0 +1,77 @@
+{
+    "format": "verified-human-approval/evidence/v2",
+    "proposal": "{\"action\":{\"actionId\":\"article.publish\",\"display\":{\"body\":\"Closing date: June 20.\",\"consequence\":\"This exact content will become publicly visible.\",\"title\":\"Summer Campaign\"},\"effect\":{\"asset_version\":\"sha256:asset-v1\",\"body\":\"Closing date: June 20.\",\"published\":true,\"title\":\"Summer Campaign\"},\"placeholders\":{\"revision\":\"17\",\"title\":\"Summer Campaign\"},\"preconditions\":{\"asset_version\":\"sha256:asset-v1\",\"content_digest\":\"886237797257724fda8cfd1ec97bc8fecc660a2cd5ff78ea2c9a24b7ee7e2802\",\"published\":false,\"revision\":17},\"target\":{\"application\":\"fixture\",\"environment\":\"test\",\"resource\":1,\"tenant\":\"tenant-a\"},\"version\":\"1\"},\"actor\":{\"delegationId\":\"agent-1\",\"tenantId\":\"tenant-a\",\"userId\":\"alice\"},\"createdAt\":\"2026-11-08T10:00:00.000000Z\",\"expiresAt\":\"2026-11-08T10:10:00.000000Z\",\"format\":\"verified-human-approval/proposal/v1\",\"id\":\"apr_d66d3483097ed579edd6d5efdd2f3651\",\"locale\":\"en\",\"policy\":{\"actionId\":\"article.publish\",\"lifetimeSeconds\":600,\"required\":true,\"statementTemplate\":\"I approve publishing {{ title }}, revision {{ revision }}.\",\"version\":\"1\"},\"policyDigest\":\"57c2d726cc70ff8b52b625349e64c436fa30694e003522d07317205a9a3d9cc0\",\"statement\":\"I approve publishing Summer Campaign, revision 17.\"}",
+    "proof": {
+        "assertion": {
+            "clientExtensionResults": {},
+            "id": "bWIlnyvsF7ysupgKziNHtDKyu3qMRMiw56fynBZVi1Y",
+            "rawId": "bWIlnyvsF7ysupgKziNHtDKyu3qMRMiw56fynBZVi1Y",
+            "response": {
+                "authenticatorData": "h5vdNBc3v6un0xnDjBjXqhqBhQadKIviQXNMvu6GhGkFAAAAAQ",
+                "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiN1dYSEpfbGdRd3ZJMzVSQzBUQ0FKQjZia0Jac3pLVFZKOFoybzRkM3E2cyIsIm9yaWdpbiI6Imh0dHBzOi8vYXBwcm92YWwudGVzdCIsImNyb3NzT3JpZ2luIjpmYWxzZX0",
+                "signature": "MEYCIQDOJJzj_mKOcP-K269FSwYVoDEkvt9NbQCg5LXGmS55rgIhAKG7MpvISMj81fFsG7Sw7UnVtHg8yXbX8uQkxM3pDsHo",
+                "userHandle": "mhoRbyZJYw8j-VFi-ReGbA7ZJyhoGCPVXm8LafXTHj4"
+            },
+            "type": "public-key"
+        },
+        "challenge": "7WXHJ_lgQwvI35RC0TCAJB6bkBZszKTVJ8Z2o4d3q6s",
+        "credentialId": "bWIlnyvsF7ysupgKziNHtDKyu3qMRMiw56fynBZVi1Y",
+        "format": "verified-human-approval/proof/v1",
+        "nonce": "1p0CWGOSymXFVVqyx6rYfVin1x5qNP9dqBvXfVsv-3c",
+        "proposalDigest": "2b885167538d87564fc11dae327fa0e22c48ebb7c401cef25869607b4f5b8158",
+        "verification": {
+            "assertion": {
+                "clientExtensionResults": {},
+                "id": "bWIlnyvsF7ysupgKziNHtDKyu3qMRMiw56fynBZVi1Y",
+                "rawId": "bWIlnyvsF7ysupgKziNHtDKyu3qMRMiw56fynBZVi1Y",
+                "response": {
+                    "authenticatorData": "h5vdNBc3v6un0xnDjBjXqhqBhQadKIviQXNMvu6GhGkFAAAAAQ",
+                    "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiN1dYSEpfbGdRd3ZJMzVSQzBUQ0FKQjZia0Jac3pLVFZKOFoybzRkM3E2cyIsIm9yaWdpbiI6Imh0dHBzOi8vYXBwcm92YWwudGVzdCIsImNyb3NzT3JpZ2luIjpmYWxzZX0",
+                    "signature": "MEYCIQDOJJzj_mKOcP-K269FSwYVoDEkvt9NbQCg5LXGmS55rgIhAKG7MpvISMj81fFsG7Sw7UnVtHg8yXbX8uQkxM3pDsHo",
+                    "userHandle": "mhoRbyZJYw8j-VFi-ReGbA7ZJyhoGCPVXm8LafXTHj4"
+                },
+                "type": "public-key"
+            },
+            "counter_after": 1,
+            "counter_before": 0,
+            "credential_id": "bWIlnyvsF7ysupgKziNHtDKyu3qMRMiw56fynBZVi1Y",
+            "format": "verified-human-approval.webauthn.v1",
+            "origin": "https://approval.test",
+            "rp_id": "approval.test",
+            "user_handle": "mhoRbyZJYw8j-VFi-ReGbA7ZJyhoGCPVXm8LafXTHj4",
+            "user_verified": true
+        },
+        "verifiedAt": "2026-11-08T10:00:00.000000Z"
+    },
+    "execution": {
+        "actionId": "article.publish",
+        "actionVersion": "1",
+        "actor": {
+            "delegationId": "agent-1",
+            "tenantId": "tenant-a",
+            "userId": "alice"
+        },
+        "approval": "user_verified",
+        "format": "verified-human-approval/execution/v1",
+        "proposalDigest": "2b885167538d87564fc11dae327fa0e22c48ebb7c401cef25869607b4f5b8158",
+        "recordedAt": "2026-11-08T10:00:00.000000Z",
+        "requestId": "apr_d66d3483097ed579edd6d5efdd2f3651",
+        "result": {
+            "published": true,
+            "resource": 1,
+            "result_revision": 18,
+            "source_revision": 17
+        },
+        "target": {
+            "application": "fixture",
+            "environment": "test",
+            "resource": 1,
+            "tenant": "tenant-a"
+        }
+    },
+    "receipt": {
+        "manifest": "{\"executionDigest\":\"3da2fb4d38557eaf500931363fda634183db6e68be3eccc95724349565efd9e5\",\"format\":\"verified-human-approval/receipt/v2\",\"keyId\":\"synthetic-fixture-key\",\"proofDigest\":\"cce4fbdc31bc02b5564f2c8b625b7401a9fc836c1cc007d7187ab1021b65f80d\",\"proposalDigest\":\"2b885167538d87564fc11dae327fa0e22c48ebb7c401cef25869607b4f5b8158\",\"signedAt\":\"commit\"}",
+        "keyId": "synthetic-fixture-key",
+        "signature": "Ks4p1SMqZGQl3n-my2BtCq7sLTHinr9XPi7pJ7oBvHi7nJ-ILHRsNRthpeJvz_1aw0UUfKrwdmO1hCxIf30hDw"
+    }
+}

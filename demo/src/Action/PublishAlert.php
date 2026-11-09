@@ -50,7 +50,7 @@ final readonly class PublishAlert implements ActionAdapter
             ['application' => 'Riverside Council website', 'environment' => 'Local demonstration', 'tenant_id' => $actor->tenantId, 'resource' => $row['id']],
             ['title' => $row['title'], 'body' => $row['body'], 'state' => 'published'],
             ['revision' => (int) $row['revision'], 'published_revision' => null === $row['published_revision'] ? null : (int) $row['published_revision']],
-            ['title' => 'Issue the public alert “'.$row['title'].'”', 'consequence' => 'As soon as this is approved, every resident sees the alert on the Riverside Council website.'],
+            ['title' => 'Issue the public alert “'.$row['title'].'”'],
             ['title' => $row['title'], 'revision' => (string) $row['revision'], 'application' => 'Riverside Council website', 'environment' => 'Local demonstration'],
         );
     }

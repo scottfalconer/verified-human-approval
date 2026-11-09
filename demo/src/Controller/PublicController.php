@@ -28,8 +28,20 @@ final readonly class PublicController
         return new Response($this->twig->render('public/alert.html.twig', ['title' => $row['published_title'], 'body' => $row['published_body']]));
     }
 
+    /** The council site's look, shared by the alerts page and the approval preview. It is part of the alert action's version. */
     public function styles(): Response
     {
-        return new Response((string) file_get_contents(\dirname(__DIR__, 2).'/assets/riverside.css'), headers: ['Content-Type' => 'text/css; charset=utf-8']);
+        return self::stylesheet('riverside.css');
+    }
+
+    /** The demo application's own pages around the approval: its header, alert list and rule page. Not part of any action's version. */
+    public function demoStyles(): Response
+    {
+        return self::stylesheet('demo.css');
+    }
+
+    private static function stylesheet(string $file): Response
+    {
+        return new Response((string) file_get_contents(\dirname(__DIR__, 2).'/assets/'.$file), headers: ['Content-Type' => 'text/css; charset=utf-8']);
     }
 }

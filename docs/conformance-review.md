@@ -71,6 +71,19 @@ The same review's release advice is the roadmap below: a CI job that installs th
 - **Only what the site confirmed.** When the host stops a tool call, the card says it cannot tell whether anything changed. When the review page loses the site's answer after the passkey step, it says it cannot confirm the outcome and asks for a reload. Refusals carry `request_status`, so a request that stopped is shown as stopped.
 - **The person's receipt.** The completed page offers the evidence bundle as the person's receipt, the agent's result carries the signed receipt, and `/approval/receipt-key.json` publishes the key that checks both. `EvidenceSigner` gained `publicKey()`, and `verify-evidence.php` takes the passkey record as an optional third file.
 
+## Ready for other hosts
+
+A first pass to let a non-Symfony host, such as a Drupal module, use core and WebAuthn directly, with no Drupal dependency, new format or new authentication mechanism:
+
+- **The signed audit log's rows sit behind `AuditStore`**, with `PdoAuditStore` for SQLite. Formats and signatures are unchanged; a chain written before the change still verifies.
+- **The anchored passkey repository wraps any `RevocableCredentialRepository`.**
+- **A passkey revocation and its signed entry now commit together** in both demo routes; before, a failure to sign or store the entry left the passkey revoked with no record.
+- **The `ApprovalStore` contract is written down and tested** (`tests/Contract`), including a lost commit answer and unreachable recovery, in both SQLite journals.
+- **Original receipts export without a signing key.**
+- **A CI job installs the packages into a separate project** on PHP 8.3 and 8.4 and checks them there, and checks what each archive ships.
+
+No Drupal kernel, MySQL or PostgreSQL adapter has been run; none is claimed. A Drupal adapter must own the root transaction (Drupal's `commitOrRelease()` releases a nested savepoint instead of committing) and pass the contract before it is relied on.
+
 ## Still open
 
 There is no published Flex recipe. The bundle needs application-specific identity, policy, authorization, storage and verifier services before it can boot. The [integration guide](../src/symfony-bundle/docs/index.md) gives the current installation and configuration steps. Two recorded upstream suggestions are a public `RequestContext::getClientInfo()` in the SDK (the implementation reads the SDK's internal session key), and `annotations`/`outputSchema` parameters on `#[AsMcpAppTool]`, which would remove the plain-tool workaround above.

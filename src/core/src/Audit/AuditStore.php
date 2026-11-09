@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace VerifiedHumanApproval\Core\Audit;
 
 /**
- * Persistence for the global signed audit chain, independent of its cryptography.
+ * Where the signed security log is kept. AuditLog builds, signs and checks every entry; a store only keeps
+ * rows exactly as given and returns them unfiltered, including rows whose signature no longer verifies, so
+ * that damage is reported rather than hidden or repaired.
  *
  * @phpstan-type AuditHead array{seq: int, hash: string}
  * @phpstan-type AuditRecord array{seq: int, tenant_id: string, type: string, subject: string, entry: string, hash: string, key_id: string, signature: string}
@@ -13,23 +15,34 @@ namespace VerifiedHumanApproval\Core\Audit;
 interface AuditStore
 {
     /**
-     * Serialize appenders before reading the actual head, including an empty chain.
-     * Call the builder once, then insert and return its exact record. Do not skip a
-     * damaged head or retry the builder after an uncertain commit.
+     * Appends one row to the single chain shared by every tenant.
      *
-     * A standalone append owns and commits its transaction. Inside the host's
-     * transaction it joins it, retaining serialization until the outer transaction
-     * ends; it must not commit or roll back the host's transaction. Failures propagate.
+     * The store first serializes appenders, then reads the head, then calls $buildRecord once and inserts
+     * exactly the row it returns. The head is the highest stored sequence and its hash, even when that row
+     * is damaged, or null when the log is empty; serialization must hold for an empty log too.
      *
-     * @param callable(?AuditHead): AuditRecord $buildRecord
+     * Called outside a transaction, the store owns one and returns only after it commits. Called inside the
+     * host's transaction, it joins it: it keeps appenders serialized until that transaction ends and neither
+     * commits nor rolls it back. Every failure propagates, so the host can roll back the whole operation the
+     * entry belongs to. The builder never runs again for the same call, even after an uncertain commit.
      *
-     * @return AuditRecord
+     * @param callable(AuditHead|null): AuditRecord $buildRecord builds and signs one row; it must not change anything else
+     *
+     * @return AuditRecord the row as inserted
      */
     public function append(callable $buildRecord): array;
 
-    /** @return iterable<AuditRecord> Raw matching rows, newest sequence first, including damaged rows. */
+    /**
+     * Rows of one type and subject, newest sequence first.
+     *
+     * @return iterable<AuditRecord>
+     */
     public function recordsFor(string $type, string $subject): iterable;
 
-    /** @return iterable<AuditRecord> A consistent view of the entire chain, oldest sequence first. */
+    /**
+     * The whole chain, oldest sequence first, as one consistent view. A later append may follow it.
+     *
+     * @return iterable<AuditRecord>
+     */
     public function records(): iterable;
 }

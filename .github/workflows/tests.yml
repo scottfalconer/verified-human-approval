@@ -54,3 +54,25 @@ jobs:
       - run: composer cs
         if: matrix.dependencies == 'locked' && matrix.php == '8.3'
       - run: PHP_BIN=php python3 tests/http_smoke.py
+  consumer:
+    # Core, WebAuthn and MCP installed into a separate project, the way a Drupal module or any other host
+    # would use them: no monorepo autoloader and no framework bundles. Then what each package archive ships.
+    name: Separate consumer, PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.3', '8.4']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '${{ matrix.php }}'
+          extensions: pdo_sqlite, openssl, sodium, mbstring
+          coverage: none
+      - name: Core and WebAuthn
+        run: php tests/Package/check-consumer.php webauthn
+      - name: Core, WebAuthn and MCP
+        run: php tests/Package/check-consumer.php mcp
+      - name: Package archives
+        run: php tests/Package/check-consumer.php archives

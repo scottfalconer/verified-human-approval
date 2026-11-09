@@ -1,0 +1,47 @@
+{
+    "about": "A signed audit chain written by AuditLog at commit 4ea04eb1, before audit storage was extracted. Synthetic test key; public material only.",
+    "keyId": "audit-fixture-key",
+    "publicKey": "xzDmVLfZoTFurj0Uu-sK41_szxksRGHtRVIXmrEmVro",
+    "rows": [
+        {
+            "seq": 1,
+            "tenant_id": "tenant-a",
+            "type": "passkey.enrolled",
+            "subject": "cred-1",
+            "entry": "{\"at\":\"2026-11-08T09:00:00.000000Z\",\"data\":{\"label\":\"Laptop\",\"method\":\"link\",\"sourceJson\":\"{\\\"publicKeyCredentialId\\\":\\\"Y3JlZC0x\\\"}\",\"userId\":\"alice\"},\"format\":\"verified-human-approval/audit/v1\",\"previous\":null,\"seq\":1,\"subject\":\"cred-1\",\"tenantId\":\"tenant-a\",\"type\":\"passkey.enrolled\"}",
+            "hash": "d1994af671117a8efc3ce7f64f6bbddb2a0eda07a7b53fdcdf417464dbe7ceb6",
+            "key_id": "audit-fixture-key",
+            "signature": "Ln_9MTNTsOkuJbrw8Iwi6aaczwhJPTf1wIV7CTLKngAupQCJxchrgkoPuxyVBCdmHrwiQgoBQ-eaKzSSyU40AQ"
+        },
+        {
+            "seq": 2,
+            "tenant_id": "tenant-b",
+            "type": "connection.revoked",
+            "subject": "grant-9",
+            "entry": "{\"at\":\"2026-11-08T09:01:30.000000Z\",\"data\":{\"by\":\"bob\",\"userId\":\"bob\"},\"format\":\"verified-human-approval/audit/v1\",\"previous\":\"d1994af671117a8efc3ce7f64f6bbddb2a0eda07a7b53fdcdf417464dbe7ceb6\",\"seq\":2,\"subject\":\"grant-9\",\"tenantId\":\"tenant-b\",\"type\":\"connection.revoked\"}",
+            "hash": "9952b7327aaf8596da2cf82c64812292bba98d0b3d552a63006746c7919165ca",
+            "key_id": "audit-fixture-key",
+            "signature": "9AJP-V_QbD86zeHQoQpez6vywVYrxTcAZovL_hIrHnqd5SPtfIibo_4XDILOe1Bo18KsmvPTxfOqnZ05x5H3Dg"
+        },
+        {
+            "seq": 3,
+            "tenant_id": "tenant-a",
+            "type": "alert.taken_down",
+            "subject": "alert-1",
+            "entry": "{\"at\":\"2026-11-08T09:03:00.000000Z\",\"data\":{},\"format\":\"verified-human-approval/audit/v1\",\"previous\":\"9952b7327aaf8596da2cf82c64812292bba98d0b3d552a63006746c7919165ca\",\"seq\":3,\"subject\":\"alert-1\",\"tenantId\":\"tenant-a\",\"type\":\"alert.taken_down\"}",
+            "hash": "782a28010d5b7041b24301bd21fe217f6c4f36983e47ae3edc6f1d9daa982fb8",
+            "key_id": "audit-fixture-key",
+            "signature": "k2MbxJrs-YI5qfIBp96N17nXgVBiP4OoUOits78MnHFttc3b-rRK19ePLVRaXWAKhrfl2ltDEFT5hPS3n9sCDg"
+        },
+        {
+            "seq": 4,
+            "tenant_id": "tenant-a",
+            "type": "passkey.revoked",
+            "subject": "cred-1",
+            "entry": "{\"at\":\"2026-11-08T09:04:30.000000Z\",\"data\":{\"by\":\"alice\",\"reason\":\"lost\",\"userId\":\"alice\"},\"format\":\"verified-human-approval/audit/v1\",\"previous\":\"782a28010d5b7041b24301bd21fe217f6c4f36983e47ae3edc6f1d9daa982fb8\",\"seq\":4,\"subject\":\"cred-1\",\"tenantId\":\"tenant-a\",\"type\":\"passkey.revoked\"}",
+            "hash": "421480542322e234fdb6f5bfab38bc5bfe6f2cd18dc0f9877aa39d6fcfd31b5f",
+            "key_id": "audit-fixture-key",
+            "signature": "YDr9e3MKWDMyg_GNCX63KjrHGvEJfzUBI6ERSupl7TWgh1qXDKjWjI5f9MquV_zsYNGLSMNRDO2WTdk1PqRSBQ"
+        }
+    ]
+}

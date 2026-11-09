@@ -75,7 +75,11 @@ for (const panel of document.querySelectorAll('[data-passkey-panel]')) {
     const message = panel.querySelector('[data-message]');
     const mode = panel.dataset.mode;
     // A request that finished or stopped is shown as the site renders it, with no button that can no longer work.
-    const showFinalState = () => window.location.reload();
+    // The outcome is at the top of the page, so the reloaded page starts there rather than where the button was.
+    const showFinalState = () => {
+        history.scrollRestoration = 'manual';
+        window.location.reload();
+    };
     button?.addEventListener('click', async () => {
         button.disabled = true;
         message.textContent = 'Waiting for your device…';

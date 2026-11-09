@@ -104,6 +104,50 @@ final class AccountAndAuditTest extends TestCase
         $this->mcp('editor')->callTool('read_alert', ['alert_id' => 'riverside-evacuation']);
     }
 
+    public function testARevocationThatCannotBeRecordedLeavesThePasskeyActiveOnEitherRoute(): void
+    {
+        $editor = $this->signedIn('editor');
+        $passkey = $this->enroll($editor, viaLink: true);
+        $id = (string) $this->database->pdo->query('SELECT credential_id FROM verified_human_approval_credentials LIMIT 1')->fetchColumn();
+        $this->database->pdo->exec("CREATE TRIGGER reject_audit BEFORE INSERT ON verified_human_approval_audit BEGIN SELECT RAISE(ABORT, 'injected audit failure'); END");
+
+        $page = $editor->request('GET', self::ORIGIN.'/account/passkeys');
+        $editor->submit($page->filter('form[action="/account/passkeys/'.$id.'/revoke"]')->form());
+        self::assertSame(500, $editor->getResponse()->getStatusCode());
+        self::assertSame(1, $this->activePasskeys('editor'), 'The owner’s revocation rolled back with its missing entry.');
+        $admin = $this->signedIn('manager');
+        $page = $admin->request('GET', self::ORIGIN.'/admin/audit');
+        $admin->submit($page->filter('form[action="/admin/audit/passkeys/'.$id.'/revoke"]')->form());
+        self::assertSame(500, $admin->getResponse()->getStatusCode());
+        self::assertSame(1, $this->activePasskeys('editor'), 'So did the administrator’s.');
+        self::assertTrue($this->approves('editor', $passkey));
+
+        $this->database->pdo->exec('DROP TRIGGER reject_audit');
+        $page = $admin->request('GET', self::ORIGIN.'/admin/audit');
+        $admin->submit($page->filter('form[action="/admin/audit/passkeys/'.$id.'/revoke"]')->form());
+        self::assertSame(0, $this->activePasskeys('editor'));
+        self::assertFalse($this->approves('editor', $passkey));
+    }
+
+    public function testAnEnrollmentThatCannotBeRecordedAddsNoPasskeyAndKeepsItsLink(): void
+    {
+        $editor = $this->signedIn('editor');
+        $editor->request('GET', $this->accounts['editor']['passkey_link']);
+        self::assertSame(302, $editor->getResponse()->getStatusCode());
+        $this->database->pdo->exec("CREATE TRIGGER reject_audit BEFORE INSERT ON verified_human_approval_audit BEGIN SELECT RAISE(ABORT, 'injected audit failure'); END");
+        $csrf = $this->panelCsrf($editor);
+        $options = $this->post($editor, '/account/passkeys/options', $csrf, []);
+        $this->post($editor, '/account/passkeys/complete', $csrf, ['ceremony_id' => $options['ceremony_id'], 'credential' => (new VirtualAuthenticator(self::ORIGIN))->registration($options['publicKey'])]);
+        self::assertSame(500, $editor->getResponse()->getStatusCode());
+        self::assertSame(0, (int) $this->database->pdo->query('SELECT COUNT(*) FROM verified_human_approval_credentials')->fetchColumn(), 'No passkey row without its signed enrollment.');
+        self::assertSame(0, (int) $this->database->pdo->query('SELECT COUNT(*) FROM demo_passkey_links WHERE used_at IS NOT NULL')->fetchColumn(), 'The link was not used up.');
+
+        $this->database->pdo->exec('DROP TRIGGER reject_audit');
+        $passkey = $this->enroll($editor, viaLink: false);
+        self::assertSame(1, (int) $this->database->pdo->query('SELECT COUNT(*) FROM demo_passkey_links WHERE used_at IS NOT NULL')->fetchColumn());
+        self::assertTrue($this->approves('editor', $passkey));
+    }
+
     public function testTheApprovalSheetSaysAnAgentAsked(): void
     {
         $id = $this->mcp('editor')->callTool('publish_alert', ['alert_id' => 'riverside-evacuation'])->structuredContent['requestId'];
@@ -321,7 +365,7 @@ final class AccountAndAuditTest extends TestCase
     private function owner(KernelBrowser $browser): string
     {
         $page = $browser->request('GET', self::ORIGIN.'/');
-        preg_match('/^([a-z]+) ·/', $page->filter('.eyebrow')->text(), $match);
+        preg_match('/^([a-z]+) ·/', $page->filter('header .user-badge')->text(), $match);
 
         return $match[1];
     }

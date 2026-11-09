@@ -149,6 +149,9 @@ services:
     VerifiedHumanApproval\Core\Storage\PdoApprovalStore: ~
     VerifiedHumanApproval\Core\Storage\PdoAuditStore: ~
     VerifiedHumanApproval\WebAuthn\PdoCredentialRepository: ~
+    VerifiedHumanApproval\Core\Storage\PdoAuditStore: ~
+    VerifiedHumanApproval\Core\Audit\AuditStore:
+        alias: VerifiedHumanApproval\Core\Storage\PdoAuditStore
 
     VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner:
         factory: ['VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner', 'fromEncoded']
@@ -163,6 +166,8 @@ services:
             $trustedPublicKey: '%env(APPROVAL_RECEIPT_PUBLIC_KEY)%'
             $clock: '@verified_human_approval.clock'
 
+    # Verification reads passkeys through the anchored wrapper, and the wrapper reads the raw rows.
+    # Name the raw repository explicitly, so the wrapper never resolves to itself.
     VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository:
         arguments:
             $credentials: '@VerifiedHumanApproval\WebAuthn\PdoCredentialRepository'
@@ -568,7 +573,7 @@ The default review template already shows `effect.title` and `effect.body`. To u
 
 {% block preview %}
     <article>
-        <h2>{{ prepared.effect.title }}</h2>
+        <h3>{{ prepared.effect.title }}</h3>
         <div class="content-preview">{{ prepared.effect.body }}</div>
     </article>
 {% endblock %}
@@ -677,7 +682,7 @@ The low-level hooks are:
 3. On completion, consume the saved options once. Check the same account, CSRF token and expiry. Never accept replacement registration options from request JSON.
 4. In one transaction on the shared PDO, call `WebAuthnVerifier::register($actor, $savedOptions, $browserResponse, $label)`. This validates and inserts the credential. Then call `AnchoredCredentialRepository::anchor($credential, $context)` before committing. The context records how enrollment was authorized. Roll back both operations on failure.
 
-`AnchoredCredentialRepository::add()` does not create the signed enrollment record by itself. Without `anchor()`, the configured repository will not accept the new passkey for approval. In your trusted account flow, wrap its `revoke()` call in a transaction on the shared PDO so the revocation and signed audit entry commit together.
+`AnchoredCredentialRepository::add()` does not create the signed enrollment record by itself. Without `anchor()`, the configured repository will not accept the new passkey for approval. In your trusted account flow, call its `revoke()` inside a transaction on the shared PDO, so the revocation and its signed audit entry commit together and a failure to sign or store the entry leaves the passkey active; the demo's [`PasskeyRevocation`](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/src/Account/PasskeyRevocation.php) shows it. The wrapper accepts any `RevocableCredentialRepository`, so the passkeys and the audit rows (`AuditStore`) can live in your own storage.
 
 The [WebAuthn guide](https://github.com/scottfalconer/verified-human-approval/blob/main/src/webauthn/README.md#trusted-enrollment) explains the browser payload and adapter responsibilities. The bundle's review controller handles approval ceremonies once a credential is enrolled; it does not supply enrollment or recovery controllers.
 
