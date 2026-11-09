@@ -4,7 +4,7 @@
 {% block preview %}
 {% set modes = {direct: 'Issue alerts directly', approval: 'Issue alerts only with verified human approval', denied: 'Cannot issue alerts'} %}
 {% if prepared.actionId == 'alert.publish' %}
-<p class="muted">{% if state.status == 'completed' %}This is the alerts page residents saw once {{ state.proof ? 'you approved it, drawn from the proposal you approved' : 'it was issued, drawn from the stored proposal' }}.{% elseif state.status == 'pending' %}This is the alerts page residents will see, drawn from the frozen proposal with the site’s own template, not from the current draft.{% else %}This is the alerts page this request asked for. The request stopped, so it never issued this alert.{% endif %}</p>
+<p class="muted">{% if state.status == 'completed' %}This is the alerts page residents saw once {{ state.proof ? 'you approved it, drawn from the proposal you approved' : 'it was issued, drawn from the stored proposal' }}. <a href="{{ url('riverside_alerts') }}">Open the alerts page</a>.{% elseif state.status == 'pending' %}This is the alerts page residents will see, drawn from the frozen proposal with the site’s own template, not from the current draft.{% else %}This is the alerts page this request asked for. The request stopped, so it never issued this alert.{% endif %}</p>
 <div class="rc-frame">
     {# Which revision this is, and whether it went live: the same revision the statement names. #}
     {% set badge = {completed: ['pill-live', 'Issued'], pending: ['', 'Frozen preview']}[state.status] ?? ['pill-off', 'Not issued'] %}
