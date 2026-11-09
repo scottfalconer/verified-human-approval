@@ -7,6 +7,7 @@ namespace VerifiedHumanApproval\Tests\Core;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Clock\MockClock;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
+use VerifiedHumanApproval\Core\Audit\AuditStore;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
 use VerifiedHumanApproval\Core\Storage\PdoAuditStore;
 
@@ -75,5 +76,29 @@ final class AuditLogTest extends TestCase
         $this->pdo->rollBack();
         self::assertNull($this->log->find('alert.taken_down', 'alert-1'), 'A rolled-back action leaves no log entry.');
         self::assertSame(3, $this->log->verify()['newest']);
+    }
+
+    public function testTheRealSignerAndVerifierWorkWithANonPdoStore(): void
+    {
+        $record = null;
+        $store = $this->createMock(AuditStore::class);
+        $store->expects(self::once())->method('append')->willReturnCallback(static function (callable $build) use (&$record): array {
+            return $record = $build(null);
+        });
+        $store->method('records')->willReturnCallback(static function () use (&$record): array {
+            return [$record];
+        });
+        $store->method('recordsFor')->willReturnCallback(static function () use (&$record): array {
+            return [$record];
+        });
+        $log = new AuditLog($store, $this->signer, $this->signer->publicKey(), new MockClock('2026-11-08 12:00:00'));
+        $log->append('tenant-b', 'passkey.enrolled', 'portable', []);
+        self::assertSame('{"at":"2026-11-08T12:00:00.000000Z","data":{},"format":"verified-human-approval/audit/v1","previous":null,"seq":1,"subject":"portable","tenantId":"tenant-b","type":"passkey.enrolled"}', $record['entry']);
+        self::assertTrue($log->verify()['intact']);
+        self::assertNotNull($log->find('passkey.enrolled', 'portable'));
+
+        $record['entry'] = str_replace('portable', 'changed', $record['entry']);
+        self::assertFalse($log->verify()['intact'], 'Raw damaged rows still reach the cryptographic verifier.');
+        self::assertNull($log->find('passkey.enrolled', 'portable'));
     }
 }

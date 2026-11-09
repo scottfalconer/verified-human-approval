@@ -182,7 +182,7 @@ Enrollment belongs to your existing trusted account process. The [worked example
 
 Override templates in `templates/bundles/VerifiedHumanApprovalBundle/`. `base.html.twig` offers `header`, `site_name` and `footer`; `review.html.twig` offers `preview`, `return` and `receipt`, the person's receipt download. Render the preview from the **frozen `prepared.effect`**, as the example does. Do not reload today's draft into an older review page.
 
-Give every action a clear `display.title` and `display.consequence`: what will change, and what happens as soon as approval completes. Keep the exact statement, expiry, passkey button and truthful completion state visible. If a response is lost after submitting approval, ask the person to reload and check the recorded state; do not claim either success or failure without it. An optional `RequesterLabel` service can name the agent connection on the sheet; set its service ID in `requester_label`.
+Give every action a clear `display.title`: what will change. Add `display.consequence` when the statement does not already say what happens as soon as approval completes; the sheet shows it next to the button. The sheet reads top to bottom: who asked, the exact statement, the `preview`, then the passkey button, so the person sees the effect before they can approve it, on a phone too. Keep the exact statement, preview, expiry, passkey button and truthful completion state visible. If a response is lost after submitting approval, ask the person to reload and check the recorded state; do not claim either success or failure without it. An optional `RequesterLabel` service can name the agent connection on the sheet; set its service ID in `requester_label`.
 
 ## Stored receipts and later verification
 

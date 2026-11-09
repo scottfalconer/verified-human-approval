@@ -13,7 +13,7 @@ use VerifiedHumanApproval\Core\Audit\AuditStore;
  * store then never commits or rolls it back.
  *
  * @phpstan-import-type AuditHead from AuditStore
- * @phpstan-import-type AuditRow from AuditStore
+ * @phpstan-import-type AuditRecord from AuditStore
  */
 final readonly class PdoAuditStore implements AuditStore
 {
@@ -21,6 +21,10 @@ final readonly class PdoAuditStore implements AuditStore
 
     public function __construct(private \PDO $pdo)
     {
+        if ('sqlite' !== $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME)) {
+            throw new \InvalidArgumentException('This audit adapter supports SQLite only; supply an AuditStore for other databases.');
+        }
+        $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
     }
 
     /** Creates the table and its index. An installation step: never part of an append. */
@@ -87,7 +91,7 @@ final readonly class PdoAuditStore implements AuditStore
     /**
      * @param array<string, mixed> $row
      *
-     * @return AuditRow
+     * @return AuditRecord
      */
     private static function row(array $row): array
     {

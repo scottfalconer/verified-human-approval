@@ -10,7 +10,7 @@ namespace VerifiedHumanApproval\Core\Audit;
  * that damage is reported rather than hidden or repaired.
  *
  * @phpstan-type AuditHead array{seq: int, hash: string}
- * @phpstan-type AuditRow array{seq: int, tenant_id: string, type: string, subject: string, entry: string, hash: string, key_id: string, signature: string}
+ * @phpstan-type AuditRecord array{seq: int, tenant_id: string, type: string, subject: string, entry: string, hash: string, key_id: string, signature: string}
  */
 interface AuditStore
 {
@@ -26,23 +26,23 @@ interface AuditStore
      * commits nor rolls it back. Every failure propagates, so the host can roll back the whole operation the
      * entry belongs to. The builder never runs again for the same call, even after an uncertain commit.
      *
-     * @param callable(AuditHead|null): AuditRow $buildRecord builds and signs one row; it must not change anything else
+     * @param callable(AuditHead|null): AuditRecord $buildRecord builds and signs one row; it must not change anything else
      *
-     * @return AuditRow the row as inserted
+     * @return AuditRecord the row as inserted
      */
     public function append(callable $buildRecord): array;
 
     /**
      * Rows of one type and subject, newest sequence first.
      *
-     * @return iterable<AuditRow>
+     * @return iterable<AuditRecord>
      */
     public function recordsFor(string $type, string $subject): iterable;
 
     /**
      * The whole chain, oldest sequence first, as one consistent view. A later append may follow it.
      *
-     * @return iterable<AuditRow>
+     * @return iterable<AuditRecord>
      */
     public function records(): iterable;
 }

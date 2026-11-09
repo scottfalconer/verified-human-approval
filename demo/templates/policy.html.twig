@@ -1,9 +1,25 @@
 {% extends '@VerifiedHumanApproval/base.html.twig' %}
-{% block title %}Alert policy · Verified Human Approval{% endblock %}
+{% block title %}Alert rule · Verified Human Approval{% endblock %}
 {% block body %}
+{% set modes = {direct: ['pill-warn', 'Issues directly'], approval: ['pill-ok', 'Passkey for each alert'], denied: ['pill-off', 'Not allowed']} %}
 <p class="eyebrow">Administrator · Riverside Council</p><h1>Who can issue public alerts</h1>
-<p>An evacuation order is a high-stakes change. Many people can be allowed to issue one, as long as the roles you choose must verify each exact alert with their own passkey. The application enforces this rule itself, whether the request comes from this site, an AI agent over MCP or any other client.</p>
-<p class="notice">Changing this rule is itself high-stakes, so it works like an alert: you propose a change here, then approve that exact change with your own passkey. A password alone cannot switch verification off. Every change is recorded in the <a href="{{ path('demo_audit') }}">audit log</a>.</p>
-<section class="card">{{ form_start(form) }}{{ form_widget(form) }}<p class="muted">Read-only colleagues cannot issue alerts. Placeholders for the statement: {% verbatim %}{{title}}, {{revision}}, {{application}}, {{environment}}{% endverbatim %}.</p><button>Propose this change</button>{{ form_end(form) }}</section>
+<p class="muted">The application enforces this rule itself, whether a request comes from this site, an AI agent over MCP or any other client.</p>
+<section class="card">{{ form_start(form) }}{{ form_errors(form) }}
+<table class="rule-table">
+    <thead><tr><th scope="col">Role</th><th scope="col">Now</th><th scope="col">Change to</th></tr></thead>
+    <tbody>
+    {% for role in ['manager', 'staff'] %}
+        {% set now = modes[current[role]] ?? ['pill-off', current[role]] %}
+        <tr><th scope="row">{{ form_label(form[role]) }}</th><td><span class="pill {{ now[0] }}">{{ now[1] }}</span></td><td>{{ form_widget(form[role]) }}{{ form_errors(form[role]) }}</td></tr>
+    {% endfor %}
+        <tr><th scope="row">Read-only colleagues</th><td><span class="pill pill-off">Not allowed</span></td><td class="muted small">Always: read-only accounts cannot issue alerts.</td></tr>
+    </tbody>
+</table>
+{{ form_row(form.statement) }}
+<p class="muted small">Placeholders for the statement: {% verbatim %}{{title}}, {{revision}}, {{application}}, {{environment}}{% endverbatim %}.</p>
+<div class="actions"><button>Propose this change</button></div>
+<p class="muted small">Proposing changes nothing yet: you then approve that exact change with your own passkey, so a password alone cannot switch verification off.</p>
+{{ form_end(form) }}</section>
 <section class="card"><h2>What the approver confirms</h2><p class="statement">{{ preview }}</p></section>
+<p class="notice">An evacuation order is high-stakes. Many people can be allowed to issue one, as long as the roles you choose verify each exact alert with their own passkey. Every change to this rule is recorded in the <a href="{{ path('demo_audit') }}">audit log</a>.</p>
 {% endblock %}

@@ -10,11 +10,11 @@ use VerifiedHumanApproval\Core\Audit\AuditStore;
  * An audit store with no database at all, standing in for a host's own storage (a Drupal table, say), to
  * show that the audit log's signing and checking do not depend on PDO. Tests reach into $rows to damage it.
  *
- * @phpstan-import-type AuditRow from AuditStore
+ * @phpstan-import-type AuditRecord from AuditStore
  */
 final class InMemoryAuditStore implements AuditStore
 {
-    /** @var array<int, AuditRow> by sequence */
+    /** @var array<int, AuditRecord> by sequence */
     public array $rows = [];
 
     public int $builds = 0;

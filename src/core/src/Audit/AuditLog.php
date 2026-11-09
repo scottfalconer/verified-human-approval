@@ -20,7 +20,7 @@ use VerifiedHumanApproval\Core\Evidence\Receipt;
  * This class builds, signs and checks entries; an AuditStore keeps the rows. One chain spans every tenant.
  *
  * @phpstan-import-type AuditHead from AuditStore
- * @phpstan-import-type AuditRow from AuditStore
+ * @phpstan-import-type AuditRecord from AuditStore
  */
 final readonly class AuditLog
 {
@@ -112,7 +112,7 @@ final readonly class AuditLog
      * The entry, if the row's hash and signature verify and the row's sequence, type, subject and tenant
      * match what was signed. The stored key id is not trusted: only the configured public key is.
      *
-     * @param AuditRow $row
+     * @param AuditRecord $row
      *
      * @return array<string, mixed>|null
      */

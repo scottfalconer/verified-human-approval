@@ -184,8 +184,15 @@ final class SymfonyApprovalTest extends TestCase
         $browser = $this->browser('editor');
         $this->enroll($browser);
         $review = $browser->request('GET', self::ORIGIN.'/approval/'.$id);
-        // Next to the button: what happens the moment it is approved, frozen with the proposal.
-        self::assertSame('As soon as this is approved, every resident sees the alert on the Riverside Council website.', $review->filter('.approval-sheet .consequence')->text());
+        // One sheet, top to bottom: who asked, the statement, then the alert as residents will see it, and only then the button.
+        self::assertSame('Agent request', $review->filter('.approval-sheet .requester .pill')->text());
+        $sheet = $review->filter('.approval-sheet')->html();
+        self::assertNotFalse($frame = strpos($sheet, 'class="rc-frame"'));
+        self::assertNotFalse($button = strpos($sheet, 'data-approve'));
+        self::assertLessThan($button, strpos($sheet, 'class="statement"'));
+        self::assertLessThan($button, $frame, 'The person sees the alert before the button, on a phone too.');
+        self::assertSame('Frozen preview · revision 1', $review->filter('.rc-frame-bar .pill')->text());
+        self::assertCount(0, $review->filter('.consequence'), 'The statement already says every resident sees it.');
         $csrf = (string) $review->filter('[data-passkey-panel]')->attr('data-csrf');
         $this->database->pdo->exec("UPDATE demo_alerts SET body = body || '!', revision = revision + 1 WHERE id = 'riverside-evacuation'");
 
@@ -196,9 +203,10 @@ final class SymfonyApprovalTest extends TestCase
         $stopped = $browser->request('GET', self::ORIGIN.'/approval/'.$id);
         self::assertCount(0, $stopped->filter('[data-approve]'));
         self::assertCount(0, $stopped->filter('.consequence'), 'What approval would do no longer applies.');
-        self::assertSame('This request can no longer be approved: something it depends on changed after it was made. Nothing changed. Reason: stale_resource.', $stopped->filter('.approval-sheet .notice')->text());
-        self::assertSame('What was requested', $stopped->filter('section.card h2')->text());
-        self::assertStringContainsString('it never issued this alert', $stopped->filter('section.card')->eq(1)->filter('p.muted')->text());
+        self::assertSame('Blocked: nothing changed. This request can no longer be approved: something it depends on changed after it was made. Reason: stale_resource.', $stopped->filter('.approval-sheet .notice')->text());
+        self::assertSame('What was requested', $stopped->filter('.approval-sheet .sheet-preview h2')->text());
+        self::assertStringContainsString('it never issued this alert', $stopped->filter('.approval-sheet .sheet-preview p.muted')->text());
+        self::assertSame('Not issued · revision 1', $stopped->filter('.rc-frame-bar .pill')->text());
         self::assertCount(0, $stopped->filter('a[href*="/status"]'), 'People get the review page, not the JSON status.');
         self::assertSame(0, $this->mutationCount());
     }
@@ -375,6 +383,8 @@ final class SymfonyApprovalTest extends TestCase
         $review = $browser->request('GET', self::ORIGIN.'/approval/'.$proposal);
         self::assertStringContainsString('Change who can issue public alerts', $review->filter('h1')->text());
         self::assertStringContainsString('The statement approvers confirm', $review->filter('.statement')->first()->text());
+        // Next to the button: what the new rule does the moment it is approved, frozen with the proposal.
+        self::assertStringContainsString('requests waiting under the old rule can no longer be approved', $review->filter('.approval-sheet .consequence')->text());
         // The administrator approves the exact change with their own passkey.
         self::assertSame('completed', $this->approveWith($browser, $proposal, $managerKey)['status']);
         self::assertSame(2, (int) $this->database->policy('alert.publish')['version']);

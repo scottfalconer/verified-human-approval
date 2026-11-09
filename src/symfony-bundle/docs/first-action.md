@@ -147,6 +147,7 @@ services:
         arguments: ['%env(APP_SQLITE_PATH)%']
 
     VerifiedHumanApproval\Core\Storage\PdoApprovalStore: ~
+    VerifiedHumanApproval\Core\Storage\PdoAuditStore: ~
     VerifiedHumanApproval\WebAuthn\PdoCredentialRepository: ~
     VerifiedHumanApproval\Core\Storage\PdoAuditStore: ~
     VerifiedHumanApproval\Core\Audit\AuditStore:
@@ -160,6 +161,7 @@ services:
 
     VerifiedHumanApproval\Core\Audit\AuditLog:
         arguments:
+            $store: '@VerifiedHumanApproval\Core\Storage\PdoAuditStore'
             $signer: '@VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner'
             $trustedPublicKey: '%env(APPROVAL_RECEIPT_PUBLIC_KEY)%'
             $clock: '@verified_human_approval.clock'
@@ -571,7 +573,7 @@ The default review template already shows `effect.title` and `effect.body`. To u
 
 {% block preview %}
     <article>
-        <h2>{{ prepared.effect.title }}</h2>
+        <h3>{{ prepared.effect.title }}</h3>
         <div class="content-preview">{{ prepared.effect.body }}</div>
     </article>
 {% endblock %}

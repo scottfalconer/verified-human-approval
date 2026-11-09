@@ -1,12 +1,48 @@
 {% extends '@VerifiedHumanApproval/base.html.twig' %}
 {% block title %}Review this action{% endblock %}
 {% block body %}
-{# The decision comes first: what is asked, the exact statement and one passkey button, with no scrolling. #}
+{# One sheet, read top to bottom: who asked, the exact statement, what it will look like, then one passkey button.
+   The effect comes before the button, on a phone too, so nobody approves what they have not seen. #}
+{% set agent = proposal.actor.delegationId is not empty %}
 <section class="card approval-sheet" data-status="{{ state.status }}">
     <p class="eyebrow">Approval requested · {{ prepared.target.application|default('This application') }}</p>
     <h1>{{ prepared.display.title|default('Review this exact action') }}</h1>
-    <p class="requester">Requested by {{ requested_by ?? (proposal.actor.delegationId ? 'an agent connected to your account' : 'you, on this site') }}.</p>
+    <p class="requester"><span class="pill {{ agent ? 'pill-agent' : 'pill-person' }}">{{ agent ? 'Agent request' : 'Your request' }}</span> Requested by {{ requested_by ?? (agent ? 'an agent connected to your account' : 'you, on this site') }}.</p>
+    {% if state.status == 'completed' %}
+    <div class="done">
+        {# Only a recorded passkey proof means a person approved it; under a rule that needs none, say so. #}
+        <p class="notice">{% if state.proof %}Approved with your passkey. This request is completed.{% else %}Completed without a passkey: the application's rule did not require one for this request.{% endif %}</p>
+        {# The way back to the agent. The approval card adds #return=claude-desktop, claude-mobile or claude-web to the link. #}
+        {% block return %}
+        <div class="actions" data-return hidden>
+            <a class="button" href="claude://" data-return-app hidden>Back to Claude</a>
+            <button type="button" data-return-tab hidden>Back to your Claude tab</button>
+        </div>
+        <p class="muted" data-return-hint>You can close this tab and return to Claude.</p>
+        {% endblock %}
+    </div>
+    {% elseif state.status != 'pending' %}
+    {# A stopped request never ran. The reason code is for whoever looks into it. #}
+    {% set stopped = {
+        cancelled: ['Cancelled: nothing changed.', 'This request was cancelled.'],
+        expired: ['Expired: nothing changed.', 'This request expired before it was approved.'],
+        invalidated: ['Blocked: nothing changed.', 'This request can no longer be approved: something it depends on changed after it was made.'],
+        denied: ['Blocked: nothing changed.', 'This account is no longer allowed to do this.'],
+    }[state.status] ?? ['Stopped: nothing changed.', 'This request stopped.'] %}
+    <div class="notice error stopped">
+        <p class="stopped-title">{{ stopped[0] }}</p>
+        <p>{{ stopped[1] }}{% if state.reason and state.status in ['invalidated', 'denied'] %} <span class="small">Reason: {{ state.reason }}.</span>{% endif %}</p>
+    </div>
+    {% endif %}
     <p class="statement">{{ state.request.statement }}</p>
+    <div class="sheet-preview">
+        <h2>{{ state.status == 'completed' ? (state.proof ? 'What you approved' : 'What ran') : (state.status == 'pending' ? 'What you are approving' : 'What was requested') }}</h2>
+        {# Override this block to show the effect as its audience will see it, rendered from the frozen proposal. #}
+        {% block preview %}
+        {% if prepared.effect.title is defined %}<h3>{{ prepared.effect.title }}</h3>{% endif %}
+        {% if prepared.effect.body is defined %}<div class="content-preview">{{ prepared.effect.body }}</div>{% endif %}
+        {% endblock %}
+    </div>
     {% if state.status == 'pending' %}
     {# What happens the moment it is approved, in the action's own words, frozen with the proposal. #}
     {% if prepared.display.consequence is defined %}<p class="consequence">{{ prepared.display.consequence }}</p>{% endif %}
@@ -19,51 +55,24 @@
         <p class="muted small">Only this exact proposal runs, once. A changed draft, a revoked permission or an expired request stops it. Expires {{ state.request.expiresAt|date('H:i T') }}.</p>
     </div>
     {% elseif state.status == 'completed' %}
-    <div class="done">
-        {# Only a recorded passkey proof means a person approved it; under a rule that needs none, say so. #}
-        <p class="notice">{% if state.proof %}Approved with your passkey. This request is completed.{% else %}Completed without a passkey: the application's rule did not require one for this request.{% endif %}</p>
-        {# The way back to the agent. The approval card adds #return=claude-desktop, claude-mobile or claude-web to the link. #}
-        {% block return %}
-        <div class="actions" data-return hidden>
-            <a class="button" href="claude://" data-return-app hidden>Back to Claude</a>
-            <button type="button" data-return-tab hidden>Back to your Claude tab</button>
-        </div>
-        <p class="muted" data-return-hint>You can close this tab and return to Claude.</p>
-        {% endblock %}
-        {# The person's own copy, signed as the action ran, so the site's record cannot change later without it showing. #}
-        {% block receipt %}
-        {% if receipts %}
-        <div class="receipt">
-            {% if scoped %}
-            <p class="muted small">Download your receipt from this request’s page in your signed-in browser.</p>
-            {% elseif state.receipt %}
-            <a class="button secondary" href="{{ path('verified_human_approval_evidence', {id: state.request.id}) }}" download>Download your receipt</a>
-            <p class="muted small">Your copy of this exact request{% if state.proof %}, your passkey’s signature on it,{% endif %} and what ran, signed by this site as it ran. Keep it: if the site’s record were changed later, your copy would show it. Anyone can check it against the site’s <a href="{{ path('verified_human_approval_receipt_key') }}">published key</a>.</p>
-            {% else %}
-            <p class="muted small">This site has no receipt recorded for this request.</p>
-            {% endif %}
-        </div>
+    {# The person's own copy, signed as the action ran, so the site's record cannot change later without it showing. #}
+    {% block receipt %}
+    {% if receipts %}
+    <div class="receipt">
+        {% if scoped %}
+        <p class="muted small">Download your receipt from this request’s page in your signed-in browser.</p>
+        {% elseif state.receipt %}
+        <a class="button secondary" href="{{ path('verified_human_approval_evidence', {id: state.request.id}) }}" download>Download your receipt</a>
+        <p class="muted small">Your copy of this exact request{% if state.proof %}, your passkey’s signature on it,{% endif %} and what ran, signed by this site as it ran. Keep it: if the site’s record were changed later, your copy would show it. Anyone can check it against the site’s <a href="{{ path('verified_human_approval_receipt_key') }}">published key</a>.</p>
+        {% else %}
+        <p class="muted small">This site has no receipt recorded for this request.</p>
         {% endif %}
-        {% endblock %}
     </div>
-    {% else %}
-    {# A stopped request never ran. The reason code is for whoever looks into it. #}
-    {% set stopped = {
-        cancelled: 'This request was cancelled.',
-        expired: 'This request expired before it was approved.',
-        invalidated: 'This request can no longer be approved: something it depends on changed after it was made.',
-        denied: 'This account is no longer allowed to do this.',
-    } %}
-    <p class="notice error">{{ stopped[state.status] ?? 'This request stopped.' }} Nothing changed.{% if state.reason and state.status in ['invalidated', 'denied'] %} <span class="small">Reason: {{ state.reason }}.</span>{% endif %}</p>
+    {% endif %}
+    {% endblock %}
     {% endif %}
 </section>
 <section class="card">
-    <h2>{{ state.status == 'completed' ? (state.proof ? 'What you approved' : 'What ran') : (state.status == 'pending' ? 'What you are approving' : 'What was requested') }}</h2>
-    {# Override this block to show the effect as its audience will see it, rendered from the frozen proposal. #}
-    {% block preview %}
-    {% if prepared.effect.title is defined %}<h3>{{ prepared.effect.title }}</h3>{% endif %}
-    {% if prepared.effect.body is defined %}<div class="content-preview">{{ prepared.effect.body }}</div>{% endif %}
-    {% endblock %}
     <details><summary>Details and everything this approval is bound to</summary>
         <dl>
             <dt>Application</dt><dd>{{ prepared.target.application|default('This application') }}</dd>
