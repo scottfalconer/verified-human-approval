@@ -307,6 +307,60 @@ final class ApprovalEvidenceTest extends TestCase
         }
     }
 
+    public function testOriginalReceiptsExportWithoutAnySigningKey(): void
+    {
+        [$service, $actor] = $this->signingService();
+        $pending = $service->request($actor, 'article.publish', ['id' => 1]);
+        try {
+            (new EvidenceExporter())->export($pending);
+            self::fail('A request that has not run had evidence.');
+        } catch (ApprovalException $error) {
+            self::assertSame('not_completed', $error->reason);
+        }
+        $ceremony = $service->begin($this->fixture->reviewer, $pending->request->id);
+        $id = $service->complete($this->fixture->reviewer, $ceremony->id, $this->authenticator->assertion($ceremony->options))->request->id;
+        $state = $service->get($actor, $id);
+
+        $untouchable = new class implements EvidenceSigner {
+            public function keyId(): string
+            {
+                throw new \LogicException('The exporter touched the key.');
+            }
+
+            public function sign(string $manifest): string
+            {
+                throw new \LogicException('The exporter touched the key.');
+            }
+
+            public function publicKey(): string
+            {
+                throw new \LogicException('The exporter touched the key.');
+            }
+        };
+        $exporters = ['no signer' => new EvidenceExporter(), 'a signer it must not touch' => new EvidenceExporter($untouchable), 'export signing allowed' => new EvidenceExporter($untouchable, signAtExport: true)];
+        foreach ($exporters as $how => $exporter) {
+            $evidence = $exporter->export($state);
+            self::assertEquals((object) $state->receipt, $evidence['receipt'], $how.': the original receipt, unchanged.');
+            self::assertSame(Receipt::COMMIT, (new ReceiptVerifier())->verify($evidence, $this->signer->keyId(), $this->signer->publicKey())['receiptSignedAt'], $how);
+        }
+
+        $this->fixture->pdo->prepare('DELETE FROM verified_human_approval_receipts WHERE request_id = ?')->execute([$id]);
+        try {
+            (new EvidenceExporter())->export($service->get($actor, $id));
+            self::fail('A missing receipt was replaced.');
+        } catch (ApprovalException $error) {
+            self::assertSame('receipt_missing', $error->reason);
+        }
+        $signedNow = (new EvidenceExporter($this->signer, signAtExport: true))->export($service->get($actor, $id));
+        self::assertSame(Receipt::EXPORT, (new ReceiptVerifier())->verify($signedNow, $this->signer->keyId(), $this->signer->publicKey())['receiptSignedAt'], 'Only the explicit export mode signs, and its receipt says so.');
+    }
+
+    public function testSigningAtExportNeedsASigner(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        new EvidenceExporter(signAtExport: true);
+    }
+
     public function testAReceiptChecksWithTheSitesKeyAloneAndSaysThePasskeyWasNotChecked(): void
     {
         // What a person holds: their receipt and the site's published key, but not their passkey's record.

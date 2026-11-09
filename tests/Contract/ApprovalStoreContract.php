@@ -12,7 +12,6 @@ use VerifiedHumanApproval\Core\ApprovalState;
 use VerifiedHumanApproval\Core\CanonicalJson;
 use VerifiedHumanApproval\Core\Ceremony;
 use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
-use VerifiedHumanApproval\Core\Evidence\EvidenceSigner;
 use VerifiedHumanApproval\Core\Evidence\Receipt;
 use VerifiedHumanApproval\Core\Evidence\ReceiptVerifier;
 use VerifiedHumanApproval\Tests\Support\ProcessRace;
@@ -367,27 +366,10 @@ abstract class ApprovalStoreContract extends TestCase
         return [$request, $harness->service()->begin($harness->reviewer(), $request->request->id)];
     }
 
-    /** @return array<string, mixed> the stored record as evidence; nothing is signed at export */
+    /** @return array<string, mixed> the stored record as evidence, exported with no signing key */
     private static function export(ApprovalState $state): array
     {
-        $noKey = new class implements EvidenceSigner {
-            public function keyId(): string
-            {
-                throw new \LogicException('Export signed something.');
-            }
-
-            public function sign(string $manifest): string
-            {
-                throw new \LogicException('Export signed something.');
-            }
-
-            public function publicKey(): string
-            {
-                throw new \LogicException('Export used the key.');
-            }
-        };
-
-        return (new EvidenceExporter($noKey))->export($state);
+        return (new EvidenceExporter())->export($state);
     }
 
     /**
