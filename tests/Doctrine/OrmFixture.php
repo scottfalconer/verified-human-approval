@@ -22,16 +22,16 @@ use VerifiedHumanApproval\Doctrine\DbalApprovalStore;
 use VerifiedHumanApproval\Doctrine\DbalTransaction;
 use VerifiedHumanApproval\Doctrine\Orm\ApprovalSchemaListener;
 use VerifiedHumanApproval\Doctrine\Orm\ProtectedEntityListener;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixtureAuthorizer;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixturePolicies;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixtureSchema;
+use VerifiedHumanApproval\StoreContracts\Fixture\TestProofVerifier;
 use VerifiedHumanApproval\Tests\Doctrine\Fixture\Document;
 use VerifiedHumanApproval\Tests\Doctrine\Fixture\Memo;
 use VerifiedHumanApproval\Tests\Doctrine\Fixture\Notice;
 use VerifiedHumanApproval\Tests\Doctrine\Fixture\PublishDocument;
 use VerifiedHumanApproval\Tests\Support\DbalFixtureDatabase;
-use VerifiedHumanApproval\Tests\Support\FixtureAuthorizer;
-use VerifiedHumanApproval\Tests\Support\FixturePolicies;
-use VerifiedHumanApproval\Tests\Support\FixtureSchema;
 use VerifiedHumanApproval\Tests\Support\TestDatabase;
-use VerifiedHumanApproval\Tests\Support\TestProofVerifier;
 
 /**
  * An application on Doctrine ORM: entities, the approval stores and the fixture application's permissions share one

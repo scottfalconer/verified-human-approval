@@ -13,11 +13,11 @@ use Symfony\Component\HttpKernel\Kernel;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
 use VerifiedHumanApproval\Core\ExecutionGuard;
 use VerifiedHumanApproval\Doctrine\DbalTransaction;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixtureAction;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixtureAuthorizer;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixturePolicies;
+use VerifiedHumanApproval\StoreContracts\Fixture\TestProofVerifier;
 use VerifiedHumanApproval\Tests\Support\DbalFixtureDatabase;
-use VerifiedHumanApproval\Tests\Support\FixtureAction;
-use VerifiedHumanApproval\Tests\Support\FixtureAuthorizer;
-use VerifiedHumanApproval\Tests\Support\FixturePolicies;
-use VerifiedHumanApproval\Tests\Support\TestProofVerifier;
 
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 
@@ -68,7 +68,7 @@ final class DoctrineKernel extends Kernel
         $container->extension('doctrine', [
             'dbal' => ['driver' => 'pdo_sqlite', 'path' => $this->database],
             'orm' => [
-                'mappings' => ['Fixture' => ['type' => 'attribute', 'dir' => \dirname(__DIR__, 2).'/Doctrine/Fixture', 'prefix' => 'VerifiedHumanApproval\Tests\Doctrine\Fixture', 'is_bundle' => false]],
+                'mappings' => ['Fixture' => ['type' => 'attribute', 'dir' => \dirname(__DIR__, 2).'/Doctrine/Fixture', 'prefix' => 'VerifiedHumanApproval\Tests\Doctrine\Fixture']],
             ],
         ]);
         $container->extension('verified_human_approval', $this->approval);

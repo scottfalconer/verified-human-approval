@@ -1,0 +1,21 @@
+{
+  "name": "verified-human-approval/store-contracts",
+  "description": "The storage contract tests for Verified Human Approval: approval store, signed audit log and passkey storage, with the fixture application, fault injection and real process races. Require it for development to check your own adapter.",
+  "type": "library",
+  "license": "MIT",
+  "require": {
+    "php": "^8.3",
+    "ext-json": "*",
+    "ext-sodium": "*",
+    "verified-human-approval/core": "self.version",
+    "verified-human-approval/webauthn": "self.version",
+    "phpunit/phpunit": "^11.5",
+    "symfony/clock": "^7.4 || ^8.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "VerifiedHumanApproval\\StoreContracts\\": "src/"
+    }
+  },
+  "homepage": "https://github.com/scottfalconer/verified-human-approval"
+}

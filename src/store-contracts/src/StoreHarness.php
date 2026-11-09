@@ -2,13 +2,17 @@
 
 declare(strict_types=1);
 
-namespace VerifiedHumanApproval\Tests\Contract;
+namespace VerifiedHumanApproval\StoreContracts;
 
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalService;
 use VerifiedHumanApproval\Core\ApprovalStore;
 use VerifiedHumanApproval\Core\Ceremony;
-use VerifiedHumanApproval\Tests\Support\FixtureAction;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixtureAction;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixtureAuthorizer;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixtureDatabase;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixturePolicies;
+use VerifiedHumanApproval\StoreContracts\Fixture\TestProofVerifier;
 
 /**
  * One storage adapter under the shared approval contract (ApprovalStoreContract).

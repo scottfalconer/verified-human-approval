@@ -11,6 +11,11 @@ use VerifiedHumanApproval\Core\ApprovalService;
 use VerifiedHumanApproval\Core\Ceremony;
 use VerifiedHumanApproval\Core\ExecutionGuard;
 use VerifiedHumanApproval\Core\Storage\PdoApprovalStore;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixtureAction;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixtureAuthorizer;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixturePolicies;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixtureSchema;
+use VerifiedHumanApproval\StoreContracts\Fixture\TestProofVerifier;
 
 /**
  * A real SQLite application boundary for the approval core tests.

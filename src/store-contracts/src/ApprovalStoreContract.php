@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace VerifiedHumanApproval\Tests\Contract;
+namespace VerifiedHumanApproval\StoreContracts;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -15,7 +15,6 @@ use VerifiedHumanApproval\Core\Ceremony;
 use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
 use VerifiedHumanApproval\Core\Evidence\Receipt;
 use VerifiedHumanApproval\Core\Evidence\ReceiptVerifier;
-use VerifiedHumanApproval\Tests\Support\ProcessRace;
 
 /**
  * The approval storage contract (the rules on ApprovalStore), run against one adapter through its harness.
@@ -24,6 +23,8 @@ use VerifiedHumanApproval\Tests\Support\ProcessRace;
  */
 abstract class ApprovalStoreContract extends TestCase
 {
+    private const WORKER = __DIR__.'/../bin/store-worker.php';
+
     private ?string $location = null;
 
     /** @return class-string<StoreHarness> */
@@ -390,9 +391,9 @@ abstract class ApprovalStoreContract extends TestCase
         $waiting = null;
         // The recovery transaction is the first to reach its commit: the failed attempt never does.
         $harness->faults->pauses['before_commit'] = function () use ($harness, $ceremony, $directory, &$waiting): void {
-            $waiting = ProcessRace::background(__DIR__.'/store-worker.php', [
+            $waiting = ProcessRace::background(self::WORKER, [
                 'operation' => 'complete', 'ceremonyId' => $ceremony->id, 'proof' => $harness->proof($ceremony),
-                'harness' => static::harness(), 'location' => $this->location,
+                'harness' => static::harness(), 'location' => $this->location(),
             ], $directory);
             usleep(500000); // long enough for it to be waiting on what the recovery holds
         };
@@ -482,9 +483,15 @@ abstract class ApprovalStoreContract extends TestCase
         self::assertSame(1, $harness->executeCalls());
     }
 
+    /** Where this test's store is: set up before every test. */
+    private function location(): string
+    {
+        return $this->location ?? throw new \LogicException('The store was not prepared.');
+    }
+
     private function connect(): StoreHarness
     {
-        return static::harness()::connect($this->location);
+        return static::harness()::connect($this->location());
     }
 
     /** @return array{ApprovalState, Ceremony} a pending request and one ceremony for it */
@@ -511,7 +518,7 @@ abstract class ApprovalStoreContract extends TestCase
     {
         $directory = $this->raceDirectory();
         try {
-            return ProcessRace::run(__DIR__.'/store-worker.php', array_map(fn (array $payload): array => $payload + ['harness' => static::harness(), 'location' => $this->location], $payloads), $directory);
+            return ProcessRace::run(self::WORKER, array_map(fn (array $payload): array => $payload + ['harness' => static::harness(), 'location' => $this->location()], $payloads), $directory);
         } finally {
             rmdir($directory);
         }

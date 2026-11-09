@@ -1,0 +1,44 @@
+# Verified Human Approval: storage contracts (`verified-human-approval/store-contracts`)
+
+The tests every Verified Human Approval storage adapter must pass, packaged so you can run them against your own: an `ApprovalStore`, an `Audit\AuditStore` or a `RevocableCredentialRepository` on another database, a framework's own storage (a Drupal table, say), or a fork of the supplied ones. The repository runs these same tests against the SQLite reference stores and the Doctrine stores on SQLite, PostgreSQL and MySQL.
+
+Require it for development only:
+
+```bash
+composer require --dev verified-human-approval/store-contracts:dev-main
+```
+
+## What it checks
+
+| Contract | Rules (see the PHPDoc of each interface) |
+| --- | --- |
+| `ApprovalStoreContract` | The nine rules on `ApprovalStore`: the change, proof, execution and receipt commit together; an unrelated open transaction is refused; writes outside the store's transaction are refused; every failure before commit rolls back every write; a lost commit answer is recovered, never repeated; terminal records keep their bytes; request keys and keyless retries reuse the original; racing completions, ceremonies, proposals and requests commit once; a lock timeout leaves nothing half done. Then: a change to the grant, permission, content, passkey or policy that another connection tries while an approval is between its authority check and its commit must wait, or commit first and stop it; a ceremony retired after a failed attempt is never used by a completion that waited; a 256 KiB proposal with U+2028 and 4-byte characters, and `{}` kept apart from `[]`, keep their bytes; a resource's history, when the store keeps one. |
+| `AuditStoreContract` | Rows kept exactly and returned unfiltered; a damaged head is still the head; every signed or bound field is checked; a joined append commits or rolls back with the host; other appenders are held off from before the head is read, for an empty log too; an append after the host read an older view never forks the chain; nothing is left half open after a failure; concurrent processes keep one ordered chain. |
+| `CredentialRepositoryContract` | An identical zero-counter write-back succeeds; a replaced source is refused; an id is never overwritten, reassigned or reactivated; ids differing only in case or a trailing space are different passkeys; ownership is user and tenant together. |
+
+The races are real: separate PHP processes, each with its own connection, start together at a barrier (`ProcessRace`). `FaultingStore` and `FaultingSigner` inject what a mock cannot: a failure just before commit, a commit whose answer is lost, a store that cannot be reached for recovery, a signer outage, and a pause at the authority check or just before commit.
+
+## Run them against your adapter
+
+Write a harness and one test class per harness. For an approval store, extend `StoreHarness`:
+
+- `prepare()` creates an isolated store with its tables and the fixture application (`Fixture\FixtureSchema::statements('sqlite'|'postgresql'|'mysql')`), and returns where it is; `destroy()` removes it; `connect()` opens a new connection to it and runs no DDL, since race workers call it too.
+- `service()` builds the real `ApprovalService` over your store wrapped in `FaultingStore`, with `Fixture\FixtureAction`, `FixtureAuthorizer`, `FixturePolicies` and the test-only `TestProofVerifier` on your store's connection (through a `Fixture\FixtureDatabase`; `PdoFixtureDatabase` wraps a PDO), a `FaultingSigner` over an Ed25519 signer that is the same for every connection to one location, and the harness's `$faults`. Set the authorizer's `afterCheck` to `fn () => $this->faults->reach('authority_checked')`.
+- On a database that locks rows, give the fixture's database the lock clauses (`FOR UPDATE`, and `FOR SHARE` or `LOCK IN SHARE MODE`), so the fixture application locks what its decision reads, as yours must.
+- The platform primitives: `attempt()` makes an ordinary writer's change with a bounded lock wait, `holdWriteLock()` holds what a completion needs first, `lockTimeout()`, `failInserts()` (a trigger, say), `withAmbientTransaction()`.
+
+Then:
+
+```php
+final class MyApprovalStoreContractTest extends \VerifiedHumanApproval\StoreContracts\ApprovalStoreContract
+{
+    protected static function harness(): string
+    {
+        return MyStoreHarness::class;
+    }
+}
+```
+
+`AuditStoreContract` with an `AuditHarness`, and `CredentialRepositoryContract` with a `CredentialHarness`, work the same way. The repository's `tests/Contract` has a harness for each supplied store to start from. The races need `proc_open`, and each worker runs `bin/store-worker.php` or `bin/audit-worker.php` with your project's autoloader.
+
+Passing these tests is necessary, not sufficient: they show your adapter keeps the rules for the fixture application. Your own authorizer and actions must lock what they read, as the fixture's do.

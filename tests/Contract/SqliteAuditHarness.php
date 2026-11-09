@@ -6,6 +6,7 @@ namespace VerifiedHumanApproval\Tests\Contract;
 
 use VerifiedHumanApproval\Core\Audit\AuditStore;
 use VerifiedHumanApproval\Core\Storage\PdoAuditStore;
+use VerifiedHumanApproval\StoreContracts\AuditHarness;
 
 /** The SQLite reference audit store, PdoAuditStore, in SQLite's default rollback journal. The location is a database file. */
 class SqliteAuditHarness extends AuditHarness

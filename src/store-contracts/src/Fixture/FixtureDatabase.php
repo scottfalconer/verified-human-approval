@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace VerifiedHumanApproval\Tests\Support;
+namespace VerifiedHumanApproval\StoreContracts\Fixture;
 
 /**
  * The fixture application's database access: plain, portable SQL on the connection the approval store under test

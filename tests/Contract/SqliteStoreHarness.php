@@ -11,11 +11,14 @@ use VerifiedHumanApproval\Core\ApprovalStore;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
 use VerifiedHumanApproval\Core\ExecutionGuard;
 use VerifiedHumanApproval\Core\Storage\PdoApprovalStore;
-use VerifiedHumanApproval\Tests\Support\FixtureAction;
-use VerifiedHumanApproval\Tests\Support\FixtureAuthorizer;
-use VerifiedHumanApproval\Tests\Support\FixturePolicies;
-use VerifiedHumanApproval\Tests\Support\FixtureSchema;
-use VerifiedHumanApproval\Tests\Support\TestProofVerifier;
+use VerifiedHumanApproval\StoreContracts\FaultingSigner;
+use VerifiedHumanApproval\StoreContracts\FaultingStore;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixtureAction;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixtureAuthorizer;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixturePolicies;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixtureSchema;
+use VerifiedHumanApproval\StoreContracts\Fixture\TestProofVerifier;
+use VerifiedHumanApproval\StoreContracts\StoreHarness;
 
 /** The SQLite reference adapter, PdoApprovalStore, in SQLite's default rollback journal. The location is a database file. */
 class SqliteStoreHarness extends StoreHarness

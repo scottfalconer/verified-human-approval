@@ -9,6 +9,7 @@ use VerifiedHumanApproval\Core\Audit\AuditStore;
 use VerifiedHumanApproval\Doctrine\ApprovalSchema;
 use VerifiedHumanApproval\Doctrine\DbalAuditStore;
 use VerifiedHumanApproval\Doctrine\DbalTransaction;
+use VerifiedHumanApproval\StoreContracts\AuditHarness;
 use VerifiedHumanApproval\Tests\Support\TestDatabase;
 
 /**

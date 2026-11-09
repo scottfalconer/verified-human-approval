@@ -24,12 +24,12 @@ use VerifiedHumanApproval\Doctrine\DbalApprovalStore;
 use VerifiedHumanApproval\Doctrine\DbalAuditStore;
 use VerifiedHumanApproval\Doctrine\DbalCredentialRepository;
 use VerifiedHumanApproval\Doctrine\DbalTransaction;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixtureAuthorizer;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixturePolicies;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixtureSchema;
+use VerifiedHumanApproval\StoreContracts\Fixture\TestProofVerifier;
 use VerifiedHumanApproval\Tests\Doctrine\Fixture\Document;
 use VerifiedHumanApproval\Tests\Doctrine\Fixture\Memo;
-use VerifiedHumanApproval\Tests\Support\FixtureAuthorizer;
-use VerifiedHumanApproval\Tests\Support\FixturePolicies;
-use VerifiedHumanApproval\Tests\Support\FixtureSchema;
-use VerifiedHumanApproval\Tests\Support\TestProofVerifier;
 use VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository;
 use VerifiedHumanApproval\WebAuthn\Credential;
 

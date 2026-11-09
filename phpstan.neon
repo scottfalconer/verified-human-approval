@@ -6,6 +6,8 @@ parameters:
         - src/mcp/src
         - src/symfony-bundle/src
         - src/doctrine/src
+        - src/store-contracts/src
+        - src/store-contracts/bin
         - demo/src
         - src/webauthn/bin
     tmpDir: .phpstan

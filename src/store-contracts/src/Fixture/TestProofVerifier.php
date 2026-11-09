@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace VerifiedHumanApproval\Tests\Support;
+namespace VerifiedHumanApproval\StoreContracts\Fixture;
 
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;

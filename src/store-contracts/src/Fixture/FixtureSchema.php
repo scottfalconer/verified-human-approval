@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace VerifiedHumanApproval\Tests\Support;
+namespace VerifiedHumanApproval\StoreContracts\Fixture;
 
 /**
  * The fixture application's tables and seed rows (articles, users, delegations, policies and test credentials), in

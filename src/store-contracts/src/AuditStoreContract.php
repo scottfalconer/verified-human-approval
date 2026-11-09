@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace VerifiedHumanApproval\Tests\Contract;
+namespace VerifiedHumanApproval\StoreContracts;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -12,7 +12,6 @@ use VerifiedHumanApproval\Core\Audit\AuditStore;
 use VerifiedHumanApproval\Core\ChallengeBinding;
 use VerifiedHumanApproval\Core\Evidence\EvidenceSigner;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
-use VerifiedHumanApproval\Tests\Support\ProcessRace;
 
 /**
  * The audit storage contract (the rules on AuditStore), run against one store through its harness: rows are kept
@@ -45,7 +44,7 @@ abstract class AuditStoreContract extends TestCase
 
     public function testAChainWrittenBeforeTheStoreWasExtractedStillVerifiesAndExtends(): void
     {
-        $fixture = json_decode((string) file_get_contents(\dirname(__DIR__).'/fixtures/audit/v1-chain.json'), true, 16, \JSON_THROW_ON_ERROR);
+        $fixture = json_decode((string) file_get_contents(__DIR__.'/../resources/audit-v1-chain.json'), true, 16, \JSON_THROW_ON_ERROR);
         // The fixture's synthetic key comes from a public seed, so this test can append with the same key.
         $pair = sodium_crypto_sign_seed_keypair(hash('sha256', 'verified-human-approval audit fixture v1', true));
         $signer = new SodiumEvidenceSigner($fixture['keyId'], sodium_crypto_sign_secretkey($pair));
@@ -59,7 +58,7 @@ abstract class AuditStoreContract extends TestCase
         $report = $log->verify();
         self::assertTrue($report['intact']);
         self::assertSame(4, $report['newest']);
-        self::assertSame('Laptop', $log->find('passkey.enrolled', 'cred-1')['data']->label);
+        self::assertSame('Laptop', self::found($log->find('passkey.enrolled', 'cred-1'))['data']->label);
 
         $entry = $log->append('tenant-b', 'connection.revoked', 'grant-10', ['userId' => 'bob', 'by' => 'admin']);
         self::assertSame([5, $fixture['rows'][3]['hash'], AuditLog::FORMAT], [$entry['seq'], $entry['previous'], $entry['format']]);
@@ -114,9 +113,9 @@ abstract class AuditStoreContract extends TestCase
     {
         $log = $this->populatedLog();
         $log->append('tenant-a', 'passkey.enrolled', 'key-1', ['userId' => 'alice', 'label' => 'newer']);
-        self::assertSame('newer', $log->find('passkey.enrolled', 'key-1')['data']->label);
+        self::assertSame('newer', self::found($log->find('passkey.enrolled', 'key-1'))['data']->label);
         $this->connect()->damage(4, "signature = 'AAAA'");
-        self::assertSame(1, $log->find('passkey.enrolled', 'key-1')['seq'], 'A damaged newer entry is passed over for an older one that verifies.');
+        self::assertSame(1, self::found($log->find('passkey.enrolled', 'key-1'))['seq'], 'A damaged newer entry is passed over for an older one that verifies.');
     }
 
     public function testSubjectsAndTypesCompareExactly(): void
@@ -125,9 +124,9 @@ abstract class AuditStoreContract extends TestCase
         $long = str_repeat('Ab_-', 341); // a 1,364-character passkey id, the longest WebAuthn allows
         $log->append('tenant-a', 'passkey.enrolled', $long, ['userId' => 'alice']);
         $log->append('tenant-a', 'passkey.enrolled', 'KEY-1', ['userId' => 'mallory']);
-        self::assertSame(4, $log->find('passkey.enrolled', $long)['seq']);
-        self::assertSame('alice', $log->find('passkey.enrolled', 'key-1')['data']->userId, 'Subjects differing only in case are different subjects.');
-        self::assertSame('mallory', $log->find('passkey.enrolled', 'KEY-1')['data']->userId);
+        self::assertSame(4, self::found($log->find('passkey.enrolled', $long))['seq']);
+        self::assertSame('alice', self::found($log->find('passkey.enrolled', 'key-1'))['data']->userId, 'Subjects differing only in case are different subjects.');
+        self::assertSame('mallory', self::found($log->find('passkey.enrolled', 'KEY-1'))['data']->userId);
         self::assertNull($log->find('passkey.enrolled', 'key-1 '), 'A trailing space makes another subject.');
         self::assertNull($log->find('Passkey.enrolled', 'key-1'));
         self::assertTrue($log->verify()['intact']);
@@ -317,8 +316,8 @@ abstract class AuditStoreContract extends TestCase
         try {
             // The workers sign with this test's key, so one trusted public key checks the whole chain.
             $secret = ChallengeBinding::encode($this->secretKey);
-            $results = ProcessRace::run(__DIR__.'/audit-worker.php', array_map(fn (int $worker): array => [
-                'harness' => static::harness(), 'location' => $this->location, 'keyId' => 'app-key', 'secretKey' => $secret,
+            $results = ProcessRace::run(__DIR__.'/../bin/audit-worker.php', array_map(fn (int $worker): array => [
+                'harness' => static::harness(), 'location' => $this->location(), 'keyId' => 'app-key', 'secretKey' => $secret,
                 'appends' => 5, 'worker' => 'w'.$worker, 'tenant' => 0 === $worker % 2 ? 'tenant-a' : 'tenant-b',
             ], range(1, 4)), $directory);
         } finally {
@@ -332,14 +331,32 @@ abstract class AuditStoreContract extends TestCase
         self::assertSame($before + 20, $report['newest']);
     }
 
+    /** Where this test's store is: set up before every test. */
+    private function location(): string
+    {
+        return $this->location ?? throw new \LogicException('The store was not prepared.');
+    }
+
     private function connect(): AuditHarness
     {
-        return static::harness()::connect($this->location);
+        return static::harness()::connect($this->location());
     }
 
     private function log(AuditHarness $harness): AuditLog
     {
         return new AuditLog($harness->store(), $this->signer, $this->signer->publicKey(), new MockClock('2026-11-09 10:00:00 UTC'));
+    }
+
+    /**
+     * @param array<string, mixed>|null $entry
+     *
+     * @return array<string, mixed>
+     */
+    private static function found(?array $entry): array
+    {
+        self::assertNotNull($entry, 'The entry is found.');
+
+        return $entry;
     }
 
     /** Three entries: two tenants, and one with empty data. */

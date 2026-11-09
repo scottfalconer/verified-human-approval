@@ -11,10 +11,10 @@ use VerifiedHumanApproval\Core\ApprovalObserver;
 use VerifiedHumanApproval\Core\ApprovalService;
 use VerifiedHumanApproval\Core\ApprovalState;
 use VerifiedHumanApproval\Core\ExecutionGuard;
-use VerifiedHumanApproval\Tests\Contract\FaultingStore;
-use VerifiedHumanApproval\Tests\Contract\Faults;
+use VerifiedHumanApproval\StoreContracts\FaultingStore;
+use VerifiedHumanApproval\StoreContracts\Faults;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixtureAction;
 use VerifiedHumanApproval\Tests\Support\CoreFixture;
-use VerifiedHumanApproval\Tests\Support\FixtureAction;
 
 /** What an action learns about the approval it runs under, and what observers hear once it commits. */
 final class AfterCommitTest extends TestCase

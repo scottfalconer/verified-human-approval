@@ -3,10 +3,17 @@
 declare(strict_types=1);
 
 use VerifiedHumanApproval\Core\ApprovalException;
-use VerifiedHumanApproval\Tests\Contract\StoreHarness;
-use VerifiedHumanApproval\Tests\Support\ProcessRace;
+use VerifiedHumanApproval\Core\ApprovalState;
+use VerifiedHumanApproval\StoreContracts\ProcessRace;
+use VerifiedHumanApproval\StoreContracts\StoreHarness;
 
-require dirname(__DIR__, 2).'/vendor/autoload.php';
+// The autoloader of the project that installed this package, of this repository, or of a checkout of the package.
+foreach ([dirname(__DIR__, 3).'/autoload.php', dirname(__DIR__, 3).'/vendor/autoload.php', dirname(__DIR__).'/vendor/autoload.php'] as $autoload) {
+    if (is_file($autoload)) {
+        require $autoload;
+        break;
+    }
+}
 
 // One competing process in a contract race. It connects to data the test prepared, through the harness the
 // test names, and runs no DDL.
@@ -25,7 +32,7 @@ try {
         'revoke_grant' => $connection->revokeGrant(),
         default => throw new InvalidArgumentException('Unknown operation.'),
     };
-    $report = null === $answer ? ['status' => 'done'] : ['status' => $answer->status, 'requestId' => $answer->request->id, 'result' => $answer->result];
+    $report = $answer instanceof ApprovalState ? ['status' => $answer->status, 'requestId' => $answer->request->id, 'result' => $answer->result] : ['status' => 'done'];
     fwrite(\STDOUT, json_encode($report + ['executeCalls' => $connection->executeCalls()], \JSON_THROW_ON_ERROR)."\n");
 } catch (ApprovalException $exception) {
     fwrite(\STDOUT, json_encode(['status' => 'rejected', 'reason' => $exception->reason, 'executeCalls' => isset($connection) ? $connection->executeCalls() : 0], \JSON_THROW_ON_ERROR)."\n");

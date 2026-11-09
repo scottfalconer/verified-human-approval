@@ -51,7 +51,8 @@
     "verified-human-approval/webauthn": "self.version",
     "verified-human-approval/mcp": "self.version",
     "verified-human-approval/symfony-bundle": "self.version",
-    "verified-human-approval/doctrine": "self.version"
+    "verified-human-approval/doctrine": "self.version",
+    "verified-human-approval/store-contracts": "self.version"
   },
   "autoload": {
     "psr-4": {
@@ -60,6 +61,7 @@
       "VerifiedHumanApproval\\Mcp\\": "src/mcp/src/",
       "VerifiedHumanApproval\\Bundle\\": "src/symfony-bundle/src/",
       "VerifiedHumanApproval\\Doctrine\\": "src/doctrine/src/",
+      "VerifiedHumanApproval\\StoreContracts\\": "src/store-contracts/src/",
       "VerifiedHumanApproval\\Demo\\": "demo/src/"
     }
   },

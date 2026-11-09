@@ -7,6 +7,7 @@ namespace VerifiedHumanApproval\Tests\Contract;
 use VerifiedHumanApproval\Doctrine\ApprovalSchema;
 use VerifiedHumanApproval\Doctrine\DbalCredentialRepository;
 use VerifiedHumanApproval\Doctrine\DbalTransaction;
+use VerifiedHumanApproval\StoreContracts\CredentialHarness;
 use VerifiedHumanApproval\Tests\Support\TestDatabase;
 use VerifiedHumanApproval\WebAuthn\RevocableCredentialRepository;
 

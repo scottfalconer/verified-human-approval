@@ -5,10 +5,16 @@ declare(strict_types=1);
 use Symfony\Component\Clock\NativeClock;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
-use VerifiedHumanApproval\Tests\Contract\AuditHarness;
-use VerifiedHumanApproval\Tests\Support\ProcessRace;
+use VerifiedHumanApproval\StoreContracts\AuditHarness;
+use VerifiedHumanApproval\StoreContracts\ProcessRace;
 
-require dirname(__DIR__, 2).'/vendor/autoload.php';
+// The autoloader of the project that installed this package, of this repository, or of a checkout of the package.
+foreach ([dirname(__DIR__, 3).'/autoload.php', dirname(__DIR__, 3).'/vendor/autoload.php', dirname(__DIR__).'/vendor/autoload.php'] as $autoload) {
+    if (is_file($autoload)) {
+        require $autoload;
+        break;
+    }
+}
 
 // One of several processes appending to the same audit log at once, through the harness the test names. It
 // connects to prepared data and never creates tables.

@@ -6,6 +6,7 @@ namespace VerifiedHumanApproval\Tests\Support;
 
 use Doctrine\DBAL\Connection;
 use VerifiedHumanApproval\Doctrine\DbalTransaction;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixtureDatabase;
 
 /**
  * The fixture application on a DBAL connection, the way an application on Doctrine reads and writes: through the

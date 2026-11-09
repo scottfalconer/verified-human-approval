@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace VerifiedHumanApproval\Tests\Support;
+namespace VerifiedHumanApproval\StoreContracts\Fixture;
 
 /** The fixture application on a PDO connection. Lock clauses default to none, as SQLite needs. */
 final readonly class PdoFixtureDatabase implements FixtureDatabase

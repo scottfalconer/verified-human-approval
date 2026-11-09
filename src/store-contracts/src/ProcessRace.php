@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace VerifiedHumanApproval\Tests\Support;
+namespace VerifiedHumanApproval\StoreContracts;
 
 use PHPUnit\Framework\Assert;
 
@@ -27,7 +27,7 @@ final class ProcessRace
             foreach ($payloads as $index => $payload) {
                 $ready = $barrier.'-ready-'.$index;
                 $pipes = [];
-                $process = proc_open([\PHP_BINARY, $script], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, \dirname(__DIR__, 2));
+                $process = proc_open([\PHP_BINARY, $script], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
                 Assert::assertIsResource($process);
                 fwrite($pipes[0], json_encode($payload + ['ready' => $ready, 'barrier' => $barrier], \JSON_THROW_ON_ERROR)."\n");
                 fclose($pipes[0]);
@@ -101,7 +101,7 @@ final class ProcessRace
         $barrier = $directory.'/start-'.bin2hex(random_bytes(4));
         $ready = $barrier.'-ready-0';
         $pipes = [];
-        $process = proc_open([\PHP_BINARY, $script], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, \dirname(__DIR__, 2));
+        $process = proc_open([\PHP_BINARY, $script], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
         Assert::assertIsResource($process);
         fwrite($pipes[0], json_encode($payload + ['ready' => $ready, 'barrier' => $barrier], \JSON_THROW_ON_ERROR)."\n");
         fclose($pipes[0]);

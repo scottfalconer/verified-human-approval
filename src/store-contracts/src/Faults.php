@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace VerifiedHumanApproval\Tests\Contract;
+namespace VerifiedHumanApproval\StoreContracts;
 
 /**
  * What the next approval runs into. Planned transaction faults apply to the next calls of transaction(), in order.

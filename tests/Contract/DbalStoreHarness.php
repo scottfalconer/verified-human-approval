@@ -14,13 +14,16 @@ use VerifiedHumanApproval\Core\ExecutionGuard;
 use VerifiedHumanApproval\Doctrine\ApprovalSchema;
 use VerifiedHumanApproval\Doctrine\DbalApprovalStore;
 use VerifiedHumanApproval\Doctrine\DbalTransaction;
+use VerifiedHumanApproval\StoreContracts\FaultingSigner;
+use VerifiedHumanApproval\StoreContracts\FaultingStore;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixtureAction;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixtureAuthorizer;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixturePolicies;
+use VerifiedHumanApproval\StoreContracts\Fixture\FixtureSchema;
+use VerifiedHumanApproval\StoreContracts\Fixture\TestProofVerifier;
+use VerifiedHumanApproval\StoreContracts\StoreHarness;
 use VerifiedHumanApproval\Tests\Support\DbalFixtureDatabase;
-use VerifiedHumanApproval\Tests\Support\FixtureAction;
-use VerifiedHumanApproval\Tests\Support\FixtureAuthorizer;
-use VerifiedHumanApproval\Tests\Support\FixturePolicies;
-use VerifiedHumanApproval\Tests\Support\FixtureSchema;
 use VerifiedHumanApproval\Tests\Support\TestDatabase;
-use VerifiedHumanApproval\Tests\Support\TestProofVerifier;
 
 /**
  * DbalApprovalStore on one database, with the fixture application on the same DBAL connection, locking what its

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace VerifiedHumanApproval\Tests\Contract;
+namespace VerifiedHumanApproval\StoreContracts;
 
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalState;

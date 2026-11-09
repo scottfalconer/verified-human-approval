@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\Contract;
 
+use VerifiedHumanApproval\StoreContracts\CredentialHarness;
 use VerifiedHumanApproval\Tests\Support\InMemoryCredentialRepository;
 use VerifiedHumanApproval\WebAuthn\RevocableCredentialRepository;
 

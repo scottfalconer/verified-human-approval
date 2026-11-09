@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace VerifiedHumanApproval\Tests\Contract;
+namespace VerifiedHumanApproval\StoreContracts;
 
 use PHPUnit\Framework\TestCase;
 use VerifiedHumanApproval\Core\Actor;
@@ -124,9 +124,15 @@ abstract class CredentialRepositoryContract extends TestCase
         self::assertTrue($this->connect()->repository()->find('key-1')?->revoked, 'A revoked record is still found, so a verifier can fail closed.');
     }
 
+    /** Where this test's store is: set up before every test. */
+    private function location(): string
+    {
+        return $this->location ?? throw new \LogicException('The store was not prepared.');
+    }
+
     private function connect(): CredentialHarness
     {
-        return static::harness()::connect($this->location);
+        return static::harness()::connect($this->location());
     }
 
     /** @param callable(): mixed $write */
