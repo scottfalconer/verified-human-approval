@@ -216,7 +216,8 @@ final class SymfonyApprovalTest extends TestCase
         $stopped = $browser->request('GET', self::ORIGIN.'/approval/'.$id);
         self::assertCount(0, $stopped->filter('[data-approve]'));
         self::assertCount(0, $stopped->filter('.consequence'), 'What approval would do no longer applies.');
-        self::assertSame('Blocked: nothing changed. This request can no longer be approved: something it depends on changed after it was made. Reason: stale_resource.', $stopped->filter('.approval-sheet .notice')->text());
+        self::assertSame('Blocked: nothing changed. This request can no longer be approved: something it depends on changed after it was made. What it would change was edited after the request was made, so it no longer matches what was reviewed. Reason code: stale_resource', $stopped->filter('.approval-sheet .notice')->text());
+        self::assertSame('Reason code: stale_resource', $stopped->filter('.approval-sheet .notice p.small')->text(), 'The code stays, small, for whoever looks into it.');
         self::assertSame('What was requested', $stopped->filter('.approval-sheet .sheet-preview h2')->text());
         self::assertStringContainsString('it never issued this alert', $stopped->filter('.approval-sheet .sheet-preview p.muted')->text());
         self::assertSame('Not issued · revision 1', $stopped->filter('.rc-frame-bar .pill')->text());

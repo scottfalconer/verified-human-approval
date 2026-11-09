@@ -61,11 +61,11 @@ composer require --no-scripts \
   'symfony/mcp-bundle:^1.0@beta'
 ```
 
-`--no-scripts` lets you add the required configuration before Symfony boots. Commit the resulting Composer files. Keep the checked-out source available when installing from that lock file. There is no published Flex recipe for this bundle; register it and configure it explicitly.
+`--no-scripts` lets you add the required configuration before Symfony boots. Commit the resulting Composer files. Keep the checked-out source available when installing from that lock file. There is no published Flex recipe for this bundle yet, so the configuration below is yours to add.
 
 ## 2. Enable and configure the bundle
 
-Add these entries to `config/bundles.php`, keeping the application's other bundles:
+With Symfony Flex installed, as in a project made with `symfony new`, Composer has already added both bundles to `config/bundles.php`: Flex registers every Symfony bundle it installs, recipe or not. Check that these entries are there. Without Flex, add them, keeping the application's other bundles:
 
 ```php
 <?php

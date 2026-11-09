@@ -198,6 +198,7 @@ final class LayoutAndLanguageTest extends TestCase
                 // A translation is text, even where the sentence holds a link.
                 'Anyone can check it against the site’s %published_keys%, even after the site changes its key.' => 'Chacun peut la <em>vérifier</em> avec les %published_keys% du site.',
                 'published keys' => 'clés publiées',
+                'Expires %time%.' => 'Expire à <b>%time%</b>.',
             ],
             // The same words in another domain are not the bundle's.
             'messages' => ['Cancel request' => 'Wrong domain'],
@@ -212,6 +213,9 @@ final class LayoutAndLanguageTest extends TestCase
         $script = $this->messages($page, '[data-passkey-panel]');
         self::assertSame('En attente de votre appareil…', $script['waiting'], 'The script is handed the translation.');
         self::assertSame(self::english()['sending'], $script['sending']);
+        $expiry = $page->filter('[data-passkey-panel] p.muted');
+        self::assertStringContainsString('Expire à <b>', $expiry->text(), 'The translation’s markup is shown as text.');
+        self::assertCount(1, $expiry->filter('time[data-local-time]'), 'The time goes in after the sentence is escaped.');
 
         $this->approve($browser, $id);
         $receipt = $browser->request('GET', self::ORIGIN.'/approval/'.$id)->filter('.approval-sheet .receipt p');
@@ -284,6 +288,11 @@ final class LayoutAndLanguageTest extends TestCase
         self::assertSame('Approve with your passkey', $page->filter('[data-approve]')->text());
         self::assertSame('Cancel request', $page->filter('[data-cancel]')->text());
         self::assertStringStartsWith('Only this exact proposal runs, once. A changed draft, a revoked permission or an expired request stops it. Expires ', $page->filter('[data-passkey-panel] p.muted')->text());
+        // Times carry their instant in UTC, so the script can show them in the reader's own time zone.
+        $times = $page->filter('time[data-local-time]');
+        self::assertSame(['time', 'datetime'], $times->each(static fn ($time): string => (string) $time->attr('data-local-time')));
+        self::assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$/', (string) $times->first()->attr('datetime'));
+        self::assertSame($times->first()->attr('datetime'), $times->last()->attr('datetime'));
         self::assertSame('Details and everything this approval is bound to', $page->filter('summary')->text());
         self::assertSame('The application checks current permissions and the stored proposal before it executes.', $page->filter('footer')->text());
         // The script is handed its own English, under keys it knows.

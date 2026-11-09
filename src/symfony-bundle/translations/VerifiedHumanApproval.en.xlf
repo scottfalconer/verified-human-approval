@@ -157,10 +157,43 @@
                 <source>This request stopped.</source>
                 <target>This request stopped.</target>
             </trans-unit>
+            <trans-unit id="review.stopped.why.stale_resource">
+                <source>What it would change was edited after the request was made, so it no longer matches what was reviewed.</source>
+                <target>What it would change was edited after the request was made, so it no longer matches what was reviewed.</target>
+            </trans-unit>
+            <trans-unit id="review.stopped.why.missing_resource">
+                <source>What it would change no longer exists.</source>
+                <target>What it would change no longer exists.</target>
+            </trans-unit>
+            <trans-unit id="review.stopped.why.policy_changed">
+                <source>The site’s approval rule for this action changed after the request was made.</source>
+                <target>The site’s approval rule for this action changed after the request was made.</target>
+            </trans-unit>
+            <trans-unit id="review.stopped.why.implementation_changed">
+                <source>The site’s code for this action changed after the request was made.</source>
+                <target>The site’s code for this action changed after the request was made.</target>
+            </trans-unit>
+            <trans-unit id="review.stopped.why.prepared_action_changed">
+                <source>What this action would do changed after the request was made.</source>
+                <target>What this action would do changed after the request was made.</target>
+            </trans-unit>
+            <trans-unit id="review.stopped.why.permission_denied">
+                <source>The account that asked no longer has permission to do this.</source>
+                <target>The account that asked no longer has permission to do this.</target>
+            </trans-unit>
+            <trans-unit id="review.stopped.why.delegation_revoked">
+                <source>The agent connection that made this request was revoked.</source>
+                <target>The agent connection that made this request was revoked.</target>
+            </trans-unit>
+            <trans-unit id="review.stopped.why.delegation_denied">
+                <source>The agent connection that made this request is not allowed to do this.</source>
+                <target>The agent connection that made this request is not allowed to do this.</target>
+                <note>For the reason codes delegation_denied and scope_denied.</note>
+            </trans-unit>
             <trans-unit id="review.stopped.reason">
-                <source>Reason: %reason%.</source>
-                <target>Reason: %reason%.</target>
-                <note>%reason% is a code, such as stale_resource, for whoever looks into it.</note>
+                <source>Reason code: %reason%</source>
+                <target>Reason code: %reason%</target>
+                <note>%reason% is a code, such as stale_resource, for whoever looks into it. Keep it as it is.</note>
             </trans-unit>
             <trans-unit id="review.preview.approved">
                 <source>What you approved</source>
@@ -193,7 +226,7 @@
             <trans-unit id="review.expires_at">
                 <source>Expires %time%.</source>
                 <target>Expires %time%.</target>
-                <note>%time% is the time of day the request expires, such as 14:05 UTC.</note>
+                <note>%time% is the time of day the request expires, such as 14:05 UTC; the page shows it in the reader’s own time zone.</note>
             </trans-unit>
             <trans-unit id="review.receipt.scoped">
                 <source>Download your receipt from this request’s page in your signed-in browser.</source>

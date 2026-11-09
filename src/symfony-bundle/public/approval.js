@@ -162,6 +162,22 @@ for (const panel of document.querySelectorAll('[data-passkey-panel]')) {
     });
 }
 
+// Times in the reader's own time zone. The page renders them in the server's, which stays if this cannot run.
+const timeFormats = {
+    time: {hour: '2-digit', minute: '2-digit', timeZoneName: 'short'},
+    datetime: {year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', timeZoneName: 'short'},
+};
+for (const time of document.querySelectorAll('time[data-local-time]')) {
+    const when = new Date(time.dateTime);
+    const format = timeFormats[time.dataset.localTime];
+    if (!format || Number.isNaN(when.getTime())) continue;
+    try {
+        time.textContent = new Intl.DateTimeFormat(document.documentElement.lang || undefined, format).format(when);
+    } catch {
+        // An unknown page language leaves the server's rendering in place.
+    }
+}
+
 // After approval, return the person to where the request came from. The card in Claude adds
 // #return=claude-desktop, claude-mobile or claude-web to the review link; without it, the page just says so.
 const back = new URLSearchParams(location.hash.slice(1)).get('return');

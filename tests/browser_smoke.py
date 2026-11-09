@@ -67,7 +67,8 @@ def main():
 
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch(executable_path=CHROMIUM, headless=True, args=["--no-sandbox"])
-                page = browser.new_page(viewport={"width": 1180, "height": 900})
+                # A reader far from the server: the page shows its times in the reader's own zone.
+                page = browser.new_page(viewport={"width": 1180, "height": 900}, timezone_id="Asia/Tokyo")
                 errors = []
                 page.on("pageerror", lambda error: errors.append(str(error)))
                 cdp = page.context.new_cdp_session(page)
@@ -92,6 +93,8 @@ def main():
                 page.goto(initial["review_url"] + "#return=claude-desktop")
                 expect(page.locator(".statement")).to_contain_text("Evacuation order")
                 expect(page.locator(".rc-frame .rc-body")).to_contain_text("Hill Street route")
+                expect(page.locator('time[data-local-time="time"]')).to_contain_text("GMT+9")
+                expect(page.locator('time[data-local-time="datetime"]')).to_contain_text("GMT+9")
                 # The approval page shows the final public page, rendered from the frozen proposal.
                 approved_title = page.locator(".rc-frame .rc-title").inner_text()
                 approved_body = page.locator(".rc-frame .rc-body").inner_text()

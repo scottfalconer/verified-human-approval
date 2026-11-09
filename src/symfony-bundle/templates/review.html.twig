@@ -48,7 +48,26 @@
         }[state.status] ?? ['Stopped: nothing changed.'|trans, 'This request stopped.'|trans] %}
         <div class="notice error stopped">
             <p class="stopped-title">{{ stopped[0] }}</p>
-            <p>{{ stopped[1] }}{% if state.reason and state.status in ['invalidated', 'denied'] %} <span class="small">{{ 'Reason: %reason%.'|trans({'%reason%': state.reason}) }}</span>{% endif %}</p>
+            <p>{{ stopped[1] }}</p>
+            {# Why, in words, for the reasons this library and its guide use. Override this block to explain an
+               application's own reason codes; the code itself stays, small, for whoever looks into it. #}
+            {% block stopped_reason %}
+            {% if state.reason and state.status in ['invalidated', 'denied'] %}
+            {% set why = {
+                stale_resource: 'What it would change was edited after the request was made, so it no longer matches what was reviewed.'|trans,
+                missing_resource: 'What it would change no longer exists.'|trans,
+                policy_changed: 'The site’s approval rule for this action changed after the request was made.'|trans,
+                implementation_changed: 'The site’s code for this action changed after the request was made.'|trans,
+                prepared_action_changed: 'What this action would do changed after the request was made.'|trans,
+                permission_denied: 'The account that asked no longer has permission to do this.'|trans,
+                delegation_revoked: 'The agent connection that made this request was revoked.'|trans,
+                delegation_denied: 'The agent connection that made this request is not allowed to do this.'|trans,
+                scope_denied: 'The agent connection that made this request is not allowed to do this.'|trans,
+            }[state.reason] ?? null %}
+            {% if why %}<p>{{ why }}</p>{% endif %}
+            <p class="small muted">{{ 'Reason code: %reason%'|trans({'%reason%': state.reason}) }}</p>
+            {% endif %}
+            {% endblock %}
         </div>
         {% if return_path %}<div class="actions sheet-back"><a class="button secondary" href="{{ return_path }}">{{ 'Back to %application%'|trans({'%application%': application}) }}</a></div>{% endif %}
         {% endif %}
@@ -87,7 +106,10 @@
              }|json_encode }}">
             <div class="actions"><button type="button" class="primary" data-approve>{{ 'Approve with your passkey'|trans }}</button>{% if not scoped %}<button type="button" class="secondary" data-cancel>{{ 'Cancel request'|trans }}</button>{% endif %}</div>
             <p data-message aria-live="polite"></p>
-            <p class="muted small">{{ 'Only this exact proposal runs, once. A changed draft, a revoked permission or an expired request stops it.'|trans }} {{ 'Expires %time%.'|trans({'%time%': state.request.expiresAt|date('H:i T')}) }}</p>
+            {# The server's time is the fallback; approval.js shows it in the viewer's own time zone. The element goes in
+               after the sentence is escaped, so a translation of it stays text. #}
+            {% set expires %}<time datetime="{{ state.request.expiresAt|date('c', 'UTC') }}" data-local-time="time">{{ state.request.expiresAt|date('H:i T') }}</time>{% endset %}
+            <p class="muted small">{{ 'Only this exact proposal runs, once. A changed draft, a revoked permission or an expired request stops it.'|trans }} {{ 'Expires %time%.'|trans|e|replace({'%time%': expires})|raw }}</p>
         </div>
         {% else %}
         {# The person's own copy, signed as the action ran, so the site's record cannot change later without it showing. #}
@@ -118,7 +140,7 @@
             <dt>{{ 'Environment'|trans }}</dt><dd>{{ prepared.target.environment|default('Not specified'|trans) }}</dd>
             <dt>{{ 'Resource'|trans }}</dt><dd>{{ prepared.target.resource|default(prepared.actionId) }}</dd>
             <dt>{{ 'Status'|trans }}</dt><dd>{{ state.status }}</dd>
-            <dt>{{ 'Expires'|trans }}</dt><dd>{{ state.request.expiresAt|date('Y-m-d H:i:s T') }}</dd>
+            <dt>{{ 'Expires'|trans }}</dt><dd><time datetime="{{ state.request.expiresAt|date('c', 'UTC') }}" data-local-time="datetime">{{ state.request.expiresAt|date('Y-m-d H:i:s T') }}</time></dd>
         </dl>
         <pre>{{ {'effect': prepared.effect, 'preconditions': prepared.preconditions}|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre>
         {% if state.result %}<pre>{{ state.result|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre>{% endif %}
