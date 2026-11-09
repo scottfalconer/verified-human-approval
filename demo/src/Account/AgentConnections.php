@@ -6,11 +6,12 @@ namespace VerifiedHumanApproval\Demo\Account;
 
 use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Demo\DemoDatabase;
+use VerifiedHumanApproval\Demo\OAuth\OAuthConnections;
 
 /** Ends agent connections. Each revocation is in the signed security log, in the same transaction. */
 final readonly class AgentConnections
 {
-    public function __construct(private DemoDatabase $database, private AuditLog $audit)
+    public function __construct(private DemoDatabase $database, private AuditLog $audit, private OAuthConnections $oauth)
     {
     }
 
@@ -24,6 +25,10 @@ final readonly class AgentConnections
             $grant = $this->database->grant($grantId);
             if (null === $grant || !$this->database->revokeGrant($grantId, $tenantId, $ownerId)) {
                 return false;
+            }
+            // An OAuth connection's codes and tokens end with it, so the client cannot refresh its way back.
+            if (null === $grant['token_hash'] && null !== $grant['client_id']) {
+                $this->oauth->revokeTokens((string) $grant['user_id'], (string) $grant['client_id']);
             }
             $this->audit->append($tenantId, 'connection.revoked', $grantId, ['userId' => $grant['user_id'], 'by' => $by]);
 

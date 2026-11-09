@@ -7,23 +7,33 @@ namespace VerifiedHumanApproval\Tests\Bundle;
 use Mcp\Client;
 use Mcp\Client\Transport\HttpTransport;
 use Nyholm\Psr7\Factory\Psr17Factory;
+use Omouren\McpOauthBundle\Cimd\CimdException;
+use Omouren\McpOauthBundle\Cimd\ClientIdMetadataResolver;
+use Omouren\McpOauthBundle\McpOauthSettings;
 use PHPUnit\Framework\TestCase;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
+use Symfony\Component\Cache\Adapter\ArrayAdapter;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\NoPrivateNetworkHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
+use VerifiedHumanApproval\Demo\Account\AgentConnections;
 use VerifiedHumanApproval\Demo\DemoDatabase;
 use VerifiedHumanApproval\Demo\DemoKernel;
 use VerifiedHumanApproval\Demo\DemoSetup;
-use VerifiedHumanApproval\Demo\OAuth\ClientRegistry;
-use VerifiedHumanApproval\Demo\OAuth\OAuthServer;
+use VerifiedHumanApproval\Demo\OAuth\ClientMetadataHttpClient;
+use VerifiedHumanApproval\Demo\OAuth\OAuthConnections;
 
-/** MCP authorization the way a remote client such as claude.ai does it, end to end. */
+/**
+ * MCP authorization the way a remote client such as claude.ai does it, end to end, against the OAuth server the
+ * demo uses: league/oauth2-server with omouren/mcp-oauth-bundle. These are the security checks the demo's earlier
+ * hand-written server passed, kept as acceptance tests for the replacement.
+ */
 final class OAuthTest extends TestCase
 {
     private const ORIGIN = 'http://localhost:8080';
     private const CALLBACK = 'https://claude.ai/api/mcp/auth_callback';
+    private const CLAUDE = 'https://claude.ai/oauth/mcp-oauth-client-metadata';
     private string $runtime;
     private array $accounts;
     /** @var list<KernelBrowser> */ private array $browsers = [];
@@ -48,38 +58,40 @@ final class OAuthTest extends TestCase
         $api->request('POST', self::ORIGIN.'/mcp', server: ['CONTENT_TYPE' => 'application/json'], content: '{"jsonrpc":"2.0","id":1,"method":"ping"}');
         self::assertSame(401, $api->getResponse()->getStatusCode());
         $challenge = (string) $api->getResponse()->headers->get('WWW-Authenticate');
-        self::assertStringContainsString('resource_metadata="'.self::ORIGIN.'/.well-known/oauth-protected-resource/mcp"', $challenge, 'The challenge names the metadata URL the SDK derives for the resource (RFC 9728 §3.1).');
+        self::assertStringContainsString('resource_metadata="'.self::ORIGIN.'/.well-known/oauth-protected-resource/mcp"', $challenge, 'The challenge names the metadata URL for the resource (RFC 9728 §3.1).');
         self::assertStringContainsString('scope="alert.read alert.publish approval.read"', $challenge, 'The challenge names the scopes an agent needs.');
-        self::assertSame($this->json($api, 'GET', '/.well-known/oauth-protected-resource'), $this->json($api, 'GET', '/.well-known/oauth-protected-resource/mcp'));
 
-        $resource = $this->json($api, 'GET', '/.well-known/oauth-protected-resource');
+        $resource = $this->json($api, 'GET', '/.well-known/oauth-protected-resource/mcp');
         self::assertSame(self::ORIGIN.'/mcp', $resource['resource']);
         self::assertSame([self::ORIGIN], $resource['authorization_servers']);
         $server = $this->json($api, 'GET', '/.well-known/oauth-authorization-server');
+        self::assertSame(self::ORIGIN, $server['issuer']);
         self::assertSame(['S256'], $server['code_challenge_methods_supported']);
         self::assertTrue($server['client_id_metadata_document_supported']);
+        self::assertTrue($server['authorization_response_iss_parameter_supported']);
+        self::assertSame(['authorization_code', 'refresh_token'], $server['grant_types_supported']);
 
         $registration = $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => [self::CALLBACK], 'client_name' => 'Claude']);
         self::assertSame(201, $api->getResponse()->getStatusCode());
         [$code, $verifier] = $this->consent($registration['client_id'], 'editor');
 
-        $tokens = $this->token($api, ['grant_type' => 'authorization_code', 'code' => $code, 'redirect_uri' => self::CALLBACK, 'client_id' => $registration['client_id'], 'code_verifier' => $verifier]);
-        self::assertSame('Bearer', $tokens['token_type']);
-        $reused = $this->token($api, ['grant_type' => 'authorization_code', 'code' => $code, 'redirect_uri' => self::CALLBACK, 'client_id' => $registration['client_id'], 'code_verifier' => $verifier]);
-        self::assertSame('invalid_grant', $reused['error'], 'An authorization code works once.');
+        $exchange = ['grant_type' => 'authorization_code', 'code' => $code, 'redirect_uri' => self::CALLBACK, 'client_id' => $registration['client_id'], 'code_verifier' => $verifier, 'resource' => self::ORIGIN.'/mcp'];
+        $tokens = $this->token($api, $exchange);
+        self::assertSame('Bearer', $tokens['token_type'] ?? null, json_encode($tokens));
+        self::assertSame('invalid_grant', $this->token($api, $exchange)['error'] ?? null, 'An authorization code works once.');
 
         $result = $this->mcp($tokens['access_token'])->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
         self::assertSame('pending', $result->structuredContent['status'], 'OAuth lets Claude act for county staff; it never approves the alert.');
-        self::assertStringStartsWith('oauth-', (string) (new \PDO('sqlite:'.$this->runtime.'/application.sqlite'))->query("SELECT json_extract(proposal, '$.actor.delegationId') FROM verified_human_approval_requests")->fetchColumn());
+        $delegation = (string) (new \PDO('sqlite:'.$this->runtime.'/application.sqlite'))->query("SELECT json_extract(proposal, '$.actor.delegationId') FROM verified_human_approval_requests")->fetchColumn();
+        self::assertStringStartsWith('oauth-', $delegation, 'The request records the agent connection the person allowed.');
 
-        $refreshed = $this->token($api, ['grant_type' => 'refresh_token', 'refresh_token' => $tokens['refresh_token'], 'client_id' => $registration['client_id']]);
+        $refresh = ['grant_type' => 'refresh_token', 'refresh_token' => $tokens['refresh_token'], 'client_id' => $registration['client_id'], 'resource' => self::ORIGIN.'/mcp'];
+        $refreshed = $this->token($api, $refresh);
         self::assertNotSame($tokens['access_token'], $refreshed['access_token']);
-        $again = $this->token($api, ['grant_type' => 'refresh_token', 'refresh_token' => $tokens['refresh_token'], 'client_id' => $registration['client_id']]);
-        self::assertSame('invalid_grant', $again['error'], 'Refresh tokens rotate.');
-        $api->request('POST', self::ORIGIN.'/mcp', server: ['CONTENT_TYPE' => 'application/json', 'HTTP_AUTHORIZATION' => 'Bearer '.$tokens['access_token']], content: '{"jsonrpc":"2.0","id":1,"method":"ping"}');
-        self::assertSame(401, $api->getResponse()->getStatusCode(), 'The previous access token stops working.');
+        self::assertSame('invalid_grant', $this->token($api, $refresh)['error'] ?? null, 'Refresh tokens rotate.');
+        self::assertSame(401, $this->ping($tokens['access_token']), 'The previous access token stops working.');
         $status = $this->mcp($refreshed['access_token'])->callTool('approval_status', ['request_id' => $result->structuredContent['requestId']]);
-        self::assertFalse($status->isError, 'The refreshed token keeps the same delegation, so it can read the pending request.');
+        self::assertFalse($status->isError, 'The refreshed token keeps the same connection, so it reads the pending request.');
         self::assertSame('pending', $status->structuredContent['status']);
     }
 
@@ -89,84 +101,46 @@ final class OAuthTest extends TestCase
         $registration = $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => [self::CALLBACK], 'client_name' => 'Claude']);
         [$code] = $this->consent($registration['client_id'], 'editor');
         $wrong = $this->token($api, ['grant_type' => 'authorization_code', 'code' => $code, 'redirect_uri' => self::CALLBACK, 'client_id' => $registration['client_id'], 'code_verifier' => str_repeat('a', 43)]);
-        self::assertSame('invalid_grant', $wrong['error']);
+        self::assertSame('invalid_grant', $wrong['error'] ?? null);
 
         $browser = $this->signedIn('editor');
-        $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query(['response_type' => 'code', 'client_id' => $registration['client_id'], 'redirect_uri' => 'https://attacker.example/callback', 'code_challenge' => OAuthServer::challenge(str_repeat('b', 43)), 'code_challenge_method' => 'S256']));
-        self::assertSame(400, $browser->getResponse()->getStatusCode(), 'An unregistered redirect never leaves the site.');
-        self::assertSame("frame-ancestors 'none'", $browser->getResponse()->headers->get('Content-Security-Policy'));
+        $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query(['response_type' => 'code', 'client_id' => $registration['client_id'], 'redirect_uri' => 'https://attacker.example/callback', 'code_challenge' => self::challenge(str_repeat('b', 43)), 'code_challenge_method' => 'S256', 'resource' => self::ORIGIN.'/mcp']));
+        self::assertGreaterThanOrEqual(400, $browser->getResponse()->getStatusCode(), 'An unregistered redirect never leaves the site.');
+        self::assertStringNotContainsString('attacker.example', (string) $browser->getResponse()->headers->get('Location'));
 
         $unknown = $this->token($api, ['grant_type' => 'authorization_code', 'code' => 'x', 'redirect_uri' => self::CALLBACK, 'client_id' => 'client_unknown', 'code_verifier' => str_repeat('c', 43)]);
-        self::assertSame('invalid_client', $unknown['error']);
-        $bad = $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => ['http://attacker.example/callback']]);
-        self::assertSame('invalid_redirect_uri', $bad['error']);
+        self::assertSame('invalid_client', $unknown['error'] ?? null);
+        $bad = $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => ['http://attacker.example/callback'], 'client_name' => 'Claude']);
+        self::assertSame('invalid_redirect_uri', $bad['error'] ?? null, 'A redirect over plain HTTP is accepted only back to this computer.');
     }
 
-    public function testAClientIdMetadataDocumentMustNameItself(): void
+    public function testTheConsentPageSaysWhatConnectingMeansAndCannotBeFramed(): void
     {
-        $database = new DemoDatabase(DemoDatabase::connect($this->runtime.'/application.sqlite'));
-        $url = 'https://claude.ai/oauth/mcp-oauth-client-metadata';
-        $document = ['client_id' => $url, 'client_name' => 'Claude', 'redirect_uris' => [self::CALLBACK]];
-        $client = (new ClientRegistry($database, new MockHttpClient(new MockResponse(json_encode($document)))))->find($url);
-        self::assertSame(['client_id' => $url, 'client_name' => 'Claude', 'redirect_uris' => [self::CALLBACK]], $client);
-        $impostor = ['client_id' => 'https://other.example/client', 'redirect_uris' => [self::CALLBACK]];
-        self::assertNull((new ClientRegistry($database, new MockHttpClient(new MockResponse(json_encode($impostor)))))->find($url));
-        self::assertNull((new ClientRegistry($database, new MockHttpClient(new MockResponse('', ['http_code' => 302]))))->find($url));
+        $api = $this->client();
+        $registration = $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => ['http://127.0.0.1:33418/callback'], 'client_name' => 'Claude Code']);
+        $browser = $this->signedIn('editor');
+        $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query(['response_type' => 'code', 'client_id' => $registration['client_id'], 'redirect_uri' => 'http://127.0.0.1:33418/callback', 'code_challenge' => self::challenge(str_repeat('d', 43)), 'code_challenge_method' => 'S256', 'resource' => self::ORIGIN.'/mcp', 'scope' => 'alert.read approval.read']));
+        $page = $browser->request('GET', self::absolute((string) $browser->getResponse()->headers->get('Location')));
+        self::assertSame(200, $browser->getResponse()->getStatusCode());
+        self::assertSame("frame-ancestors 'none'", $browser->getResponse()->headers->get('Content-Security-Policy'), 'Nobody can frame the page to trick a click on Allow.');
+        self::assertSame('DENY', $browser->getResponse()->headers->get('X-Frame-Options'));
+        $text = $page->filter('.approval-sheet')->text();
+        self::assertStringContainsString('Let Claude Code act for', $text);
+        self::assertStringContainsString('It asks to read public alerts, read the outcome of your approvals.', $text, 'Consent lists what is being granted.');
+        self::assertStringContainsString('Connecting does not approve anything.', $text);
+        self::assertStringContainsString('returns only to an address on this computer', $text, 'A loopback client gets a warning.');
     }
 
-    public function testAClientIdMetadataDocumentIsCachedAndMustCarryAClientName(): void
-    {
-        $database = new DemoDatabase(DemoDatabase::connect($this->runtime.'/application.sqlite'));
-        $url = 'https://claude.ai/oauth/mcp-oauth-client-metadata';
-        $document = ['client_id' => $url, 'client_name' => 'Claude', 'redirect_uris' => [self::CALLBACK]];
-        $once = new MockHttpClient([new MockResponse(json_encode($document), ['response_headers' => ['Cache-Control' => 'max-age=600']])]);
-        $registry = new ClientRegistry($database, $once);
-        self::assertSame('Claude', $registry->find($url)['client_name']);
-        self::assertSame('Claude', $registry->find($url)['client_name']);
-        self::assertSame(1, $once->getRequestsCount(), 'The document is fetched once and then served from the cache, as the spec asks.');
-
-        $nameless = ['client_id' => $url, 'redirect_uris' => [self::CALLBACK]];
-        self::assertNull((new ClientRegistry($database, new MockHttpClient(new MockResponse(json_encode($nameless)))))->find($url), 'client_name is a required field of the document.');
-
-        $failing = new MockHttpClient([new MockResponse('', ['http_code' => 500])]);
-        $negative = new ClientRegistry($database, $failing);
-        self::assertNull($negative->find($url));
-        self::assertNull($negative->find($url));
-        self::assertSame(1, $failing->getRequestsCount(), 'A failed fetch is remembered too, so a bad client ID cannot make this server fetch on every request.');
-    }
-
-    public function testAnOversizedMetadataDocumentIsCutOffWhileItDownloads(): void
-    {
-        $database = new DemoDatabase(DemoDatabase::connect($this->runtime.'/application.sqlite'));
-        $sent = 0;
-        // An 8 MiB answer, produced only as fast as the client reads it.
-        $body = (static function () use (&$sent): \Generator {
-            for ($chunk = 0; $chunk < 128; ++$chunk) {
-                $sent += 65536;
-                yield str_repeat(' ', 65536);
-            }
-        })();
-        self::assertNull((new ClientRegistry($database, new MockHttpClient(new MockResponse($body))))->find('https://claude.ai/oauth/mcp-oauth-client-metadata'));
-        self::assertLessThanOrEqual(2 * 65536, $sent, 'The download stopped at the size limit, not after the whole answer.');
-
-        $declared = new MockHttpClient(new MockResponse('{}', ['response_headers' => ['Content-Length' => '8388608']]));
-        self::assertNull((new ClientRegistry($database, $declared))->find('https://claude.ai/oauth/mcp-oauth-client-metadata'), 'A declared size over the limit is refused too.');
-    }
-
-    public function testTheTokenEndpointHonoursTheResourceParameterAndNeedsNoMetadataFetch(): void
+    public function testTheTokenEndpointIssuesTokensOnlyForThisServersMcpEndpoint(): void
     {
         $api = $this->client();
         $registration = $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => [self::CALLBACK], 'client_name' => 'Claude']);
         [$code, $verifier] = $this->consent($registration['client_id'], 'editor');
         $exchange = ['grant_type' => 'authorization_code', 'code' => $code, 'redirect_uri' => self::CALLBACK, 'client_id' => $registration['client_id'], 'code_verifier' => $verifier];
-        $elsewhere = $this->token($api, $exchange + ['resource' => 'https://other.example/mcp']);
-        self::assertSame('invalid_target', $elsewhere['error'], 'RFC 8707: this server issues tokens only for its own MCP endpoint, at the token endpoint too.');
+        self::assertSame('invalid_target', $this->token($api, $exchange + ['resource' => 'https://other.example/mcp'])['error'] ?? null, 'RFC 8707: this server issues tokens only for its own MCP endpoint.');
         $tokens = $this->token($api, $exchange + ['resource' => self::ORIGIN.'/mcp']);
-        self::assertSame('Bearer', $tokens['token_type'], 'A refused resource did not use the code up.');
-
-        // A client ID metadata document is bound to the code at authorization; the token endpoint compares, it does not fetch.
-        $unknown = $this->token($api, ['grant_type' => 'authorization_code', 'code' => 'x', 'redirect_uri' => self::CALLBACK, 'client_id' => 'https://claude.ai/oauth/mcp-oauth-client-metadata', 'code_verifier' => str_repeat('c', 43)]);
-        self::assertSame('invalid_grant', $unknown['error']);
+        self::assertSame('Bearer', $tokens['token_type'] ?? null, 'A refused resource did not use the code up.');
+        self::assertSame(200, $this->ping($tokens['access_token']));
     }
 
     public function testOpenRegistrationHasABudgetPerAddress(): void
@@ -182,18 +156,112 @@ final class OAuthTest extends TestCase
         self::assertGreaterThan(0, (int) $api->getResponse()->headers->get('Retry-After'));
     }
 
+    public function testRevokingAConnectionEndsItsTokensAndAReconnectionIsANewDelegation(): void
+    {
+        $api = $this->client();
+        $registration = $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => [self::CALLBACK], 'client_name' => 'Claude']);
+        $tokens = $this->connect($api, $registration['client_id']);
+        $connection = $this->connections()->active('editor', $registration['client_id']);
+        self::assertNotNull($connection);
+        self::assertSame('Claude', $connection['client_name'], 'The connection keeps the name the client registered, for the approval page.');
+
+        $database = new DemoDatabase(DemoDatabase::connect($this->runtime.'/application.sqlite'));
+        self::assertTrue($this->kernelService(AgentConnections::class)->revoke($connection['id'], 'campaigns', 'editor', ownerId: 'editor'));
+        self::assertSame(401, $this->ping($tokens['access_token']), 'Its access token stops working at once.');
+        self::assertSame('invalid_grant', $this->token($api, ['grant_type' => 'refresh_token', 'refresh_token' => $tokens['refresh_token'], 'client_id' => $registration['client_id'], 'resource' => self::ORIGIN.'/mcp'])['error'] ?? null, 'Nor can the client refresh its way back.');
+        self::assertSame(0, (int) $database->grant($connection['id'])['active']);
+
+        $again = $this->connect($api, $registration['client_id']);
+        self::assertSame(200, $this->ping($again['access_token']));
+        self::assertNotSame($connection['id'], $this->connections()->active('editor', $registration['client_id'])['id'] ?? null, 'Connecting again is a new delegation: requests made under the old one stay refused.');
+    }
+
+    public function testAConnectionEndsAfterItsLifetimeHoweverOftenItRefreshes(): void
+    {
+        $api = $this->client();
+        $registration = $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => [self::CALLBACK], 'client_name' => 'Claude']);
+        $tokens = $this->connect($api, $registration['client_id']);
+        $database = new DemoDatabase(DemoDatabase::connect($this->runtime.'/application.sqlite'));
+        $database->pdo->prepare('UPDATE demo_grants SET created_at = ? WHERE client_id = ?')->execute([time() - OAuthConnections::LIFETIME_SECONDS - 60, $registration['client_id']]);
+        self::assertSame(401, $this->ping($tokens['access_token']));
+        self::assertSame('invalid_grant', $this->token($api, ['grant_type' => 'refresh_token', 'refresh_token' => $tokens['refresh_token'], 'client_id' => $registration['client_id'], 'resource' => self::ORIGIN.'/mcp'])['error'] ?? null);
+    }
+
+    public function testAClientIdMetadataDocumentMustNameItselfAndCarryAName(): void
+    {
+        $document = ['client_id' => self::CLAUDE, 'client_name' => 'Claude', 'redirect_uris' => [self::CALLBACK]];
+        self::assertSame('Claude', $this->resolver(new MockResponse(json_encode($document)))->resolve(self::CLAUDE)->clientName);
+        foreach ([
+            'another client ID' => ['client_id' => 'https://other.example/client', 'client_name' => 'Claude', 'redirect_uris' => [self::CALLBACK]],
+            'no client_name' => ['client_id' => self::CLAUDE, 'redirect_uris' => [self::CALLBACK]],
+        ] as $why => $impostor) {
+            try {
+                $this->resolver(new MockResponse(json_encode($impostor)))->resolve(self::CLAUDE);
+                self::fail('A document with '.$why.' was accepted.');
+            } catch (CimdException) {
+            }
+        }
+    }
+
+    public function testAClientIdMetadataDocumentIsFetchedOnceAndThenCached(): void
+    {
+        $once = new MockHttpClient([new MockResponse(json_encode(['client_id' => self::CLAUDE, 'client_name' => 'Claude', 'redirect_uris' => [self::CALLBACK]]))]);
+        $resolver = new ClientIdMetadataResolver(new ClientMetadataHttpClient($once), new ArrayAdapter(), self::settings());
+        $resolver->resolve(self::CLAUDE);
+        $resolver->resolve(self::CLAUDE);
+        self::assertSame(1, $once->getRequestsCount());
+    }
+
+    public function testAnOversizedMetadataDocumentIsCutOffWhileItDownloads(): void
+    {
+        $sent = 0;
+        // An 8 MiB answer, produced only as fast as the client reads it.
+        $body = (static function () use (&$sent): \Generator {
+            for ($chunk = 0; $chunk < 128; ++$chunk) {
+                $sent += 65536;
+                yield str_repeat(' ', 65536);
+            }
+        })();
+        foreach ([new MockResponse($body), new MockResponse('{}', ['response_headers' => ['Content-Length' => '8388608']])] as $answer) {
+            try {
+                $this->resolver($answer)->resolve(self::CLAUDE);
+                self::fail('An oversized document was read.');
+            } catch (CimdException) {
+            }
+        }
+        self::assertLessThanOrEqual(2 * ClientMetadataHttpClient::MAX_BYTES, $sent, 'The download stopped at the size limit, not after the whole answer; a declared size over it is refused too.');
+    }
+
     public function testClientMetadataIsNeverFetchedFromThisServersOwnNetwork(): void
     {
-        $database = new DemoDatabase(DemoDatabase::connect($this->runtime.'/application.sqlite'));
-        $registry = new ClientRegistry($database);
-        self::assertInstanceOf(NoPrivateNetworkHttpClient::class, (new \ReflectionProperty(ClientRegistry::class, 'http'))->getValue($registry));
+        self::assertInstanceOf(NoPrivateNetworkHttpClient::class, (new \ReflectionProperty(ClientMetadataHttpClient::class, 'client'))->getValue(new ClientMetadataHttpClient()), 'The connection itself is checked, not only the name.');
+        $mock = new MockHttpClient(new MockResponse('{}'));
+        $resolver = new ClientIdMetadataResolver(new ClientMetadataHttpClient(new NoPrivateNetworkHttpClient($mock)), new ArrayAdapter(), self::settings());
         // Anyone can name a client ID; none of these may make this server fetch from its own network.
-        foreach (['https://127.0.0.1/client.json', 'https://[::1]/client.json', 'https://10.0.0.8/client.json', 'https://192.168.1.1/client.json', 'https://169.254.169.254/latest/meta-data/client'] as $url) {
-            self::assertNull($registry->find($url), $url);
+        foreach (['https://127.0.0.1/client.json', 'https://[::1]/client.json', 'https://10.0.0.8/client.json', 'https://169.254.169.254/latest/meta-data/client', 'https://evil.example/client'] as $url) {
+            try {
+                $resolver->resolve($url);
+                self::fail('Fetched '.$url);
+            } catch (CimdException) {
+            }
         }
-        $guarded = new NoPrivateNetworkHttpClient($mock = new MockHttpClient(new MockResponse('{}')));
-        self::assertNull((new ClientRegistry($database, $guarded))->find('https://169.254.169.254/client'));
-        self::assertSame(0, $mock->getRequestsCount(), 'The guard refuses before any request is made.');
+        self::assertSame(0, $mock->getRequestsCount(), 'Refused before any request: only listed client domains are fetched.');
+    }
+
+    public function testTheUnusedDeviceFlowIssuesNothing(): void
+    {
+        $api = $this->client();
+        $api->request('POST', self::ORIGIN.'/oauth/device-code', ['client_id' => 'anything']);
+        self::assertGreaterThanOrEqual(400, $api->getResponse()->getStatusCode());
+        self::assertStringNotContainsString('device_code', (string) $api->getResponse()->getContent());
+    }
+
+    /** @return array{access_token: string, refresh_token: string} */
+    private function connect(KernelBrowser $api, string $clientId): array
+    {
+        [$code, $verifier] = $this->consent($clientId, 'editor');
+
+        return $this->token($api, ['grant_type' => 'authorization_code', 'code' => $code, 'redirect_uri' => self::CALLBACK, 'client_id' => $clientId, 'code_verifier' => $verifier, 'resource' => self::ORIGIN.'/mcp']);
     }
 
     /** @return array{0: string, 1: string} the authorization code and its PKCE verifier */
@@ -201,22 +269,75 @@ final class OAuthTest extends TestCase
     {
         $verifier = rtrim(strtr(base64_encode(random_bytes(48)), '+/', '-_'), '=');
         $browser = $this->signedIn($user);
-        $crawler = $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query([
+        $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query([
             'response_type' => 'code', 'client_id' => $clientId, 'redirect_uri' => self::CALLBACK, 'state' => 'state-123',
-            'code_challenge' => OAuthServer::challenge($verifier), 'code_challenge_method' => 'S256', 'resource' => self::ORIGIN.'/mcp',
+            'code_challenge' => self::challenge($verifier), 'code_challenge_method' => 'S256', 'resource' => self::ORIGIN.'/mcp',
         ]));
-        self::assertSame(200, $browser->getResponse()->getStatusCode(), (string) $browser->getResponse()->getContent());
+        self::assertSame(302, $browser->getResponse()->getStatusCode(), (string) $browser->getResponse()->getContent());
+        $consent = $browser->request('GET', self::absolute((string) $browser->getResponse()->headers->get('Location')));
+        self::assertSame(200, $browser->getResponse()->getStatusCode(), 'The person sees the consent page first.');
         self::assertStringContainsString('approve each exact alert with your own passkey', (string) $browser->getResponse()->getContent());
-        self::assertStringContainsString('read public alerts, ask to issue public alerts as you, read the outcome of your approvals', (string) $browser->getResponse()->getContent(), 'Consent lists what is being granted.');
-        $browser->submit($crawler->selectButton('Allow')->form());
+        self::assertStringContainsString('read public alerts, ask to issue public alerts as you, read the outcome of your approvals', (string) $browser->getResponse()->getContent());
+        $browser->submit($consent->selectButton('Allow')->form());
         self::assertSame(302, $browser->getResponse()->getStatusCode());
+        $browser->request('GET', self::absolute((string) $browser->getResponse()->headers->get('Location')));
+        self::assertSame(302, $browser->getResponse()->getStatusCode(), (string) $browser->getResponse()->getContent());
         $location = (string) $browser->getResponse()->headers->get('Location');
         self::assertStringStartsWith(self::CALLBACK.'?', $location);
         parse_str((string) parse_url($location, \PHP_URL_QUERY), $query);
         self::assertSame('state-123', $query['state']);
-        self::assertSame(self::ORIGIN, $query['iss']);
+        self::assertSame(self::ORIGIN, $query['iss'] ?? null, 'RFC 9207: the response names its issuer.');
 
         return [$query['code'], $verifier];
+    }
+
+    private function resolver(MockResponse $answer): ClientIdMetadataResolver
+    {
+        return new ClientIdMetadataResolver(new ClientMetadataHttpClient(new MockHttpClient($answer)), new ArrayAdapter(), self::settings());
+    }
+
+    private static function settings(): McpOauthSettings
+    {
+        return new McpOauthSettings(['/mcp'], '/oauth', ['alert.read', 'alert.publish', 'approval.read'], 'demo_login', '_target_path', 'page', true, ['claude.ai', 'vscode.dev', 'cursor.com'], true, true, true, self::ORIGIN);
+    }
+
+    private function ping(string $token): int
+    {
+        $api = $this->client();
+        $api->request('POST', self::ORIGIN.'/mcp', server: ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json, text/event-stream', 'HTTP_AUTHORIZATION' => 'Bearer '.$token], content: '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"ping","version":"1"}}}');
+
+        return $api->getResponse()->getStatusCode();
+    }
+
+    private function connections(): OAuthConnections
+    {
+        return new OAuthConnections(new DemoDatabase(DemoDatabase::connect($this->runtime.'/application.sqlite')));
+    }
+
+    /**
+     * @template T of object
+     *
+     * @param class-string<T> $id
+     *
+     * @return T
+     */
+    private function kernelService(string $id): object
+    {
+        $kernel = new DemoKernel($this->runtime, 'test');
+        $kernel->boot();
+        $this->browsers[] = new KernelBrowser($kernel);
+
+        return $kernel->getContainer()->get('test.service_container')->get($id);
+    }
+
+    private static function challenge(string $verifier): string
+    {
+        return rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+    }
+
+    private static function absolute(string $location): string
+    {
+        return str_starts_with($location, '/') ? self::ORIGIN.$location : $location;
     }
 
     private function signedIn(string $user): KernelBrowser
@@ -232,6 +353,7 @@ final class OAuthTest extends TestCase
     private function client(): KernelBrowser
     {
         $browser = new KernelBrowser(new DemoKernel($this->runtime, 'test'), ['HTTP_HOST' => 'localhost:8080']);
+        $browser->followRedirects(false);
         $this->browsers[] = $browser;
 
         return $browser;

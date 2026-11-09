@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Demo;
 
-use Mcp\Server\Transport\Http\OAuth\ProtectedResourceMetadata;
+use League\Bundle\OAuth2ServerBundle\LeagueOAuth2ServerBundle;
+use League\Bundle\OAuth2ServerBundle\Manager\InMemory\DeviceCodeManager;
+use Omouren\McpOauthBundle\Cimd\ClientIdMetadataResolver;
+use Omouren\McpOauthBundle\McpOauthBundle;
 use Symfony\AI\McpBundle\McpBundle;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
 use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
@@ -28,15 +31,20 @@ use VerifiedHumanApproval\Demo\Action\PublishAlert;
 use VerifiedHumanApproval\Demo\Controller\AccountController;
 use VerifiedHumanApproval\Demo\Controller\AuditController;
 use VerifiedHumanApproval\Demo\Controller\DemoController;
-use VerifiedHumanApproval\Demo\Controller\OAuthController;
 use VerifiedHumanApproval\Demo\Controller\PublicController;
 use VerifiedHumanApproval\Demo\Mcp\DemoTools;
-use VerifiedHumanApproval\Demo\OAuth\OAuthServer;
+use VerifiedHumanApproval\Demo\OAuth\ClientMetadataHttpClient;
+use VerifiedHumanApproval\Demo\OAuth\ConsentExtension;
+use VerifiedHumanApproval\Demo\OAuth\Storage\PdoAccessTokenManager;
+use VerifiedHumanApproval\Demo\OAuth\Storage\PdoAuthorizationCodeManager;
+use VerifiedHumanApproval\Demo\OAuth\Storage\PdoClientManager;
+use VerifiedHumanApproval\Demo\OAuth\Storage\PdoCredentialsRevoker;
+use VerifiedHumanApproval\Demo\OAuth\Storage\PdoRefreshTokenManager;
 use VerifiedHumanApproval\Demo\Security\DemoActorProvider;
 use VerifiedHumanApproval\Demo\Security\DemoRequesterLabel;
 use VerifiedHumanApproval\Demo\Security\DemoUser;
 use VerifiedHumanApproval\Demo\Security\DemoUserProvider;
-use VerifiedHumanApproval\Demo\Security\PersonalTokenAuthenticator;
+use VerifiedHumanApproval\Demo\Security\AgentTokenAuthenticator;
 use VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository;
 use VerifiedHumanApproval\WebAuthn\Configuration;
 use VerifiedHumanApproval\WebAuthn\CredentialRepository;
@@ -74,6 +82,10 @@ final class DemoKernel extends Kernel
         yield new TwigBundle();
         yield new MonologBundle();
         yield new McpBundle();
+        // Remote MCP clients connect through OAuth: league/oauth2-server issues and checks the tokens, and
+        // omouren/mcp-oauth-bundle adds MCP's discovery, client ID metadata documents, registration and consent.
+        yield new LeagueOAuth2ServerBundle();
+        yield new McpOauthBundle();
         yield new VerifiedHumanApprovalBundle();
     }
 
@@ -159,8 +171,8 @@ final class DemoKernel extends Kernel
             'firewalls' => [
                 'mcp' => [
                     'pattern' => '^/mcp(?:$|/)', 'stateless' => true, 'provider' => 'demo',
-                    'custom_authenticators' => [PersonalTokenAuthenticator::class],
-                    'entry_point' => PersonalTokenAuthenticator::class,
+                    'custom_authenticators' => [AgentTokenAuthenticator::class],
+                    'entry_point' => AgentTokenAuthenticator::class,
                 ],
                 'main' => [
                     'provider' => 'demo',
@@ -193,6 +205,43 @@ final class DemoKernel extends Kernel
             'request_state' => ['key' => '%env(DEMO_RUNTIME_REQUEST_STATE_KEY)%', 'ttl' => DemoPolicyProvider::LIFETIME_SECONDS + 300],
             'registry' => ['tools' => [DemoTools::class, ApprovalStatusTool::class, ApprovalHandoffTool::class], 'apps' => [ApprovalCardApp::class]],
         ]]]);
+        // The OAuth server. Its codes, tokens and clients live on the demo's own SQLite connection (demo/src/OAuth/Storage).
+        $container->extension('league_oauth2_server', [
+            'authorization_server' => [
+                'private_key' => '%env(DEMO_RUNTIME_OAUTH_PRIVATE_KEY)%',
+                'encryption_key' => '%env(DEMO_RUNTIME_OAUTH_ENCRYPTION_KEY)%',
+                'encryption_key_type' => 'plain',
+                'access_token_ttl' => 'PT1H',
+                'refresh_token_ttl' => 'P30D',
+                'auth_code_ttl' => 'PT5M',
+                'enable_client_credentials_grant' => false,
+                'enable_password_grant' => false,
+                'enable_implicit_grant' => false,
+                'enable_auth_code_grant' => true,
+                'enable_refresh_token_grant' => true,
+                'require_code_challenge_for_public_clients' => true,
+            ],
+            'resource_server' => ['public_key' => '%env(DEMO_RUNTIME_OAUTH_PUBLIC_KEY)%'],
+            'scopes' => ['available' => array_keys(ConsentExtension::SCOPE_DESCRIPTIONS), 'default' => array_keys(ConsentExtension::SCOPE_DESCRIPTIONS)],
+            'persistence' => ['custom' => [
+                'access_token_manager' => PdoAccessTokenManager::class,
+                'authorization_code_manager' => PdoAuthorizationCodeManager::class,
+                'client_manager' => PdoClientManager::class,
+                'refresh_token_manager' => PdoRefreshTokenManager::class,
+                'credentials_revoker' => PdoCredentialsRevoker::class,
+                // The device flow is never enabled, so its codes need no storage that lasts.
+                'device_code_manager' => DeviceCodeManager::class,
+            ]],
+        ]);
+        // MCP authorization on top of it: RFC 8414 and 9728 metadata, client ID metadata documents (claude.ai's),
+        // registration, resource-bound tokens, the `iss` response parameter and the WWW-Authenticate challenge.
+        $container->extension('mcp_oauth', [
+            'authorization_prefix' => '/oauth',
+            'scopes' => array_keys(ConsentExtension::SCOPE_DESCRIPTIONS),
+            'login_route' => 'demo_login',
+            'consent' => 'page',
+            'public_base_url' => $origin,
+        ]);
         $container->extension('verified_human_approval', [
             'public_origin' => $origin, 'actor_provider' => DemoActorProvider::class,
             'policy_provider' => DemoPolicyProvider::class, 'authorizer' => DemoAuthorizer::class,
@@ -224,10 +273,12 @@ final class DemoKernel extends Kernel
         $services->set(WebAuthnVerifier::class);
         $services->set(SodiumEvidenceSigner::class, SodiumEvidenceSigner::class)->factory([SodiumEvidenceSigner::class, 'fromEncoded'])->args(['%env(DEMO_RUNTIME_RECEIPT_KEY_ID)%', '%env(DEMO_RUNTIME_RECEIPT_SECRET_KEY)%']);
         // One description of the protected resource (RFC 9728): served at /.well-known and named in every 401.
-        $services->set(ProtectedResourceMetadata::class)->args([$origin.'/mcp', [$origin], OAuthServer::SCOPES, 'Riverside Council public alerts']);
+        // Client ID metadata documents are fetched through a client that stays off this server's network and stops at a size limit.
+        $services->set(DeviceCodeManager::class);
+        $services->set(ClientMetadataHttpClient::class);
+        $services->set(ClientIdMetadataResolver::class)->arg('$httpClient', service(ClientMetadataHttpClient::class))->arg('$cache', service('cache.app'));
         $services->get(PublishAlert::class)->arg('$layoutFiles', '%env(json:DEMO_RUNTIME_LAYOUT_FILES)%');
         $services->get(AccountController::class)->arg('$limiter', service('limiter.demo_passkey_enrollment'));
-        $services->get(OAuthController::class)->arg('$origin', $origin)->arg('$registrationLimiter', service('limiter.demo_oauth_registration'));
     }
 
     protected function configureRoutes(RoutingConfigurator $routes): void
@@ -255,12 +306,9 @@ final class DemoKernel extends Kernel
         $routes->add('demo_policy', '/admin/approval-policy')->controller([DemoController::class, 'policy'])->methods(['GET', 'POST'])->defaults($private);
         $routes->add('demo_publish_alert', '/alerts/{id}/publish')->controller([DemoController::class, 'requestPublication'])->methods(['POST'])->defaults($private);
         $routes->add('demo_edit_alert', '/alerts/{id}/draft')->controller([DemoController::class, 'editDraft'])->methods(['POST'])->defaults($private);
-        $routes->add('oauth_protected_resource', '/.well-known/oauth-protected-resource')->controller([OAuthController::class, 'protectedResource'])->methods(['GET']);
-        $routes->add('oauth_protected_resource_mcp', '/.well-known/oauth-protected-resource/mcp')->controller([OAuthController::class, 'protectedResource'])->methods(['GET']);
-        $routes->add('oauth_metadata', '/.well-known/oauth-authorization-server')->controller([OAuthController::class, 'authorizationServer'])->methods(['GET']);
-        $routes->add('oauth_register', '/oauth/register')->controller([OAuthController::class, 'register'])->methods(['POST']);
-        $routes->add('oauth_authorize', '/oauth/authorize')->controller([OAuthController::class, 'authorize'])->methods(['GET', 'POST']);
-        $routes->add('oauth_token', '/oauth/token')->controller([OAuthController::class, 'token'])->methods(['POST']);
+        // OAuth: league's /oauth/authorize and /oauth/token, and omouren's metadata, registration and consent.
+        $routes->import('@LeagueOAuth2ServerBundle/config/routes.php')->prefix('/oauth');
+        $routes->import('@McpOauthBundle/config/routes.yaml');
         $routes->add('riverside_alerts', '/alerts')->controller([PublicController::class, 'alerts'])->methods(['GET']);
         $routes->add('riverside_styles', '/site/riverside.css')->controller([PublicController::class, 'styles'])->methods(['GET']);
     }
