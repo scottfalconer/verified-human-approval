@@ -1,8 +1,15 @@
 {
   "name": "verified-human-approval/doctrine",
   "description": "Doctrine DBAL storage for Verified Human Approval: the approval store, signed audit log and passkey repository on an application's own connection (SQLite, PostgreSQL, MySQL or MariaDB), in one transaction an ORM flush can join.",
+  "keywords": ["doctrine", "dbal", "orm", "approval", "passkeys", "postgresql", "mysql"],
   "type": "library",
   "license": "MIT",
+  "support": {
+    "issues": "https://github.com/scottfalconer/verified-human-approval/issues",
+    "source": "https://github.com/scottfalconer/verified-human-approval",
+    "security": "https://github.com/scottfalconer/verified-human-approval/security/policy",
+    "docs": "https://github.com/scottfalconer/verified-human-approval/tree/main/docs"
+  },
   "require": {
     "php": "^8.3",
     "verified-human-approval/core": "self.version",

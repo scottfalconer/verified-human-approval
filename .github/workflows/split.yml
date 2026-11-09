@@ -28,6 +28,8 @@ jobs:
           - {path: src/webauthn, repository: verified-human-approval-webauthn}
           - {path: src/mcp, repository: verified-human-approval-mcp}
           - {path: src/symfony-bundle, repository: verified-human-approval-symfony-bundle}
+          - {path: src/doctrine, repository: verified-human-approval-doctrine}
+          - {path: src/store-contracts, repository: verified-human-approval-store-contracts}
     steps:
       - uses: actions/checkout@v4
         with:

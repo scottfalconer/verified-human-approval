@@ -1,8 +1,15 @@
 {
   "name": "verified-human-approval/store-contracts",
   "description": "The storage contract tests for Verified Human Approval: approval store, signed audit log and passkey storage, with the fixture application, fault injection and real process races. Require it for development to check your own adapter.",
+  "keywords": ["testing", "contract-tests", "approval", "storage"],
   "type": "library",
   "license": "MIT",
+  "support": {
+    "issues": "https://github.com/scottfalconer/verified-human-approval/issues",
+    "source": "https://github.com/scottfalconer/verified-human-approval",
+    "security": "https://github.com/scottfalconer/verified-human-approval/security/policy",
+    "docs": "https://github.com/scottfalconer/verified-human-approval/tree/main/docs"
+  },
   "require": {
     "php": "^8.3",
     "ext-json": "*",
