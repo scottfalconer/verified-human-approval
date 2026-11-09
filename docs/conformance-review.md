@@ -78,7 +78,7 @@ A first pass to let a non-Symfony host, such as a Drupal module, use core and We
 - **The signed audit log's rows sit behind `AuditStore`**, with `PdoAuditStore` for SQLite. Formats and signatures are unchanged; a chain written before the change still verifies.
 - **The anchored passkey repository wraps any `RevocableCredentialRepository`.**
 - **A passkey revocation and its signed entry now commit together** in both demo routes; before, a failure to sign or store the entry left the passkey revoked with no record.
-- **The `ApprovalStore` contract is written down and tested** (`tests/Contract`), including a lost commit answer and unreachable recovery, in both SQLite journals.
+- **The `ApprovalStore` contract is written down and tested** (`verified-human-approval/store-contracts`, run by `tests/Contract`), including a lost commit answer and unreachable recovery, in both SQLite journals, and on PostgreSQL and MySQL for the Doctrine storage.
 - **Original receipts export without a signing key.**
 - **A CI job installs the packages into a separate project** on PHP 8.3 and 8.4 and checks them there, and checks what each archive ships.
 

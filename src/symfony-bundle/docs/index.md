@@ -2,7 +2,7 @@
 
 The bundle lets an MCP tool request an action, send the person to a review page on your site, and read the result. The person approves the frozen proposal with a passkey. Your application checks current permissions, executes the stored action, and signs its receipt in the same database transaction.
 
-**The supplied store supports SQLite only.** The business write, account and delegation checks, approval records, credential updates and receipts must use **one shared PDO connection**. The approval service owns the outer transaction; do not call it inside an existing transaction. A separate Doctrine connection, another database or an external API call is not included automatically. For another database, implement and test the `ApprovalStore` transaction contract before relying on this guarantee.
+**Two storages are supplied.** The PDO store supports SQLite, on one shared PDO connection. The [Doctrine storage](#storage-on-doctrine) supports SQLite, PostgreSQL, MySQL 8.0.17 or later and MariaDB, on your DoctrineBundle connection, with your entities in the same transaction. Either way, the business write, account and delegation checks, approval records, credential updates and receipts must use **one shared connection**. The approval service owns the outer transaction; do not call it inside an existing transaction. A second connection, an external API call or an email is not included. For other storage, implement the `ApprovalStore` rules and pass the [storage contracts](https://github.com/scottfalconer/verified-human-approval/blob/main/src/store-contracts/README.md) before relying on this guarantee.
 
 For a runnable application, start with the [demo guide](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/README.md). To integrate your own application, follow this page and the [first protected action](first-action.md). That example includes the action, identity adapter, current permission checks, database setup, signing keys and service definitions.
 
@@ -44,7 +44,9 @@ Choose and record the commit you intend to use. Add this entry to your applicati
             "verified-human-approval/core": "dev-main",
             "verified-human-approval/webauthn": "dev-main",
             "verified-human-approval/mcp": "dev-main",
-            "verified-human-approval/symfony-bundle": "dev-main"
+            "verified-human-approval/symfony-bundle": "dev-main",
+            "verified-human-approval/doctrine": "dev-main",
+            "verified-human-approval/store-contracts": "dev-main"
         }
     }
 }
@@ -60,6 +62,8 @@ composer require --no-scripts \
   verified-human-approval/symfony-bundle:dev-main \
   'symfony/mcp-bundle:^1.0@beta'
 ```
+
+On Doctrine, add `verified-human-approval/doctrine:dev-main` to that command, with `doctrine/doctrine-bundle` if your application does not have it yet; see [Storage on Doctrine](#storage-on-doctrine).
 
 `--no-scripts` lets you add the required configuration before Symfony boots. Commit the resulting Composer files. Keep the checked-out source available when installing from that lock file. There is no published Flex recipe for this bundle; register it and configure it explicitly.
 
@@ -93,6 +97,8 @@ verified_human_approval:
     attempts_per_minute: 30
 ```
 
+On Doctrine, replace `store` with `persistence: { driver: doctrine, connection: default }`, as [Storage on Doctrine](#storage-on-doctrine) describes; `store` and `persistence` are exclusive.
+
 `receipt_signer` is required for the stored-record tamper evidence described in this guide. It signs the receipt before commit. A signing failure rolls the action back. Store the private signing key outside the database, and retain a trusted copy of its public key separately from exported evidence. With a signer configured, the completed review page offers the person their receipt, and the bundle publishes the public key; see [Stored receipts](#stored-receipts-and-later-verification).
 
 `public_origin` is a fixed, trusted setting such as `https://app.example.com`. Use it for the WebAuthn configuration too. `relying_party_id` is optional: it is published with the receipt key so a receipt's passkey signature can be checked offline, and defaults to the public origin's host. Do not derive it from a request's Host header. Choose the origin and RP ID before enrolling passkeys. HTTP `localhost` is allowed for local development.
@@ -113,6 +119,46 @@ php bin/console assets:install
 ```
 
 Action adapters are discovered when their services are autoconfigured. If you configure services manually, tag each adapter `verified_human_approval.action`. The bundle provides autowiring aliases for `ApprovalService`, `ExecutionGuard`, `ActorProvider`, `ApprovalPresenter` and `ApprovalFlow`, and, with a receipt signer, for `EvidenceExporter` and `ReceiptKey`. Its default clock is Symfony's `clock` service; `verified_human_approval.clock` points to that same clock.
+
+## Storage on Doctrine
+
+With `verified-human-approval/doctrine`, the bundle wires the storage on a DoctrineBundle connection: the approval store, the signed audit log and the passkey repository share one transaction with your entity manager and your queries, on SQLite, PostgreSQL, MySQL 8.0.17 or later, or MariaDB. The [package guide](https://github.com/scottfalconer/verified-human-approval/blob/main/src/doctrine/README.md) has the details.
+
+```yaml
+# config/packages/verified_human_approval.yaml
+verified_human_approval:
+    # ...as above, without "store"
+    receipt_signer: VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner
+    persistence:
+        driver: doctrine
+        connection: default                   # the connection your protected writes use
+        audit_public_key: '%env(APPROVAL_RECEIPT_PUBLIC_KEY)%'   # optional; defaults to the signer's own key
+        protected_entities:                   # optional; the #[RequiresApproval] attribute does the same
+            App\Entity\Document: [publishedTitle, publishedBody]
+```
+
+This registers, with autowiring aliases, `DbalTransaction`, `DbalApprovalStore` (also `ApprovalHistory`), `DbalAuditStore` (also `AuditStore`), the signed `AuditLog`, `DbalCredentialRepository` (also `RevocableCredentialRepository`), `AnchoredCredentialRepository` (also `CredentialRepository`, so `WebAuthnVerifier: ~` reads passkeys through it) and, with the ORM, `ProtectedEntityListener`. It replaces the PDO, store, audit and credential services of the [worked example](first-action.md#2-configure-keys-and-services); keep its signer, `Configuration` and `WebAuthnVerifier`.
+
+**Tables and migrations.** With Doctrine Migrations, `doctrine:migrations:diff` creates the approval tables, since a schema listener adds them to the ORM's schema for that connection, and it never proposes to drop them. Without migrations, run `php bin/console verified-human-approval:install` once. Both refuse to run inside a transaction. Canonical JSON is kept in text columns, **never `JSON` or `JSONB`**, which rewrite the signed bytes: do not change those columns' types. On MySQL and MariaDB the tables are `utf8mb4` with a binary no-pad collation and `LONGTEXT`; connect with `charset: utf8mb4` and keep strict SQL mode.
+
+**No outer transaction.** The approval service begins the root transaction itself, through DBAL, so a flush inside your action nests as a savepoint. It refuses to start inside another one: never call `ApprovalService` inside `Connection::transactional()`, `EntityManager::wrapInTransaction()`, or a Messenger handler behind the `doctrine_transaction` middleware. Call it outside that transaction, or from a handler without that middleware.
+
+**Your locking duty on PostgreSQL, MySQL and MariaDB.** SQLite has one writer at a time, and the approval holds that place. A server database runs writers side by side, so your reads must lock what the decision depends on, inside the approval's transaction: in your `Authorizer` and policy, the permission, grant and policy rows `FOR SHARE`; in your action's `prepare()`, `assertPreconditions()` and postconditions, the content it changes `FOR UPDATE`. Inject `DbalTransaction` and append its clause, which is empty on SQLite:
+
+```php
+$grant = $this->connection->fetchAssociative(
+    'SELECT * FROM app_agent_grants WHERE id = ? AND user_id = ? AND tenant_id = ? '.$this->transaction->forShare(),
+    [$actor->delegationId, $actor->userId, $actor->tenantId],
+);
+```
+
+The approval transaction runs at `READ COMMITTED` on those databases, so a read after a lock sees what committed before it. Without the locks, a grant revoked while a person approves could be revoked first and the approval still commit after it; the storage contracts include that race.
+
+**Primary and replica.** With a primary/replica connection, every read the stores make goes to the primary, and so does everything inside the approval transaction.
+
+**Actions on entities.** Extend `VerifiedHumanApproval\Doctrine\Orm\EntityAction`: its final `execute()` clears the entity manager, loads the targets you name with pessimistic write locks, lets your `apply()` change them and flushes, so your postconditions read the written rows before the receipt is signed; after a rollback it resets the entity manager. Read current state with its `current()`, which locks and reloads the row.
+
+**Protected entities.** Mark an entity, or its approved-state fields, `#[RequiresApproval]` (or list them under `protected_entities`). Any flush on that connection that changes them outside an approved execution permitted for that entity fails with `approval_required`, whatever form, admin screen or command made the change. DQL bulk updates and plain SQL do not pass through the unit of work: keep those away from protected rows.
 
 ## 3. Connect existing authentication
 
@@ -193,7 +239,7 @@ Two hooks let the rest of your application follow an approved change:
 - **Link the change to its approval.** While your adapter's `execute()` runs, `ExecutionGuard::current()` returns the executing approval: its `requestId`, and whether a person approved it with a passkey (`userVerified()`) or a rule let it run. Write the request id onto the revision or record you create, in the same transaction, so a page can later show that this exact revision was approved, and link to the evidence.
 - **Work that must wait for the commit.** After the transaction commits, the bundle dispatches `VerifiedHumanApproval\Bundle\Event\ApprovalCompleted` with the completed state. Use it to purge caches, reindex or notify. Delivery is at least once, so make a listener tolerate a repeat. A listener that throws is logged and does not change the result the person sees. Services implementing `VerifiedHumanApproval\Core\ApprovalObserver` are registered automatically too.
 
-For history views, `PdoApprovalStore` also implements `VerifiedHumanApproval\Core\ApprovalHistory`: `forResource($tenantId, $resource)` lists the requests made about one target `resource`, newest first, including ones whose resource was later deleted. Decide who may see which history yourself.
+For history views, `PdoApprovalStore` and `DbalApprovalStore` also implement `VerifiedHumanApproval\Core\ApprovalHistory`: `forResource($tenantId, $resource)` lists the requests made about one target `resource`, newest first, including ones whose resource was later deleted. Decide who may see which history yourself.
 
 ## Stored receipts and later verification
 

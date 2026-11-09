@@ -13,7 +13,7 @@ The demo is a council alerts site. An agent can request publication of an evacua
 This is a development preview. The packages are not on Packagist yet; the integration guide shows how to install them from this repository.
 
 - PHP 8.3+ and Symfony 7.4 or 8. Symfony 8 requires PHP 8.4+.
-- The supplied store supports **SQLite**. Approval records, credentials, permission checks and the business change must use the same PDO connection and transaction.
+- Storage: the PDO store supports **SQLite**; the Doctrine package supports **SQLite, PostgreSQL, MySQL 8.0.17+ and MariaDB** on your DBAL connection, with your entities in the same transaction. Either way, approval records, credentials, permission checks and the business change must use the same connection and transaction.
 - Your application supplies its accounts, current permissions, trusted passkey enrollment and protected action. The bundle supplies the approval flow and review pages.
 - Configure `receipt_signer` to sign receipts when actions commit. The demo and integration example include this configuration.
 - Passkeys use WebAuthn. The device can use Touch ID, Face ID, a PIN or another supported local method. The server receives a signature, not biometric data, and does not claim which local method was used.
@@ -106,8 +106,10 @@ The [integration guide](src/symfony-bundle/docs/index.md) is the canonical insta
 | [`verified-human-approval/webauthn`](src/webauthn/README.md) | Passkey registration and assertion validation, trusted credential storage and the offline verifier. |
 | [`verified-human-approval/mcp`](src/mcp/README.md) | Approval card, optional URL prompt and retries bound to the original caller and arguments. |
 | [`verified-human-approval/symfony-bundle`](src/symfony-bundle/README.md) | Symfony services, review routes, CSRF, rate limits, status tool and scoped phone handoff. |
+| [`verified-human-approval/doctrine`](src/doctrine/README.md) | The approval store, signed audit log and passkey storage on a Doctrine DBAL connection, the ORM schema listener, an entity action base and a flush check for protected entities. |
+| [`verified-human-approval/store-contracts`](src/store-contracts/README.md) | The storage contract tests, with the fixture application and process races, to check an adapter of your own. |
 
-The engine is independent of Symfony. The supported Symfony example uses a single SQLite transaction; other databases or external effects need their own implementation and verification.
+The engine is independent of Symfony. The worked Symfony example uses a single SQLite transaction; the Doctrine storage passes the same contract on SQLite, PostgreSQL and MySQL. External effects, such as an email or another service's API, are outside the transaction and need their own design.
 
 ## Built with Symfony and MCP
 

@@ -74,5 +74,70 @@ jobs:
         run: php tests/Package/check-consumer.php webauthn
       - name: Core, WebAuthn and MCP
         run: php tests/Package/check-consumer.php mcp
+      - name: Core, WebAuthn and the Doctrine storage
+        run: php tests/Package/check-consumer.php doctrine
       - name: Package archives
         run: php tests/Package/check-consumer.php archives
+  postgresql:
+    # The storage contracts, the approval transaction, the schema and the ORM helpers on a PostgreSQL server.
+    # Only the PostgreSQL test classes run, and a skipped one fails the job, so a missing server never passes.
+    name: Storage on PostgreSQL ${{ matrix.postgres }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ['14', '17']
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 30
+    env:
+      VERIFIED_HUMAN_APPROVAL_POSTGRES_URL: pdo-pgsql://postgres:postgres@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_sqlite, pdo_pgsql, openssl, sodium, mbstring
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist
+      - run: vendor/bin/phpunit --testsuite contract,doctrine --filter Postgres --fail-on-skipped
+  mysql:
+    # The same on MySQL and MariaDB: LONGTEXT for a 256 KiB proposal, the binary no-pad collation, an
+    # identical passkey write-back that changes no row, READ COMMITTED and the lock clauses.
+    name: Storage on ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: mysql:8.0
+            health: mysqladmin ping -h 127.0.0.1 -uroot -proot
+          - image: mysql:8.4
+            health: mysqladmin ping -h 127.0.0.1 -uroot -proot
+          - image: mariadb:11.4
+            health: healthcheck.sh --connect --innodb_initialized
+    services:
+      mysql:
+        image: ${{ matrix.image }}
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MARIADB_ROOT_PASSWORD: root
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd "${{ matrix.health }}" --health-interval 5s --health-timeout 5s --health-retries 30
+    env:
+      VERIFIED_HUMAN_APPROVAL_MYSQL_URL: pdo-mysql://root:root@127.0.0.1:3306/mysql?charset=utf8mb4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_sqlite, pdo_mysql, openssl, sodium, mbstring
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist
+      - run: vendor/bin/phpunit --testsuite contract,doctrine --filter Mysql --fail-on-skipped

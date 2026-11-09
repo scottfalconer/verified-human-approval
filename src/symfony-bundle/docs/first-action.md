@@ -72,6 +72,8 @@ final class Database
 
 Do not create another PDO in the action or credential repository. Do not wrap `ApprovalService` calls in a transaction: `PdoApprovalStore` owns the outer `BEGIN IMMEDIATE` transaction.
 
+This example uses the SQLite PDO store. On Doctrine (SQLite, PostgreSQL, MySQL or MariaDB), use your DoctrineBundle connection instead of this PDO, let the bundle wire the storage with `persistence: { driver: doctrine }` as [Storage on Doctrine](index.md#storage-on-doctrine) describes, and lock what your authorizer and action read with `DbalTransaction::forShare()` and `forUpdate()`.
+
 ## 2. Configure keys and services
 
 Use a persistent application signing key. This one-time helper writes URL-safe base64 without padding, the format accepted by `SodiumEvidenceSigner::fromEncoded()`. Its 64-byte Ed25519 secret key is not a password or an arbitrary random string.
