@@ -564,7 +564,7 @@ The default review template already shows `effect.title` and `effect.body`. To u
 
 {% block preview %}
     <article>
-        <h2>{{ prepared.effect.title }}</h2>
+        <h3>{{ prepared.effect.title }}</h3>
         <div class="content-preview">{{ prepared.effect.body }}</div>
     </article>
 {% endblock %}

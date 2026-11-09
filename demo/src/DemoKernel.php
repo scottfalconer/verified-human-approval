@@ -263,5 +263,6 @@ final class DemoKernel extends Kernel
         $routes->add('oauth_token', '/oauth/token')->controller([OAuthController::class, 'token'])->methods(['POST']);
         $routes->add('riverside_alerts', '/alerts')->controller([PublicController::class, 'alerts'])->methods(['GET']);
         $routes->add('riverside_styles', '/site/riverside.css')->controller([PublicController::class, 'styles'])->methods(['GET']);
+        $routes->add('demo_styles', '/site/demo.css')->controller([PublicController::class, 'demoStyles'])->methods(['GET']);
     }
 }

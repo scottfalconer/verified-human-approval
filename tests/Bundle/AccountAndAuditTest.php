@@ -321,7 +321,7 @@ final class AccountAndAuditTest extends TestCase
     private function owner(KernelBrowser $browser): string
     {
         $page = $browser->request('GET', self::ORIGIN.'/');
-        preg_match('/^([a-z]+) ·/', $page->filter('.eyebrow')->text(), $match);
+        preg_match('/^([a-z]+) ·/', $page->filter('header .user-badge')->text(), $match);
 
         return $match[1];
     }

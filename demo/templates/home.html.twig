@@ -1,10 +1,11 @@
 {% extends '@VerifiedHumanApproval/base.html.twig' %}
 {% block title %}Riverside Council · Verified Human Approval{% endblock %}
 {% block body %}
-<p class="eyebrow">{{ actor.userId }} · Riverside Council website</p><h1>Public alerts</h1>
-<p><a href="{{ path('demo_passkeys') }}">Your passkeys</a>{% if is_granted('ROLE_ADMIN') %} · <a href="{{ path('demo_policy') }}">Administrator settings</a> · <a href="{{ path('demo_audit') }}">Audit log</a>{% endif %}</p>
+<p class="eyebrow">Riverside Council website</p><h1>Public alerts</h1>
 {% for item in alerts %}
-<section class="card"><h2>{{ item.title }}</h2><p class="content-preview">{{ item.body }}</p>
+<section class="card">
+<p class="alert-status">{% if item.published_revision is null %}<span class="pill pill-off dot">Draft only · not live on /alerts</span>{% else %}<span class="pill pill-live dot">Live on /alerts · revision {{ item.published_revision }}</span>{% if item.revision != item.published_revision %} <span class="pill pill-warn">Newer draft · revision {{ item.revision }}, not issued</span>{% endif %}{% endif %}</p>
+<h2>{{ item.title }}</h2><p class="content-preview">{{ item.body }}</p>
 <dl><dt>Draft revision</dt><dd>{{ item.revision }}</dd><dt>Published revision</dt><dd>{{ item.published_revision ?? 'Not published' }}</dd><dt>Committed changes</dt><dd>{{ item.mutation_count }}</dd></dl>
 <p><a href="{{ path('riverside_alerts') }}">Open the public alerts page</a></p>
 {% if item.published_revision %}<details><summary>Currently published content</summary><h3>{{ item.published_title }}</h3><p class="content-preview">{{ item.published_body }}</p></details>{% endif %}
@@ -17,5 +18,4 @@
 </section>
 {% endfor %}
 <p class="muted">The same publication guard applies when an MCP client requests this action.</p>
-<form action="{{ path('demo_logout') }}" method="post"><input type="hidden" name="_csrf_token" value="{{ csrf_token('logout') }}"><button class="secondary">Sign out</button></form>
 {% endblock %}

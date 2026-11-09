@@ -1,3 +1,23 @@
-{# The demo's frame around the bundle's pages: its name in the header and the tab title. #}
+{# The demo's frame around every page, the bundle's review pages included: its name and, for a signed-in person, the
+   site's pages, who they are and a way to sign out. A phone holding only a one-request approval session sees none of it. #}
 {% extends '@!VerifiedHumanApproval/base.html.twig' %}
-{% block header %}<header><a href="{{ path('demo_home') }}">Verified Human Approval</a><span>Symfony reference application</span></header>{% endblock %}
+{% block stylesheets %}<link rel="stylesheet" href="{{ path('demo_styles') }}">{% endblock %}
+{% block header %}
+<header class="site">
+    <a href="{{ path('demo_home') }}">Verified Human Approval</a>
+    {% if app.user %}
+    {% set route = app.request.attributes.get('_route') %}
+    <nav class="site-nav" aria-label="This site">
+        {% for name, label in {demo_home: 'Public alerts', demo_passkeys: 'Your passkeys'}|merge(is_granted('ROLE_ADMIN') ? {demo_policy: 'Alert rule', demo_audit: 'Audit log'} : {}) %}
+        <a href="{{ path(name) }}"{% if route == name %} aria-current="page"{% endif %}>{{ label }}</a>
+        {% endfor %}
+    </nav>
+    <div class="site-user">
+        <span class="pill user-badge">{{ app.user.userIdentifier }} · {{ app.user.displayName }}</span>
+        <form action="{{ path('demo_logout') }}" method="post"><input type="hidden" name="_csrf_token" value="{{ csrf_token('logout') }}"><button class="secondary">Sign out</button></form>
+    </div>
+    {% else %}
+    <span>Symfony reference application</span>
+    {% endif %}
+</header>
+{% endblock %}
