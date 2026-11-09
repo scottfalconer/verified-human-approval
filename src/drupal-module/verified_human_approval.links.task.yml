@@ -1,0 +1,15 @@
+verified_human_approval.settings:
+  title: 'Setup'
+  route_name: verified_human_approval.settings
+  base_route: verified_human_approval.settings
+
+verified_human_approval.grant:
+  title: 'Issue enrollment link'
+  route_name: verified_human_approval.grant
+  base_route: verified_human_approval.settings
+
+verified_human_approval.request_publication:
+  title: 'Request verified publication'
+  route_name: verified_human_approval.request_publication
+  base_route: entity.node.canonical
+  weight: 50

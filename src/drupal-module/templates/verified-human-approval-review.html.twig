@@ -1,0 +1,91 @@
+{#
+  All proposal values below are frozen strings from the stored request.
+  Never render the node again here or mark its stored content as safe markup.
+#}
+<article class="vha vha-review">
+  <div class="vha-review__proposal">
+    <p class="vha-review__eyebrow">{{ 'Publication request'|t }}</p>
+    <h2>{{ display.title }}</h2>
+    <blockquote class="vha-review__statement">{{ statement }}</blockquote>
+    <dl class="vha-review__summary">
+      <dt>{{ 'Source revision'|t }}</dt><dd>{{ display.source_revision }}</dd>
+      <dt>{{ 'Language'|t }}</dt><dd>{{ display.language }}</dd>
+      <dt>{{ 'Change'|t }}</dt><dd>{{ display.resulting_change }}</dd>
+      {% if display.owner_uid is defined %}
+        <dt>{{ 'Content owner (user ID)'|t }}</dt><dd>{{ display.owner_uid }}</dd>
+      {% endif %}
+      {% if display.promoted_to_front_page is defined %}
+        <dt>{{ 'Promoted to front page'|t }}</dt><dd>{{ display.promoted_to_front_page }}</dd>
+      {% endif %}
+      {% if display.sticky is defined %}
+        <dt>{{ 'Sticky at top of lists'|t }}</dt><dd>{{ display.sticky }}</dd>
+      {% endif %}
+    </dl>
+    {% if display.summary is defined and display.summary != '' %}
+      <h3>{{ 'Summary to publish'|t }}</h3>
+      <pre class="vha-review__content">{{ display.summary }}</pre>
+    {% endif %}
+    {% if display.body is defined and display.body != '' %}
+      <h3>{{ 'Content to publish'|t }}</h3>
+      <pre class="vha-review__content">{{ display.body }}</pre>
+    {% endif %}
+  </div>
+
+  {% if status == 'pending' %}
+    <section class="vha-ceremony" data-vha-ceremony data-mode="approval"
+      data-csrf="{{ csrf_token }}" data-options-url="{{ options_url }}"
+      data-complete-url="{{ complete_url }}" data-cancel-url="{{ cancel_url }}"
+      data-success-url="{{ review_url }}">
+      <p>{{ 'Read the exact proposal above. Your device may use a fingerprint, face, PIN or another local method to unlock your passkey. The site receives a signature, not biometric data.'|t }}</p>
+      <div class="vha-actions">
+        <button type="button" class="button button--primary" data-vha-start>{{ 'Approve and publish with a passkey'|t }}</button>
+        <button type="button" class="button" data-vha-cancel>{{ 'Cancel request'|t }}</button>
+      </div>
+      <p class="vha-message" data-vha-message role="status" aria-live="polite"></p>
+      <p data-vha-reload hidden><a href="{{ review_url }}">{{ 'Reload this request to check its recorded status'|t }}</a></p>
+      <p>{{ 'This request expires @expires. A changed draft, revoked permission or expired request prevents approval.'|t({'@expires': expires}) }}</p>
+      <p><a href="{{ passkeys_url }}">{{ 'Manage my approval passkeys'|t }}</a></p>
+      <noscript><p>{{ 'Passkey approval needs JavaScript. Enable it and reload this page.'|t }}</p></noscript>
+    </section>
+  {% elseif status == 'completed' %}
+    <section class="vha-outcome">
+      <h3>{{ 'Publication recorded'|t }}</h3>
+      {% if has_proof %}
+        <p>{{ 'You approved this exact request with a passkey, and the site recorded the change.'|t }}</p>
+      {% else %}
+        <p>{{ 'The site recorded this change without a passkey proof. Its policy did not require one for this request.'|t }}</p>
+      {% endif %}
+      {% if has_receipt %}
+        <p><a class="button button--primary" href="{{ receipt_url }}" download>{{ 'Download your signed receipt'|t }}</a></p>
+        <p>{{ 'Keep your copy and the public verification key. They let you check the original approval and execution record later, including whether covered data was altered.'|t }}</p>
+        <p><a href="{{ key_url }}" download>{{ 'Download the public verification key'|t }}</a></p>
+      {% else %}
+        <p>{{ 'The site has no signed receipt recorded for this request. Contact an administrator.'|t }}</p>
+      {% endif %}
+      <p><a href="{{ return_url }}">{{ 'Return to the site'|t }}</a></p>
+    </section>
+  {% else %}
+    <section class="vha-outcome">
+      <h3>{{ 'This request is closed'|t }}</h3>
+      {% if status == 'cancelled' %}
+        <p>{{ 'This request was cancelled. It cannot be approved.'|t }}</p>
+      {% elseif status == 'expired' %}
+        <p>{{ 'This request expired. Create a new review request if you still want to publish.'|t }}</p>
+      {% elseif status == 'invalidated' %}
+        <p>{{ 'The content or approval policy changed, so this stored request can no longer be approved. Review a new request.'|t }}</p>
+      {% elseif status == 'denied' %}
+        <p>{{ 'Current permissions do not allow this request to execute.'|t }}</p>
+      {% endif %}
+      <p><a href="{{ return_url }}">{{ 'Return to the site'|t }}</a></p>
+    </section>
+  {% endif %}
+
+  <details class="vha-review__record">
+    <summary>{{ 'Request details'|t }}</summary>
+    <dl>
+      <dt>{{ 'Request ID'|t }}</dt><dd><code>{{ request_id }}</code></dd>
+      <dt>{{ 'Proposal digest'|t }}</dt><dd><code>{{ digest }}</code></dd>
+      <dt>{{ 'Content digest'|t }}</dt><dd><code>{{ display.content_digest }}</code></dd>
+    </dl>
+  </details>
+</article>

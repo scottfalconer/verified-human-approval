@@ -1,0 +1,71 @@
+services:
+  verified_human_approval.settings:
+    class: Drupal\verified_human_approval\ModuleSettings
+    arguments: ['@config.factory']
+  verified_human_approval.clock:
+    class: Drupal\verified_human_approval\Clock
+  verified_human_approval.signer:
+    class: Drupal\verified_human_approval\SettingsEvidenceSigner
+    arguments: ['@verified_human_approval.settings']
+  verified_human_approval.actor_provider:
+    class: Drupal\verified_human_approval\DrupalActorProvider
+    arguments: ['@current_user', '@entity_type.manager', '@config.factory', '@cache_tags.invalidator', '@request_stack', '@verified_human_approval.settings']
+  verified_human_approval.transaction:
+    class: Drupal\verified_human_approval\Storage\DrupalTransaction
+    arguments: ['@database', '@entity_type.manager']
+  verified_human_approval.store:
+    class: Drupal\verified_human_approval\Storage\DrupalApprovalStore
+    arguments: ['@database', '@verified_human_approval.transaction']
+  verified_human_approval.audit_store:
+    class: Drupal\verified_human_approval\Storage\DrupalAuditStore
+    arguments: ['@database', '@verified_human_approval.transaction']
+  verified_human_approval.raw_credentials:
+    class: Drupal\verified_human_approval\Storage\DrupalCredentialRepository
+    arguments: ['@database', '@verified_human_approval.transaction']
+  verified_human_approval.library_factory:
+    class: Drupal\verified_human_approval\LibraryFactory
+    arguments: ['@verified_human_approval.settings', '@verified_human_approval.audit_store', '@verified_human_approval.signer', '@verified_human_approval.clock']
+  verified_human_approval.audit:
+    class: VerifiedHumanApproval\Core\Audit\AuditLog
+    factory: ['@verified_human_approval.library_factory', audit]
+  verified_human_approval.credentials:
+    class: VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository
+    arguments: ['@verified_human_approval.raw_credentials', '@verified_human_approval.audit']
+  verified_human_approval.verifier:
+    class: VerifiedHumanApproval\WebAuthn\WebAuthnVerifier
+    factory: ['@verified_human_approval.library_factory', verifier]
+    arguments: ['@verified_human_approval.credentials']
+  verified_human_approval.execution_guard:
+    class: VerifiedHumanApproval\Core\ExecutionGuard
+  verified_human_approval.publication_gate:
+    class: Drupal\verified_human_approval\Action\PublicationGate
+    arguments: ['@verified_human_approval.execution_guard', '@verified_human_approval.settings', '@verified_human_approval.transaction', '@database']
+  verified_human_approval.node_action:
+    class: Drupal\verified_human_approval\Action\PublishNodeRevision
+    arguments: ['@entity_type.manager', '@entity_field.manager', '@verified_human_approval.settings', '@verified_human_approval.actor_provider', '@verified_human_approval.publication_gate', '@verified_human_approval.transaction', '@verified_human_approval.clock']
+    tags:
+      - { name: verified_human_approval.action }
+  verified_human_approval.action_registry:
+    class: VerifiedHumanApproval\Core\ActionRegistry
+    arguments: [[]]
+  verified_human_approval.policy_provider:
+    class: Drupal\verified_human_approval\PolicyProvider
+    arguments: ['@verified_human_approval.settings']
+  verified_human_approval.authorizer:
+    class: Drupal\verified_human_approval\Authorizer
+    arguments: ['@verified_human_approval.actor_provider', '@entity_type.manager', '@verified_human_approval.transaction']
+  verified_human_approval.approval:
+    class: VerifiedHumanApproval\Core\ApprovalService
+    factory: ['@verified_human_approval.library_factory', approval]
+    arguments: ['@verified_human_approval.action_registry', '@verified_human_approval.policy_provider', '@verified_human_approval.authorizer', '@verified_human_approval.store', '@verified_human_approval.verifier', '@verified_human_approval.execution_guard']
+  verified_human_approval.approval_manager:
+    class: Drupal\verified_human_approval\ApprovalManager
+    arguments: ['@service_container', '@verified_human_approval.actor_provider', '@verified_human_approval.transaction', '@verified_human_approval.signer', '@flood', '@verified_human_approval.settings']
+  verified_human_approval.passkey_manager:
+    class: Drupal\verified_human_approval\PasskeyManager
+    arguments: ['@service_container', '@database', '@verified_human_approval.transaction', '@verified_human_approval.actor_provider', '@entity_type.manager', '@request_stack', '@verified_human_approval.clock', '@flood', '@verified_human_approval.settings']
+  verified_human_approval.headers:
+    class: Drupal\verified_human_approval\EventSubscriber\SecurityHeadersSubscriber
+    tags:
+      - { name: event_subscriber }
+

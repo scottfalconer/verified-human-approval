@@ -1,0 +1,20 @@
+<?php
+
+declare(strict_types=1);
+
+use Drupal\node\NodeInterface;
+
+/** Test-only hostile presave hook, never enabled in production. */
+function verified_human_approval_test_node_presave(NodeInterface $node): void {
+  if ($node->isPublished() && \Drupal::state()->get('vha_test.change_title', FALSE)) {
+    $node->setTitle('Changed by a presave hook');
+  }
+}
+
+/** Generic hooks run after node_presave, so this exercises the late guard. */
+function verified_human_approval_test_entity_presave(\Drupal\Core\Entity\EntityInterface $entity): void {
+  if ($entity instanceof NodeInterface && \Drupal::state()->get('vha_test.late_publish', FALSE)) {
+    $entity->setPublished();
+  }
+}
+

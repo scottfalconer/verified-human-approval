@@ -1,0 +1,12 @@
+verified_human_approval.settings:
+  title: 'Verified Human Approval'
+  description: 'Check trusted setup and issue passkey enrollment links.'
+  route_name: verified_human_approval.settings
+  parent: user.admin_index
+
+verified_human_approval.passkeys:
+  title: 'My approval passkeys'
+  description: 'Manage the passkeys used to approve protected changes.'
+  route_name: verified_human_approval.passkeys
+  menu_name: account
+  weight: 0

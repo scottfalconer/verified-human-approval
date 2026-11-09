@@ -6,7 +6,7 @@ Let an AI agent request an action in your Symfony application. When your applica
 
 The demo is a council alerts site. An agent can request publication of an evacuation alert, but an editor must review the exact public page and approve it before it goes live. The same rule applies to the site's own **Issue alert** button.
 
-**[Run the demo](demo/README.md)** · **[Integrate into Symfony](src/symfony-bundle/docs/index.md)** · **[Verify a receipt](docs/evidence.md)**
+**[Run the demo](demo/README.md)** · **[Integrate into Symfony](src/symfony-bundle/docs/index.md)** · **[Use the Drupal module](src/drupal-module/README.md)** · **[Verify a receipt](docs/evidence.md)**
 
 ## Current scope
 
@@ -109,6 +109,12 @@ The [integration guide](src/symfony-bundle/docs/index.md) is the canonical insta
 
 The engine is independent of Symfony. The supported Symfony example uses a single SQLite transaction; other databases or external effects need their own implementation and verification.
 
+## Use it in Drupal
+
+The [Drupal module](src/drupal-module/README.md) uses the core and WebAuthn packages directly to approve an exact node revision through Drupal accounts, forms, permissions, and database transactions. Its first publication action supports Drupal 11.4, SQLite, default node storage, and one untranslated plain-text draft. It includes browser passkey enrollment, protected publication, and original receipt downloads.
+
+This is a development preview requiring the library changes in [portability PR #3](https://github.com/scottfalconer/verified-human-approval/pull/3). The [module guide](src/drupal-module/README.md) covers installation and the current limits; the [MCP notes](src/drupal-module/docs/mcp-integration.md) describe an optional host integration through an existing endpoint. The module does not install OAuth or an MCP server.
+
 ## Built with Symfony and MCP
 
 The project uses the official PHP MCP SDK, Symfony MCP Bundle, Symfony AI and the WebAuthn Framework. Protected actions remain ordinary MCP tools. MCP Apps show the approval card, URL-mode elicitation provides an optional native prompt, and every client receives a plain review link. The demo includes OAuth for remote clients.
@@ -134,4 +140,4 @@ The tests cover real WebAuthn signatures, Symfony and MCP integration, concurren
 - [Security model](docs/security-model.md)
 - [Receipt verification](docs/evidence.md)
 
-MIT licensed. See [LICENSE](LICENSE).
+The library packages and demo are MIT licensed; see [LICENSE](LICENSE). The [Drupal module](src/drupal-module/LICENSE.txt) is GPL-2.0-or-later.

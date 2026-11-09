@@ -1,0 +1,10 @@
+name: Verified Human Approval
+type: module
+description: 'Approve an exact node revision with a passkey and retain a signed execution receipt.'
+package: Security
+core_version_requirement: ^11.4
+configure: verified_human_approval.settings
+dependencies:
+  - drupal:node
+  - drupal:user
+  - drupal:sqlite

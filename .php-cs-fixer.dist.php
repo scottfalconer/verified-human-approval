@@ -11,6 +11,8 @@ declare(strict_types=1);
 
 $finder = (new PhpCsFixer\Finder())
     ->in([__DIR__.'/src', __DIR__.'/demo/src', __DIR__.'/demo/bin', __DIR__.'/demo/public', __DIR__.'/examples', __DIR__.'/tests'])
+    // Keep Symfony's coding rules scoped to the library and Symfony packages.
+    ->exclude('drupal-module')
     ->name(['*.php', 'console'])
     ->append([__FILE__]);
 

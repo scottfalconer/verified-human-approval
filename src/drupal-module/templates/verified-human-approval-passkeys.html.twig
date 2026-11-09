@@ -1,0 +1,41 @@
+<div class="vha">
+  <p>{{ 'These passkeys approve exact publication requests on this site. They do not replace your Drupal login.'|t }}</p>
+  {% if credentials %}
+    <table>
+      <caption>{{ 'Your approval passkeys'|t }}</caption>
+      <thead><tr><th scope="col">{{ 'Label'|t }}</th><th scope="col">{{ 'Status'|t }}</th><th scope="col">{{ 'Action'|t }}</th></tr></thead>
+      <tbody>
+        {% for credential in credentials %}
+          <tr>
+            <td>{{ credential.label }}</td>
+            <td>{{ credential.revoked ? 'Revoked'|t : 'Active'|t }}</td>
+            <td>{% if not credential.revoked %}<a href="{{ credential.revoke_url }}">{{ 'Revoke'|t }}</a>{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>{{ 'You have no approval passkeys registered yet.'|t }}</p>
+  {% endif %}
+
+  {% if grant %}
+    <section class="vha-ceremony" data-vha-ceremony data-mode="registration" data-grant="{{ grant }}"
+      data-csrf="{{ csrf_token }}" data-options-url="{{ options_url }}"
+      data-complete-url="{{ complete_url }}" data-success-url="{{ success_url }}">
+      <h2>{{ 'Register your approval passkey'|t }}</h2>
+      <p>{{ 'This one-time enrollment link must belong to the Drupal account you are signed in with. Your administrator can issue a new link if it has expired or was already used.'|t }}</p>
+      <div class="form-item">
+        <label for="vha-passkey-label">{{ 'Passkey label'|t }}</label>
+        <input id="vha-passkey-label" type="text" data-vha-label maxlength="200" value="{{ 'My approval passkey'|t }}" required>
+        <p class="description">{{ 'Use a label that helps you recognize this passkey later.'|t }}</p>
+      </div>
+      <p>{{ 'Your device may use a fingerprint, face, PIN or another local method. No biometric data is sent to this site.'|t }}</p>
+      <button type="button" class="button button--primary" data-vha-start>{{ 'Register passkey'|t }}</button>
+      <p class="vha-message" data-vha-message role="status" aria-live="polite"></p>
+      <p data-vha-reload hidden><a href="{{ success_url }}">{{ 'Check my registered passkeys'|t }}</a></p>
+      <noscript><p>{{ 'Passkey registration needs JavaScript. Enable it and reopen your enrollment link.'|t }}</p></noscript>
+    </section>
+  {% else %}
+    <p>{{ 'To add a passkey, ask an administrator for an enrollment link for this account. Every new key needs its own link.'|t }}</p>
+  {% endif %}
+</div>

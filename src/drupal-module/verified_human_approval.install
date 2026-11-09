@@ -1,0 +1,136 @@
+<?php
+
+declare(strict_types=1);
+
+use Drupal\Core\Database\Database;
+use Drupal\Core\Extension\Requirement\RequirementSeverity;
+use Drupal\Core\StringTranslation\TranslatableMarkup;
+use VerifiedHumanApproval\Core\Audit\AuditStore;
+use VerifiedHumanApproval\WebAuthn\RevocableCredentialRepository;
+
+/**
+ * @file
+ * Installs the Drupal-owned approval, credential and signed audit storage.
+ */
+
+/** Implements hook_requirements(). */
+function verified_human_approval_requirements(string $phase): array
+{
+    // Read Drupal's configured connection without instantiating module services.
+    // This also works before the module and its service container are enabled.
+    $connection = Database::getConnectionInfo();
+    $driver = $connection['default']['driver'] ?? '';
+    $sqlite = $driver === 'sqlite';
+    $sodium = extension_loaded('sodium') && function_exists('sodium_crypto_sign_detached') && function_exists('sodium_crypto_sign_verify_detached');
+    $libraries = interface_exists(AuditStore::class) && interface_exists(RevocableCredentialRepository::class);
+
+    $requirements = [
+        'verified_human_approval_database' => [
+            'title' => new TranslatableMarkup('Verified Human Approval database'),
+            'description' => new TranslatableMarkup('This release requires SQLite for the default Drupal database connection. Configured driver: @driver.', ['@driver' => $driver === '' ? 'not configured' : $driver]),
+            'severity' => $sqlite ? RequirementSeverity::OK : RequirementSeverity::Error,
+        ],
+        'verified_human_approval_sodium' => [
+            'title' => new TranslatableMarkup('Verified Human Approval signatures'),
+            'description' => new TranslatableMarkup('The PHP sodium extension and its detached-signature functions must be available.'),
+            'severity' => $sodium ? RequirementSeverity::OK : RequirementSeverity::Error,
+        ],
+        'verified_human_approval_libraries' => [
+            'title' => new TranslatableMarkup('Verified Human Approval libraries'),
+            'description' => new TranslatableMarkup('Install compatible verified-human-approval/core and verified-human-approval/webauthn packages with Composer. The AuditStore and RevocableCredentialRepository interfaces are required.'),
+            'severity' => $libraries ? RequirementSeverity::OK : RequirementSeverity::Error,
+        ],
+    ];
+    if ($phase === 'runtime') {
+        $requirements['verified_human_approval_database']['value'] = $driver === '' ? new TranslatableMarkup('Not configured') : $driver;
+        $requirements['verified_human_approval_sodium']['value'] = $sodium ? new TranslatableMarkup('Available') : new TranslatableMarkup('Unavailable');
+        $requirements['verified_human_approval_libraries']['value'] = $libraries ? new TranslatableMarkup('Available') : new TranslatableMarkup('Unavailable');
+    }
+    return $requirements;
+}
+
+/** Implements hook_schema(). */
+function verified_human_approval_schema(): array
+{
+    $text = ['type' => 'text', 'size' => 'big', 'not null' => true];
+    $id = ['type' => 'varchar', 'length' => 64, 'not null' => true];
+    $owner = ['type' => 'varchar', 'length' => 255, 'not null' => true];
+    $schema['vha_mutex'] = [
+        'description' => 'Early SQLite write reservation for the shared approval transaction.',
+        'fields' => ['id' => ['type' => 'int', 'not null' => true], 'marker' => ['type' => 'int', 'not null' => true, 'default' => 0]],
+        'primary key' => ['id'],
+    ];
+    $schema['vha_request'] = [
+        'description' => 'Frozen proposals and their immutable terminal outcomes.',
+        'fields' => [
+            'sequence' => ['type' => 'serial', 'not null' => true], 'id' => $id,
+            'actor_key' => $id, 'idempotency_key' => ['type' => 'varchar', 'length' => 64, 'not null' => false],
+            'fingerprint' => $id, 'proposal' => $text, 'digest' => $id,
+            'status' => ['type' => 'varchar', 'length' => 24, 'not null' => true],
+            'reason' => ['type' => 'varchar', 'length' => 255, 'not null' => false],
+            'result' => ['type' => 'text', 'size' => 'big', 'not null' => false],
+            'proof' => ['type' => 'text', 'size' => 'big', 'not null' => false],
+        ],
+        'primary key' => ['sequence'],
+        'unique keys' => ['request_id' => ['id'], 'actor_idempotency' => ['actor_key', 'idempotency_key']],
+        'indexes' => ['pending' => ['actor_key', 'fingerprint', 'status']],
+    ];
+    $schema['vha_execution'] = [
+        'description' => 'One execution record per completed proposal.',
+        'fields' => ['request_id' => $id, 'record' => $text],
+        'primary key' => ['request_id'],
+    ];
+    $schema['vha_receipt'] = [
+        'description' => 'The original application signature recorded at execution commit.',
+        'fields' => ['request_id' => $id, 'key_id' => $owner, 'manifest' => $text, 'signature' => ['type' => 'varchar', 'length' => 128, 'not null' => true]],
+        'primary key' => ['request_id'],
+    ];
+    $schema['vha_ceremony'] = [
+        'description' => 'Single-use challenges bound to a frozen approval.',
+        'fields' => [
+            'id' => $id, 'request_id' => $id,
+            'nonce' => ['type' => 'varchar', 'length' => 128, 'not null' => true],
+            'challenge' => ['type' => 'varchar', 'length' => 128, 'not null' => true],
+            'expires_at' => ['type' => 'varchar', 'length' => 40, 'not null' => true],
+            'options' => $text, 'consumed' => ['type' => 'int', 'size' => 'tiny', 'not null' => true, 'default' => 0],
+        ],
+        'primary key' => ['id'], 'indexes' => ['request_id' => ['request_id']],
+    ];
+    $schema['vha_credential'] = [
+        'description' => 'Raw credentials vouched for separately by signed enrollment records.',
+        'fields' => [
+            'credential_id' => ['type' => 'varchar', 'length' => 2048, 'not null' => true],
+            'user_id' => $owner, 'tenant_id' => $owner, 'source_json' => $text,
+            'revoked' => ['type' => 'int', 'size' => 'tiny', 'not null' => true, 'default' => 0], 'label' => $owner,
+        ],
+        'primary key' => ['credential_id'], 'indexes' => ['owner' => ['tenant_id', 'user_id', 'revoked']],
+    ];
+    $schema['vha_audit'] = [
+        'description' => 'One global chain of signed security events, preserving canonical bytes.',
+        'fields' => [
+            'seq' => ['type' => 'int', 'size' => 'big', 'not null' => true], 'tenant_id' => $owner,
+            'type' => ['type' => 'varchar', 'length' => 128, 'not null' => true],
+            'subject' => ['type' => 'varchar', 'length' => 2048, 'not null' => true],
+            'entry' => $text, 'hash' => $id, 'key_id' => $owner,
+            'signature' => ['type' => 'varchar', 'length' => 128, 'not null' => true],
+        ],
+        'primary key' => ['seq'], 'indexes' => ['subject' => ['type', 'subject']],
+    ];
+    $schema['vha_enrollment_grant'] = [
+        'description' => 'Administrator-issued, user-bound one-time passkey enrollment grants.',
+        'fields' => [
+            'token_hash' => $id, 'user_uuid' => $owner, 'tenant_id' => $owner, 'issuer_uuid' => $owner,
+            'expires' => ['type' => 'int', 'size' => 'big', 'not null' => true],
+            'consumed' => ['type' => 'int', 'size' => 'tiny', 'not null' => true, 'default' => 0],
+        ],
+        'primary key' => ['token_hash'], 'indexes' => ['owner' => ['tenant_id', 'user_uuid']],
+    ];
+
+    return $schema;
+}
+
+/** Implements hook_install(). */
+function verified_human_approval_install(): void
+{
+    \Drupal::database()->insert('vha_mutex')->fields(['id' => 1, 'marker' => 0])->execute();
+}

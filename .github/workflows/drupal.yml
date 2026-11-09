@@ -1,0 +1,40 @@
+name: Drupal consumer
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  kernel:
+    name: Drupal 11, PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.3', '8.4']
+    env:
+      VHA_DRUPAL_CONSUMER: ${{ runner.temp }}/vha-drupal-consumer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '${{ matrix.php }}'
+          extensions: ctype, curl, dom, fileinfo, gd, iconv, mbstring, openssl, pdo_sqlite, sodium, tokenizer, xml
+          ini-values: zend.assertions=1
+          tools: composer:v2
+          coverage: none
+      - name: Build an independent consumer manifest
+        run: |
+          mkdir -p "$VHA_DRUPAL_CONSUMER"
+          php tests/Drupal/consumer-manifest.php > "$VHA_DRUPAL_CONSUMER/composer.json"
+          composer --working-dir="$VHA_DRUPAL_CONSUMER" validate --strict --no-check-publish
+      - name: Install Drupal and the reusable packages
+        run: |
+          composer --working-dir="$VHA_DRUPAL_CONSUMER" install --no-interaction --no-progress --prefer-dist
+          composer --working-dir="$VHA_DRUPAL_CONSUMER" check-platform-reqs
+          php tests/Drupal/assert-consumer.php "$VHA_DRUPAL_CONSUMER"
+      - name: Run the real Drupal kernel tests
+        run: |
+          VHA_DRUPAL_ROOT="$VHA_DRUPAL_CONSUMER/web" \
+            php "$VHA_DRUPAL_CONSUMER/vendor/bin/phpunit" -c tests/Drupal/phpunit.xml.dist

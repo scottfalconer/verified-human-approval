@@ -1,0 +1,7 @@
+name: Verified Human Approval test
+type: module
+package: Testing
+core_version_requirement: ^11.4
+dependencies:
+  - verified_human_approval:verified_human_approval
+

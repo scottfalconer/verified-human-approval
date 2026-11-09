@@ -1,0 +1,224 @@
+verified_human_approval.settings:
+  path: '/admin/config/people/verified-human-approval'
+  defaults:
+    _controller: '\Drupal\verified_human_approval\Controller\SetupController::overview'
+    _title: 'Verified Human Approval'
+    _verified_human_approval_sensitive: true
+  requirements:
+    _permission: 'administer verified human approval'
+    _user_is_logged_in: 'TRUE'
+  options:
+    _auth: ['cookie']
+    _admin_route: true
+    no_cache: true
+  methods: [GET]
+
+verified_human_approval.grant:
+  path: '/admin/config/people/verified-human-approval/enrollment'
+  defaults:
+    _form: '\Drupal\verified_human_approval\Form\EnrollmentGrantForm'
+    _title: 'Issue a passkey enrollment link'
+    _verified_human_approval_sensitive: true
+  requirements:
+    _permission: 'administer verified human approval'
+    _user_is_logged_in: 'TRUE'
+  options:
+    _auth: ['cookie']
+    _admin_route: true
+    no_cache: true
+  methods: [GET, POST]
+
+verified_human_approval.passkeys:
+  path: '/verified-human-approval/passkeys'
+  defaults:
+    _controller: '\Drupal\verified_human_approval\Controller\PasskeyController::page'
+    _title: 'My approval passkeys'
+    _verified_human_approval_sensitive: true
+  requirements:
+    _permission: 'use verified human approval'
+    _user_is_logged_in: 'TRUE'
+  options:
+    _auth: ['cookie']
+    no_cache: true
+  methods: [GET]
+
+verified_human_approval.enroll:
+  path: '/verified-human-approval/enroll/{grant}'
+  defaults:
+    _controller: '\Drupal\verified_human_approval\Controller\PasskeyController::page'
+    _title: 'Register an approval passkey'
+    _verified_human_approval_sensitive: true
+  requirements:
+    _permission: 'use verified human approval'
+    _user_is_logged_in: 'TRUE'
+    grant: '[A-Za-z0-9_-]{16,256}'
+  options:
+    _auth: ['cookie']
+    no_cache: true
+  methods: [GET]
+
+verified_human_approval.registration_options:
+  path: '/verified-human-approval/passkeys/options'
+  defaults:
+    _controller: '\Drupal\verified_human_approval\Controller\PasskeyController::options'
+    _format: 'json'
+    _verified_human_approval_sensitive: true
+  requirements:
+    _permission: 'use verified human approval'
+    _user_is_logged_in: 'TRUE'
+    _csrf_request_header_token: 'TRUE'
+  options:
+    _auth: ['cookie']
+    no_cache: true
+  methods: [POST]
+
+verified_human_approval.registration_complete:
+  path: '/verified-human-approval/passkeys/complete'
+  defaults:
+    _controller: '\Drupal\verified_human_approval\Controller\PasskeyController::complete'
+    _format: 'json'
+    _verified_human_approval_sensitive: true
+  requirements:
+    _permission: 'use verified human approval'
+    _user_is_logged_in: 'TRUE'
+    _csrf_request_header_token: 'TRUE'
+  options:
+    _auth: ['cookie']
+    no_cache: true
+  methods: [POST]
+
+verified_human_approval.revoke:
+  path: '/verified-human-approval/passkeys/{credential_id}/revoke'
+  defaults:
+    _form: '\Drupal\verified_human_approval\Form\RevokePasskeyForm'
+    _title: 'Revoke an approval passkey'
+    _verified_human_approval_sensitive: true
+  requirements:
+    _permission: 'use verified human approval'
+    _user_is_logged_in: 'TRUE'
+    credential_id: '[A-Za-z0-9_-]{1,2048}'
+  options:
+    _auth: ['cookie']
+    no_cache: true
+  methods: [GET, POST]
+
+verified_human_approval.request_publication:
+  path: '/node/{node}/request-verified-publication'
+  defaults:
+    _form: '\Drupal\verified_human_approval\Form\RequestPublicationForm'
+    _title: 'Request verified publication'
+    _verified_human_approval_sensitive: true
+  requirements:
+    _permission: 'request verified human approval'
+    _user_is_logged_in: 'TRUE'
+    _entity_access: 'node.update'
+    node: '\d+'
+  options:
+    _auth: ['cookie']
+    no_cache: true
+    parameters:
+      node:
+        type: 'entity:node'
+  methods: [GET, POST]
+
+verified_human_approval.review:
+  path: '/verified-human-approval/request/{request_id}'
+  defaults:
+    _controller: '\Drupal\verified_human_approval\Controller\ApprovalController::review'
+    _title: 'Review publication request'
+    _verified_human_approval_sensitive: true
+  requirements:
+    _permission: 'use verified human approval'
+    _user_is_logged_in: 'TRUE'
+    request_id: '[A-Za-z0-9_-]{1,128}'
+  options:
+    _auth: ['cookie']
+    no_cache: true
+  methods: [GET]
+
+verified_human_approval.status:
+  path: '/verified-human-approval/request/{request_id}/status'
+  defaults:
+    _controller: '\Drupal\verified_human_approval\Controller\ApprovalController::status'
+    _format: 'json'
+    _verified_human_approval_sensitive: true
+  requirements:
+    _permission: 'use verified human approval'
+    _user_is_logged_in: 'TRUE'
+    request_id: '[A-Za-z0-9_-]{1,128}'
+  options:
+    _auth: ['cookie']
+    no_cache: true
+  methods: [GET]
+
+verified_human_approval.options:
+  path: '/verified-human-approval/request/{request_id}/options'
+  defaults:
+    _controller: '\Drupal\verified_human_approval\Controller\ApprovalController::options'
+    _format: 'json'
+    _verified_human_approval_sensitive: true
+  requirements:
+    _permission: 'use verified human approval'
+    _user_is_logged_in: 'TRUE'
+    _csrf_request_header_token: 'TRUE'
+    request_id: '[A-Za-z0-9_-]{1,128}'
+  options:
+    _auth: ['cookie']
+    no_cache: true
+  methods: [POST]
+
+verified_human_approval.complete:
+  path: '/verified-human-approval/request/{request_id}/complete'
+  defaults:
+    _controller: '\Drupal\verified_human_approval\Controller\ApprovalController::complete'
+    _format: 'json'
+    _verified_human_approval_sensitive: true
+  requirements:
+    _permission: 'use verified human approval'
+    _user_is_logged_in: 'TRUE'
+    _csrf_request_header_token: 'TRUE'
+    request_id: '[A-Za-z0-9_-]{1,128}'
+  options:
+    _auth: ['cookie']
+    no_cache: true
+  methods: [POST]
+
+verified_human_approval.cancel:
+  path: '/verified-human-approval/request/{request_id}/cancel'
+  defaults:
+    _controller: '\Drupal\verified_human_approval\Controller\ApprovalController::cancel'
+    _format: 'json'
+    _verified_human_approval_sensitive: true
+  requirements:
+    _permission: 'use verified human approval'
+    _user_is_logged_in: 'TRUE'
+    _csrf_request_header_token: 'TRUE'
+    request_id: '[A-Za-z0-9_-]{1,128}'
+  options:
+    _auth: ['cookie']
+    no_cache: true
+  methods: [POST]
+
+verified_human_approval.receipt:
+  path: '/verified-human-approval/request/{request_id}/receipt'
+  defaults:
+    _controller: '\Drupal\verified_human_approval\Controller\ApprovalController::receipt'
+    _format: 'json'
+    _verified_human_approval_sensitive: true
+  requirements:
+    _permission: 'use verified human approval'
+    _user_is_logged_in: 'TRUE'
+    request_id: '[A-Za-z0-9_-]{1,128}'
+  options:
+    _auth: ['cookie']
+    no_cache: true
+  methods: [GET]
+
+verified_human_approval.public_key:
+  path: '/verified-human-approval/receipt-key.json'
+  defaults:
+    _controller: '\Drupal\verified_human_approval\Controller\ApprovalController::publicKey'
+    _format: 'json'
+  requirements:
+    _access: 'TRUE'
+  methods: [GET]

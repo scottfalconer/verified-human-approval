@@ -1,0 +1,10 @@
+administer verified human approval:
+  title: 'Administer verified human approval'
+  description: 'Issue account-bound approval-passkey enrollment grants and inspect setup.'
+  restrict access: true
+request verified human approval:
+  title: 'Request verified publication'
+  description: 'Request approval to publish supported node revisions. Node update access is also required.'
+use verified human approval:
+  title: 'Use verified human approval'
+  description: 'Manage personal approval passkeys and review, approve, cancel, and download owned requests.'

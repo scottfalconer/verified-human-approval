@@ -1,0 +1,77 @@
+<?php
+
+declare(strict_types=1);
+
+use Drupal\Core\Form\FormStateInterface;
+use Drupal\node\NodeInterface;
+use Drupal\verified_human_approval\Form\NodePublicationForm;
+
+/**
+ * Implements hook_theme().
+ */
+function verified_human_approval_theme(): array {
+  return [
+    'verified_human_approval_review' => [
+      'variables' => [
+        'request_id' => NULL,
+        'statement' => NULL,
+        'display' => [],
+        'digest' => NULL,
+        'expires' => NULL,
+        'status' => NULL,
+        'reason' => NULL,
+        'has_proof' => FALSE,
+        'has_receipt' => FALSE,
+        'csrf_token' => NULL,
+        'options_url' => NULL,
+        'complete_url' => NULL,
+        'cancel_url' => NULL,
+        'review_url' => NULL,
+        'receipt_url' => NULL,
+        'key_url' => NULL,
+        'passkeys_url' => NULL,
+        'return_url' => NULL,
+      ],
+    ],
+    'verified_human_approval_passkeys' => [
+      'variables' => [
+        'credentials' => [],
+        'grant' => '',
+        'csrf_token' => NULL,
+        'options_url' => NULL,
+        'complete_url' => NULL,
+        'success_url' => NULL,
+      ],
+    ],
+  ];
+}
+
+/**
+ * Implements hook_form_BASE_FORM_ID_alter() for node forms.
+ */
+function verified_human_approval_form_node_form_alter(array &$form, FormStateInterface $form_state): void {
+  NodePublicationForm::alter($form, $form_state);
+}
+
+/**
+ * Implements hook_node_presave().
+ */
+function verified_human_approval_node_presave(NodeInterface $node): void {
+  \Drupal::service('verified_human_approval.publication_gate')->assertSaveAllowed($node);
+}
+
+/**
+ * Implements hook_node_insert().
+ */
+function verified_human_approval_node_insert(NodeInterface $node): void {
+  // Generic presave hooks run after node_presave; inspect the stored status
+  // before SQL entity storage commits, rather than trusting the in-memory flag.
+  \Drupal::service('verified_human_approval.publication_gate')->assertStoredSaveAllowed($node);
+}
+
+/**
+ * Implements hook_node_update().
+ */
+function verified_human_approval_node_update(NodeInterface $node): void {
+  \Drupal::service('verified_human_approval.publication_gate')->assertStoredSaveAllowed($node);
+}

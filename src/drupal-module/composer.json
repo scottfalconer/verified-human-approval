@@ -1,0 +1,21 @@
+{
+  "name": "drupal/verified_human_approval",
+  "description": "Drupal-native approval of an exact node revision using Verified Human Approval and WebAuthn.",
+  "type": "drupal-module",
+  "license": "GPL-2.0-or-later",
+  "require": {
+    "php": "^8.3",
+    "ext-sodium": "*",
+    "drupal/core": "^11.4",
+    "verified-human-approval/core": "self.version",
+    "verified-human-approval/webauthn": "self.version"
+  },
+  "autoload": {
+    "psr-4": {
+      "Drupal\\verified_human_approval\\": "src/"
+    }
+  },
+  "extra": {
+    "installer-name": "verified_human_approval"
+  }
+}

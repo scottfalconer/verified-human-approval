@@ -1,0 +1,10 @@
+ceremony:
+  version: 1.x
+  css:
+    component:
+      css/verified-human-approval.css: {}
+  js:
+    js/verified-human-approval.js: {}
+  dependencies:
+    - core/drupal
+    - core/once
