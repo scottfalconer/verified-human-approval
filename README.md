@@ -132,6 +132,7 @@ The tests cover real WebAuthn signatures, Symfony and MCP integration, concurren
 - [Architecture and request lifecycle](docs/overview.md)
 - [Integration contracts](docs/integration-contract.md)
 - [Security model](docs/security-model.md)
+- [Reporting a vulnerability](SECURITY.md)
 - [Receipt verification](docs/evidence.md)
 
 MIT licensed. See [LICENSE](LICENSE).
