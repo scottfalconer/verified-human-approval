@@ -24,7 +24,7 @@ use VerifiedHumanApproval\Tests\Support\ProcessRace;
  */
 abstract class ApprovalStoreContract extends TestCase
 {
-    private string $location;
+    private ?string $location = null;
 
     /** @return class-string<StoreHarness> */
     abstract protected static function harness(): string;
@@ -36,7 +36,9 @@ abstract class ApprovalStoreContract extends TestCase
 
     protected function tearDown(): void
     {
-        static::harness()::destroy($this->location);
+        if (null !== $this->location) {
+            static::harness()::destroy($this->location);
+        }
     }
 
     public function testACompletionCommitsTheChangeProofExecutionAndReceiptTogether(): void

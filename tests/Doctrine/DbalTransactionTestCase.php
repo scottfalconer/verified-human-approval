@@ -1,0 +1,292 @@
+<?php
+
+declare(strict_types=1);
+
+namespace VerifiedHumanApproval\Tests\Doctrine;
+
+use Doctrine\DBAL\Configuration;
+use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Driver;
+use Doctrine\DBAL\Driver\Connection as DriverConnection;
+use Doctrine\DBAL\Driver\Middleware\AbstractConnectionMiddleware;
+use Doctrine\DBAL\Driver\Middleware\AbstractDriverMiddleware;
+use Doctrine\DBAL\DriverManager;
+use Doctrine\DBAL\Exception\DriverException;
+use PHPUnit\Framework\TestCase;
+use VerifiedHumanApproval\Doctrine\ApprovalSchema;
+use VerifiedHumanApproval\Doctrine\DbalTransaction;
+use VerifiedHumanApproval\Tests\Support\TestDatabase;
+
+/**
+ * The approval transaction's own rules on one database: it owns the root and refuses any other, an ORM-style nested
+ * transaction becomes a savepoint, a callback that ends, replaces or leaves open a transaction is caught before
+ * commit, the original error survives a failed rollback, and each database serializes the way the stores need.
+ */
+abstract class DbalTransactionTestCase extends TestCase
+{
+    /** One of TestDatabase::KINDS. */
+    protected const KIND = 'sqlite';
+
+    private ?string $location = null;
+    private Connection $connection;
+    private DbalTransaction $transaction;
+
+    protected function setUp(): void
+    {
+        $this->location = TestDatabase::create(static::KIND);
+        $this->connection = TestDatabase::connect(static::KIND, $this->location);
+        ApprovalSchema::install($this->connection);
+        $this->connection->executeStatement('CREATE TABLE notes (id INTEGER NOT NULL PRIMARY KEY, note VARCHAR(64) NOT NULL)');
+        $this->transaction = new DbalTransaction($this->connection);
+    }
+
+    protected function tearDown(): void
+    {
+        if (null !== $this->location) {
+            TestDatabase::drop(static::KIND, $this->location);
+        }
+    }
+
+    public function testItRefusesToStartInsideAnyOtherTransaction(): void
+    {
+        $refused = function (): void {
+            try {
+                $this->transaction->run(fn () => $this->note(1));
+                self::fail('The approval transaction started inside another one.');
+            } catch (\LogicException $error) {
+                self::assertStringContainsString('outermost', $error->getMessage());
+                self::assertStringContainsString('wrapInTransaction()', $error->getMessage(), 'It names the ORM transaction to avoid.');
+                self::assertStringContainsString('doctrine_transaction', $error->getMessage(), 'It names the Messenger middleware.');
+            }
+        };
+        $this->connection->beginTransaction();
+        $refused();
+        self::assertSame(1, $this->connection->getTransactionNestingLevel(), 'The other transaction is left as it was.');
+        $this->connection->rollBack();
+
+        $this->connection->transactional(static fn () => $refused());
+
+        $native = $this->connection->getNativeConnection();
+        self::assertInstanceOf(\PDO::class, $native);
+        $native->beginTransaction();
+        $refused();
+        self::assertTrue($native->inTransaction());
+        $native->rollBack();
+
+        $this->transaction->run(function () use ($refused): void {
+            $refused();
+            $this->note(2);
+        });
+        self::assertSame([2], $this->notes(), 'A refused nested run does not disturb the one it was called in.');
+    }
+
+    public function testANestedTransactionInsideItIsASavepoint(): void
+    {
+        $this->transaction->run(function (): void {
+            $this->note(1);
+            // What an ORM flush does inside the approval transaction.
+            $this->connection->beginTransaction();
+            $this->note(2);
+            $this->connection->commit();
+            $this->connection->beginTransaction();
+            $this->note(3);
+            $this->connection->rollBack();
+            self::assertSame(1, $this->connection->getTransactionNestingLevel());
+        });
+        self::assertSame([1, 2], $this->notes());
+    }
+
+    public function testACallbackThatEndsReplacesOrLeavesOpenATransactionIsCaughtBeforeCommit(): void
+    {
+        foreach ([
+            'committed the root' => function (): void {
+                $this->note(1);
+                $this->connection->commit();
+            },
+            'rolled the root back and began another' => function (): void {
+                $this->note(2);
+                $this->connection->rollBack();
+                $this->connection->beginTransaction();
+                $this->note(3);
+            },
+            'left a nested transaction open' => function (): void {
+                $this->connection->beginTransaction();
+                $this->note(4);
+            },
+        ] as $what => $callback) {
+            try {
+                $this->transaction->run($callback);
+                self::fail('The approval transaction reported success after its callback '.$what.'.');
+            } catch (\Throwable) {
+            }
+            self::assertFalse($this->connection->isTransactionActive(), 'Nothing is left open after it '.$what.'.');
+        }
+        // Only what the first callback committed itself, outside the approval's control, remains.
+        self::assertSame([1], $this->notes());
+        $this->transaction->run(fn () => $this->note(5));
+        self::assertSame([1, 5], $this->notes(), 'The connection works afterwards.');
+    }
+
+    public function testAStatementThatFailedInsideItNeverReadsAsACommit(): void
+    {
+        try {
+            $this->transaction->run(function (): void {
+                $this->note(1);
+                try {
+                    $this->note(1); // a duplicate key, swallowed by the callback, which then returns
+                } catch (DriverException) {
+                }
+            });
+            $outcome = 'committed';
+        } catch (\Throwable) {
+            $outcome = 'refused';
+        }
+        if ('postgresql' === TestDatabase::platform(static::KIND)) {
+            // PostgreSQL aborted the transaction at the failure, and would answer COMMIT with a silent rollback.
+            self::assertSame('refused', $outcome);
+            self::assertSame([], $this->notes());
+        } else {
+            // Here a failed statement leaves the rest of the transaction intact, so committing it is correct.
+            self::assertSame('committed', $outcome);
+            self::assertSame([1], $this->notes());
+        }
+        self::assertFalse($this->connection->isTransactionActive());
+    }
+
+    public function testTheOriginalErrorSurvivesARollbackThatFails(): void
+    {
+        $failing = $this->connectionWhoseRollbackFails();
+        $transaction = new DbalTransaction($failing);
+        try {
+            $transaction->run(static function () use ($failing): void {
+                $failing->insert('notes', ['id' => 1, 'note' => 'never committed']);
+                throw new \RuntimeException('The original failure.');
+            });
+            self::fail('The failure was swallowed.');
+        } catch (\RuntimeException $error) {
+            self::assertSame('The original failure.', $error->getMessage());
+        }
+        self::assertFalse($failing->isTransactionActive());
+        self::assertSame([], $this->notes(), 'Nothing committed.');
+        $transaction->run(static fn () => $failing->insert('notes', ['id' => 2, 'note' => 'committed']));
+        self::assertSame([2], $this->notes(), 'The connection works afterwards.');
+    }
+
+    public function testWritesAndRollbackListenersNeedTheTransaction(): void
+    {
+        self::assertFalse($this->transaction->isActive());
+        foreach ([fn () => $this->transaction->assertActive(), fn () => $this->transaction->onRollback(static function (): void {})] as $outside) {
+            try {
+                $outside();
+                self::fail('Refused outside the approval transaction.');
+            } catch (\LogicException) {
+            }
+        }
+        $calls = 0;
+        $this->transaction->run(function () use (&$calls): void {
+            $this->transaction->assertActive();
+            $this->transaction->onRollback(static function () use (&$calls): void {
+                ++$calls;
+            });
+        });
+        self::assertSame(0, $calls, 'A commit runs no rollback listener.');
+        try {
+            $this->transaction->run(function () use (&$calls): void {
+                $this->transaction->onRollback(static function () use (&$calls): void {
+                    ++$calls;
+                });
+                throw new \RuntimeException('Roll back.');
+            });
+        } catch (\RuntimeException) {
+        }
+        self::assertSame(1, $calls);
+    }
+
+    public function testEachDatabaseSerializesTheWayTheStoresNeed(): void
+    {
+        $other = TestDatabase::connect(static::KIND, (string) $this->location);
+        TestDatabase::lockTimeout(static::KIND, $other, 200);
+        if ('sqlite' === TestDatabase::platform(static::KIND)) {
+            self::assertSame(['', ''], [$this->transaction->forUpdate(), $this->transaction->forShare()]);
+            $this->transaction->run(static function () use ($other): void {
+                // Before the callback reads anything, the database's write reservation is taken.
+                try {
+                    $other->insert('notes', ['id' => 9, 'note' => 'another writer']);
+                    self::fail('Another writer went ahead while the approval transaction was open.');
+                } catch (\Throwable $error) {
+                    self::assertTrue(TestDatabase::isLockTimeout($error), $error->getMessage());
+                }
+            });
+
+            return;
+        }
+        $mysql = 'mysql' === TestDatabase::platform(static::KIND);
+        self::assertSame(['FOR UPDATE', $mysql ? 'LOCK IN SHARE MODE' : 'FOR SHARE'], [$this->transaction->forUpdate(), $this->transaction->forShare()]);
+        // A session default of REPEATABLE READ does not reach the approval transaction, and is kept for the rest.
+        $this->connection->executeStatement($mysql ? 'SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ' : 'SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+        $level = fn (): string => $mysql
+            // InnoDB starts the transaction at its first read of a table.
+            ? (string) $this->connection->fetchOne('SELECT trx_isolation_level FROM information_schema.innodb_trx WHERE trx_mysql_thread_id = CONNECTION_ID() AND 0 <= (SELECT COUNT(*) FROM notes)')
+            : (string) $this->connection->fetchOne('SHOW transaction_isolation');
+        self::assertSame($mysql ? 'READ COMMITTED' : 'read committed', $this->transaction->run($level));
+        $this->connection->beginTransaction();
+        self::assertSame($mysql ? 'REPEATABLE READ' : 'repeatable read', $level());
+        $this->connection->rollBack();
+        // And no lock is taken that a writer of other rows would wait for.
+        $this->transaction->run(static fn () => $other->insert('notes', ['id' => 9, 'note' => 'another writer']));
+        self::assertSame([9], $this->notes());
+    }
+
+    public function testAConnectionOutsideAutoCommitIsRefused(): void
+    {
+        $connection = TestDatabase::connect(static::KIND, (string) $this->location);
+        $connection->setAutoCommit(false);
+        try {
+            (new DbalTransaction($connection))->run(static fn () => null);
+            self::fail('The approval transaction ran without auto-commit.');
+        } catch (\LogicException $error) {
+            self::assertStringContainsString('auto-commit', $error->getMessage());
+        }
+    }
+
+    private function note(int $id): void
+    {
+        $this->connection->insert('notes', ['id' => $id, 'note' => 'note '.$id]);
+    }
+
+    /** @return list<int> the notes, read on a connection of its own */
+    private function notes(): array
+    {
+        $fresh = TestDatabase::connect(static::KIND, (string) $this->location);
+        $ids = array_map(intval(...), $fresh->fetchFirstColumn('SELECT id FROM notes ORDER BY id'));
+        $fresh->close();
+
+        return $ids;
+    }
+
+    private function connectionWhoseRollbackFails(): Connection
+    {
+        $template = TestDatabase::connect(static::KIND, (string) $this->location);
+        $configuration = new Configuration();
+        $configuration->setMiddlewares([new class implements Driver\Middleware {
+            public function wrap(Driver $driver): Driver
+            {
+                return new class($driver) extends AbstractDriverMiddleware {
+                    public function connect(array $params): DriverConnection
+                    {
+                        return new class(parent::connect($params)) extends AbstractConnectionMiddleware {
+                            public function rollBack(): void
+                            {
+                                throw new \RuntimeException('Injected: the rollback failed.');
+                            }
+                        };
+                    }
+                };
+            }
+        }]);
+        $connection = DriverManager::getConnection($template->getParams(), $configuration);
+        TestDatabase::lockTimeout(static::KIND, $connection, 15000);
+
+        return $connection;
+    }
+}

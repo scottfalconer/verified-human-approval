@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace VerifiedHumanApproval\Doctrine;
 
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Exception\DriverException;
 use Doctrine\DBAL\Exception\InvalidFieldNameException;
 use Doctrine\DBAL\Exception\TableNotFoundException;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
@@ -188,7 +189,11 @@ final class ApprovalSchema
                 $connection->executeQuery('SELECT '.implode(', ', $columns).' FROM '.$name.' WHERE 1 = 0')->free();
             } catch (TableNotFoundException) {
                 $schemaManager->createTable($table);
-            } catch (InvalidFieldNameException $error) {
+            } catch (DriverException $error) {
+                // SQLite reports a missing column in a SELECT only by its message.
+                if (!$error instanceof InvalidFieldNameException && !str_contains($error->getMessage(), 'no such column')) {
+                    throw $error;
+                }
                 throw new \LogicException(\sprintf('The table %s exists with other columns, perhaps the SQLite PDO store\'s. Move its rows to the Doctrine layout before using this store.', $name), 0, $error);
             }
         }

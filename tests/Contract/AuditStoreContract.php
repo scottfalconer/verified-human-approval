@@ -22,7 +22,7 @@ use VerifiedHumanApproval\Tests\Support\ProcessRace;
  */
 abstract class AuditStoreContract extends TestCase
 {
-    private string $location;
+    private ?string $location = null;
     private string $secretKey;
     private SodiumEvidenceSigner $signer;
 
@@ -38,7 +38,9 @@ abstract class AuditStoreContract extends TestCase
 
     protected function tearDown(): void
     {
-        static::harness()::destroy($this->location);
+        if (null !== $this->location) {
+            static::harness()::destroy($this->location);
+        }
     }
 
     public function testAChainWrittenBeforeTheStoreWasExtractedStillVerifiesAndExtends(): void

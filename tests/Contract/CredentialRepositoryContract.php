@@ -18,7 +18,7 @@ use VerifiedHumanApproval\WebAuthn\Credential;
  */
 abstract class CredentialRepositoryContract extends TestCase
 {
-    private string $location;
+    private ?string $location = null;
 
     /** @return class-string<CredentialHarness> */
     abstract protected static function harness(): string;
@@ -30,7 +30,9 @@ abstract class CredentialRepositoryContract extends TestCase
 
     protected function tearDown(): void
     {
-        static::harness()::destroy($this->location);
+        if (null !== $this->location) {
+            static::harness()::destroy($this->location);
+        }
     }
 
     public function testAZeroCounterPasskeyCanWriteBackTheSameSource(): void
