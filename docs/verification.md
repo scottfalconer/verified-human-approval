@@ -4,9 +4,9 @@ This page separates checks on the current code baseline from earlier device demo
 
 ## Current automated baseline
 
-Checked on 2026-11-09 against commit [`0c3bb115`](https://github.com/scottfalconer/verified-human-approval/commit/0c3bb115341e9ba36d876d3f76da38e947b15db4).
+Checked on 2026-11-09 against commit [`4ea04eb1`](https://github.com/scottfalconer/verified-human-approval/commit/4ea04eb1487cc59a77687f8a4753dcc690957f48), which added the person's receipt. Later documentation-only commits do not change the code it describes.
 
-The [GitHub Actions run for that commit](https://github.com/scottfalconer/verified-human-approval/actions/runs/42537817415) completed successfully. The [workflow](../.github/workflows/tests.yml) runs these jobs:
+The [GitHub Actions run for that commit](https://github.com/scottfalconer/verified-human-approval/actions/runs/42541296445) completed successfully, with all four jobs passing. The [workflow](../.github/workflows/tests.yml) runs these jobs:
 
 | Dependency set | PHP | Checks |
 | --- | --- | --- |
@@ -36,14 +36,16 @@ These results have different scopes and dates. They do not all describe the late
 
 | Surface | Recorded result | Scope |
 | --- | --- | --- |
-| Chromium: stopped requests and lost responses | The maintainer reports successful checks in the [`0c3bb115` commit message](https://github.com/scottfalconer/verified-human-approval/commit/0c3bb115341e9ba36d876d3f76da38e947b15db4). | Node Playwright: stopped request, dropped options call, lost approval response, lost cancellation response and stopped card call. The updated Python browser scripts were not rerun in that environment. |
+| Chromium: stopped requests and lost responses | Passed on `0c3bb115`, as its [commit message](https://github.com/scottfalconer/verified-human-approval/commit/0c3bb115341e9ba36d876d3f76da38e947b15db4) records. | Node Playwright: stopped request, dropped options call, lost approval response, lost cancellation response and stopped card call. |
+| Chromium: the person's receipt | Passed on `4ea04eb1`, as its [commit message](https://github.com/scottfalconer/verified-human-approval/commit/4ea04eb1487cc59a77687f8a4753dcc690957f48) records. | Node Playwright: approve, download the receipt, fetch `/approval/receipt-key.json` while signed out, check the file offline with only that key, see an edited copy fail, and find the same signature in the agent's result. |
+| Python browser checks | `tests/card_smoke.py`, `tests/browser_smoke.py` and `tests/phone_smoke.py` passed on `0c3bb115` and again on `4ea04eb1`. | Python Playwright 1.63 with Chrome for Testing (build 1234) and virtual authenticators, run locally. |
 | Browser flow, card and phone handoff with virtual authenticators | Successful local runs are recorded on November 8, 2026. | Earlier code; see [history](verification-history.md). These are separate from the PHP CI matrix. |
 | claude.ai, OAuth and physical iPhone | Successful approval recorded on November 8, 2026, at 17:46 UTC. | Earlier alert demo, run by Scott. The phone used the scoped review session and an enrolled passkey. |
 | Claude Desktop and physical Touch ID | Successful approval recorded on November 8, 2026, at 16:21 UTC. | Earlier announcement version of the demo, before the alert naming and later enrollment changes. |
 | Claude Code URL prompt | Successful run recorded on November 8, 2026. | Earlier code. The history records the client version and model used. |
 | Symfony AI with a live model | Not established by the scripted integration check. | The [live example](../examples/README.md#live-model) requires a separate model call. |
 
-No physical-device rerun against `0c3bb115` is recorded here. Keep that distinction when describing tested clients or preparing a demonstration.
+No physical-device rerun against `4ea04eb1` is recorded here. Keep that distinction when describing tested clients or preparing a demonstration.
 
 ## Run the checks yourself
 
