@@ -1,8 +1,15 @@
 {
   "name": "verified-human-approval/mcp",
   "description": "MCP presentation for Verified Human Approval: the MCP App approval card, the phone code and an optional URL-mode elicitation with a bound retry.",
+  "keywords": ["mcp", "model-context-protocol", "approval", "ai-agents"],
   "type": "library",
   "license": "MIT",
+  "support": {
+    "issues": "https://github.com/scottfalconer/verified-human-approval/issues",
+    "source": "https://github.com/scottfalconer/verified-human-approval",
+    "security": "https://github.com/scottfalconer/verified-human-approval/security/policy",
+    "docs": "https://github.com/scottfalconer/verified-human-approval/tree/main/docs"
+  },
   "require": {
     "php": "^8.3",
     "verified-human-approval/core": "self.version",

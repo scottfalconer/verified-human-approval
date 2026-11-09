@@ -1,6 +1,7 @@
 {
   "name": "verified-human-approval/webauthn",
   "description": "WebAuthn user-verification bridge for exact application action approval.",
+  "keywords": ["webauthn", "passkeys", "approval", "user-verification"],
   "type": "library",
   "license": "MIT",
   "require": {
@@ -23,6 +24,12 @@
     "sort-packages": true
   },
   "homepage": "https://github.com/scottfalconer/verified-human-approval",
+  "support": {
+    "issues": "https://github.com/scottfalconer/verified-human-approval/issues",
+    "source": "https://github.com/scottfalconer/verified-human-approval",
+    "security": "https://github.com/scottfalconer/verified-human-approval/security/policy",
+    "docs": "https://github.com/scottfalconer/verified-human-approval/tree/main/docs"
+  },
   "bin": [
     "bin/verify-evidence.php"
   ]

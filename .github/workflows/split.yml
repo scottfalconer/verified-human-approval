@@ -1,0 +1,51 @@
+name: Split packages
+
+# Publishes each package under src/ to its own read-only repository, which Packagist reads: main to main, and
+# each v* tag as the same tag. It does nothing until a maintainer sets the repository variable SPLIT_OWNER (the
+# account or organization that holds the package repositories) and the secret SPLIT_TOKEN (a token that can push
+# to them). See docs/releasing.md.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: split-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  split:
+    if: ${{ vars.SPLIT_OWNER != '' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - {path: src/core, repository: verified-human-approval-core}
+          - {path: src/webauthn, repository: verified-human-approval-webauthn}
+          - {path: src/mcp, repository: verified-human-approval-mcp}
+          - {path: src/symfony-bundle, repository: verified-human-approval-symfony-bundle}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Split ${{ matrix.package.path }} and push it
+        env:
+          SPLIT_TOKEN: ${{ secrets.SPLIT_TOKEN }}
+          OWNER: ${{ vars.SPLIT_OWNER }}
+          PREFIX: ${{ matrix.package.path }}
+          REPOSITORY: ${{ matrix.package.repository }}
+        run: |
+          set -euo pipefail
+          test -n "$SPLIT_TOKEN" || { echo "SPLIT_OWNER is set but the SPLIT_TOKEN secret is missing." >&2; exit 1; }
+          commit="$(git subtree split --prefix="$PREFIX")"
+          remote="https://x-access-token:${SPLIT_TOKEN}@github.com/${OWNER}/${REPOSITORY}.git"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            git push "$remote" "${commit}:refs/tags/${GITHUB_REF_NAME}"
+          else
+            git push "$remote" "${commit}:refs/heads/main"
+          fi

@@ -10,7 +10,7 @@ The demo is a council alerts site. An agent can request publication of an evacua
 
 ## Current scope
 
-This is a development preview. The packages are not on Packagist yet; the integration guide shows how to install them from this repository.
+This is a development preview. The packages are not on Packagist yet; the integration guide shows how to install them from this repository. [Versions and releases](docs/releasing.md) says what a version promises, and [the changelog](CHANGELOG.md) what is in the first one.
 
 - PHP 8.3+ and Symfony 7.4 or 8. Symfony 8 requires PHP 8.4+.
 - The supplied store supports **SQLite**. Approval records, credentials, permission checks and the business change must use the same PDO connection and transaction.

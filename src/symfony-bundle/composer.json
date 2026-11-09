@@ -1,8 +1,15 @@
 {
   "name": "verified-human-approval/symfony-bundle",
   "description": "Verified Human Approval for Symfony: an agent asks through MCP, the person approves the exact action with a passkey on your site, and the application executes the stored proposal once.",
+  "keywords": ["symfony", "symfony-bundle", "mcp", "passkeys", "webauthn", "approval", "ai-agents"],
   "type": "symfony-bundle",
   "license": "MIT",
+  "support": {
+    "issues": "https://github.com/scottfalconer/verified-human-approval/issues",
+    "source": "https://github.com/scottfalconer/verified-human-approval",
+    "security": "https://github.com/scottfalconer/verified-human-approval/security/policy",
+    "docs": "https://github.com/scottfalconer/verified-human-approval/tree/main/docs"
+  },
   "require": {
     "php": "^8.3",
     "verified-human-approval/core": "self.version",
