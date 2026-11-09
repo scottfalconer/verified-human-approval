@@ -76,6 +76,38 @@ final class AuditKeyRotationTest extends TestCase
         self::assertNotNull($after->find('passkey.enrolled', 'cred-1'), 'What the old key signed before the rotation still vouches.');
     }
 
+    public function testWhatAClosedKeySignedCountsOnceTheNewKeyHasSigned(): void
+    {
+        $this->before()->append('tenant-a', 'passkey.enrolled', 'cred-1', ['userId' => 'alice', 'label' => 'Laptop']);
+        // The switch: the old key's window has closed, and the new key has signed nothing yet.
+        $this->clock->modify(self::ROTATED);
+        $this->clock->sleep(60);
+        $after = new AuditLog($this->store, $this->new, $this->rotatedKeys(), $this->clock);
+        self::assertNull($after->find('passkey.enrolled', 'cred-1'), 'No entry signed with a key in use vouches for it yet.');
+        $report = $after->verify();
+        self::assertFalse($report['intact']);
+        self::assertSame('it is signed with key "application-1", whose window has closed, and no later entry signed with a key in use vouches for it', $report['entries'][0]['problem']);
+
+        // Recording the rotation is the new key's first entry, and it vouches for the chain before it.
+        $after->recordRotation('application-1');
+        self::assertSame('Laptop', $after->find('passkey.enrolled', 'cred-1')['data']->label);
+        self::assertTrue($after->verify()['intact']);
+    }
+
+    public function testWhileTheOldKeysWindowIsStillOpenWhatItSignedCountsOnItsOwn(): void
+    {
+        $this->before()->append('tenant-a', 'passkey.enrolled', 'cred-1', ['userId' => 'alice']);
+        // A rollout: the new key signs from the rotation, and the old key's window stays open an hour longer.
+        $overlap = new TrustedKeys([
+            new TrustedKey('application-2', $this->new->publicKey(), TrustedKey::time(self::ROTATED)),
+            new TrustedKey('application-1', $this->old->publicKey(), TrustedKey::time(self::OPENED), TrustedKey::time('2026-11-09T13:00:00Z')),
+        ]);
+        $this->clock->modify('2026-11-09T12:30:00Z');
+        $log = new AuditLog($this->store, $this->new, $overlap, $this->clock);
+        self::assertNotNull($log->find('passkey.enrolled', 'cred-1'));
+        self::assertTrue($log->verify()['intact']);
+    }
+
     public function testARecordClaimingATimeOutsideItsKeysWindowFails(): void
     {
         $this->before()->append('tenant-a', 'passkey.enrolled', 'cred-1', ['userId' => 'alice']);

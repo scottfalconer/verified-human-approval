@@ -82,6 +82,21 @@ final class AnchoredKeyRotationTest extends TestCase
         self::assertFalse($this->approves($after, $intruder));
     }
 
+    public function testAPasskeyEnrolledBeforeTheSwitchApprovesOnceTheNewKeyHasSigned(): void
+    {
+        $before = $this->repository($this->old, new TrustedKeys([new TrustedKey('application-1', $this->old->publicKey(), TrustedKey::time('2026-11-01T00:00:00Z'))]));
+        $laptop = new VirtualAuthenticator();
+        $this->enroll($before, $laptop);
+
+        $this->clock->modify(self::ROTATED);
+        $this->clock->sleep(60);
+        $audit = new AuditLog($this->auditStore, $this->new, $this->rotatedKeys(), $this->clock);
+        $after = new AnchoredCredentialRepository($this->stored, $audit);
+        self::assertFalse($this->approves($after, $laptop), 'Until the new key signs, nothing in use vouches for the enrollment.');
+        $audit->recordRotation('application-1');
+        self::assertTrue($this->approves($after, $laptop));
+    }
+
     public function testAnEnrollmentRecordClaimingATimeOutsideItsKeysWindowAnchorsNothing(): void
     {
         $after = $this->repository($this->new, $this->rotatedKeys());

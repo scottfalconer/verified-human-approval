@@ -250,7 +250,7 @@ One Ed25519 key signs new receipts and new audit log entries. Rotating it replac
    php bin/console verified-human-approval:record-key-rotation application-1 --reason="scheduled rotation"
    ```
 
-   The entry, `signing_key.rotated`, is signed with the new key and names both keys, so the chain shows where trust moved. From it on, the log refuses any entry the old key signs. The command refuses a rotation the configuration does not show yet: the old key needs a `valid_until`, the new one a `valid_from`. It prints the new head of the log.
+   The entry, `signing_key.rotated`, is signed with the new key and names both keys, so the chain shows where trust moved. From it on, the log refuses any entry the old key signs. Record it as soon as the old key's window has closed: from then until the new key signs its first entry, nothing the old key signed counts, so passkeys enrolled under it cannot approve. The new key's first entry vouches, through the chain, for every entry before it. The command refuses a rotation the configuration does not show yet: the old key needs a `valid_until`, the new one a `valid_from`. It prints the new head of the log.
 
 5. **Keep a checkpoint** of that head ([below](#keep-checkpoints-of-the-audit-log)), then **destroy the old private key** everywhere it was kept, backups included. Ask anyone who checks your receipts to save `/approval/receipt-keys.json` again.
 
