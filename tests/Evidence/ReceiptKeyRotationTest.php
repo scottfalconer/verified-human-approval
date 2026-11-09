@@ -105,6 +105,13 @@ final class ReceiptKeyRotationTest extends TestCase
         self::assertSame('application-2', (new ReceiptVerifier())->verify($early, 'application-2', $this->new->publicKey())['keyId']);
     }
 
+    public function testEvidenceReadAsArraysIsRefusedWithHowToReadIt(): void
+    {
+        $evidence = self::evidence($this->commit($this->old, 1));
+        $arrays = json_decode(json_encode($evidence, \JSON_THROW_ON_ERROR), true, 64, \JSON_THROW_ON_ERROR);
+        $this->assertRefused($arrays, $this->keys, 'Read the evidence with CanonicalJson::decode() and CanonicalJson::map(), not json_decode($json, true): its objects must stay objects, because their exact bytes are what the receipt signs.');
+    }
+
     public function testAReceiptSignedWithAnUnknownKeyIdFails(): void
     {
         $stranger = new SodiumEvidenceSigner('application-9', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));

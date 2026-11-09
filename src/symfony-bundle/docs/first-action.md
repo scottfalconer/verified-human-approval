@@ -357,6 +357,8 @@ final readonly class CurrentAuthority implements Authorizer
 }
 ```
 
+The service calls `assertAllowed()` as the request is made, before the action runs, and once more after it runs, before the commit. This check reads the account and the grant, which an action leaves in place. If yours reads the target itself, as a voter on the entity does, and an action can delete that target, implement `VerifiedHumanApproval\Core\ExecutedActionAuthorizer` as well: its `assertStillAllowed($actor, $action, $result)` replaces the last call, and decides from the frozen proposal and the action's result instead of loading what is gone.
+
 ```php
 <?php
 // src/Approval/ApplicationActorProvider.php

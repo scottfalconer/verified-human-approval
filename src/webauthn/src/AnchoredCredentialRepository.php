@@ -98,6 +98,18 @@ final readonly class AnchoredCredentialRepository implements CredentialRepositor
         return $this->audit->find(self::ENROLLED, $id);
     }
 
+    /**
+     * The owner's stored passkeys that no signed enrollment vouches for now, so they cannot approve: for example,
+     * passkeys enrolled under a signing key whose window has closed before the rotation away from it was recorded
+     * (AuditLog::unvouchedKeys() lists such keys), or a record that was damaged.
+     *
+     * @return list<Credential>
+     */
+    public function unvouched(Actor $actor): array
+    {
+        return array_values(array_filter($this->credentials->forActor($actor), fn (Credential $credential): bool => !$this->anchored($credential)));
+    }
+
     public function anchored(Credential $credential): bool
     {
         $enrolled = $this->enrolled($credential->id);

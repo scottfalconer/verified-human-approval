@@ -181,7 +181,7 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             return false;
         }
         foreach ($keys as $key) {
-            if (!\is_array($key) || [] !== array_diff(array_keys($key), TrustedKeysFactory::RETIRED_FIELDS)) {
+            if (!\is_array($key) || [] !== array_diff(array_keys($key), TrustedKeys::RETIRED_FIELDS)) {
                 return false;
             }
         }
@@ -270,7 +270,7 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
         if (null !== $config['receipt_signer']) {
             // The signer's key and every key it replaced, each with its window: what receipts and the audit log are checked against.
             $services->set('verified_human_approval.trusted_keys', TrustedKeys::class)
-                ->factory([TrustedKeysFactory::class, 'fromConfiguration'])
+                ->factory([TrustedKeys::class, 'forSigner'])
                 ->args([service($config['receipt_signer']), $config['receipt_keys']['valid_from'], $config['receipt_keys']['retired']]);
             $services->alias(TrustedKeys::class, 'verified_human_approval.trusted_keys');
             $services->set('verified_human_approval.evidence_exporter', EvidenceExporter::class);

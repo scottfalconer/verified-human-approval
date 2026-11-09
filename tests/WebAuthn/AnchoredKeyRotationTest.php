@@ -93,7 +93,15 @@ final class AnchoredKeyRotationTest extends TestCase
         $audit = new AuditLog($this->auditStore, $this->new, $this->rotatedKeys(), $this->clock);
         $after = new AnchoredCredentialRepository($this->stored, $audit);
         self::assertFalse($this->approves($after, $laptop), 'Until the new key signs, nothing in use vouches for the enrollment.');
+        try {
+            (new WebAuthnVerifier(new Configuration('approval.test', 'https://approval.test'), $after))->requestOptions($this->actor, random_bytes(32));
+            self::fail('The passkey was offered.');
+        } catch (ApprovalException $error) {
+            self::assertSame('credential_unvouched', $error->reason, 'Enrolling another passkey would not help, and the person is told so.');
+        }
+        self::assertCount(1, $after->unvouched($this->actor));
         $audit->recordRotation('application-1');
+        self::assertSame([], $after->unvouched($this->actor));
         self::assertTrue($this->approves($after, $laptop));
     }
 

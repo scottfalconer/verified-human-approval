@@ -18,6 +18,8 @@ final readonly class TrustedKeys
     public const FORMAT = 'verified-human-approval/receipt-keys/v2';
     /** The earlier published file: one key, without a window. */
     public const SINGLE_KEY_FORMAT = 'verified-human-approval/receipt-key/v1';
+    /** The fields of one retired key in an application's settings, such as the Symfony bundle's receipt_keys.retired. */
+    public const RETIRED_FIELDS = ['key_id', 'public_key', 'valid_from', 'valid_until'];
 
     /** @var non-empty-array<string, TrustedKey> by key id, in the order given */
     private array $keys;
@@ -42,6 +44,52 @@ final readonly class TrustedKeys
     public static function single(string $keyId, string $publicKey): self
     {
         return new self([new TrustedKey($keyId, $publicKey)]);
+    }
+
+    /**
+     * An application's trusted keys from its settings: the signer's key, open from $validFrom, then every retired
+     * key, in the order given. A retired key is public material only, with the window it signed in. The Symfony
+     * bundle builds its keys from receipt_keys this way; any other host can read its own settings the same way.
+     *
+     * @param string|null $validFrom when the signer began signing, an RFC 3339 time, or null or empty when that was never recorded
+     * @param mixed       $retired   a list of maps with key_id, public_key, valid_until and an optional valid_from
+     */
+    public static function forSigner(EvidenceSigner $signer, ?string $validFrom, mixed $retired = []): self
+    {
+        $current = new TrustedKey($signer->keyId(), $signer->publicKey(), null === $validFrom || '' === $validFrom ? null : TrustedKey::time($validFrom));
+
+        return new self([$current, ...self::retired($retired)]);
+    }
+
+    /**
+     * Reads retired keys from settings: a list of maps naming only the RETIRED_FIELDS. Each must have closed: a
+     * retired key without valid_until would keep vouching for anything signed with it, at any time.
+     *
+     * @return list<TrustedKey>
+     */
+    public static function retired(mixed $retired): array
+    {
+        if (!\is_array($retired) || !array_is_list($retired)) {
+            throw new \InvalidArgumentException('The retired keys must be a list of keys.');
+        }
+        $keys = [];
+        foreach ($retired as $position => $key) {
+            if (!\is_array($key) || [] !== array_diff(array_keys($key), self::RETIRED_FIELDS)) {
+                throw new \InvalidArgumentException(\sprintf('Retired key %d must name only %s.', $position + 1, implode(', ', self::RETIRED_FIELDS)));
+            }
+            foreach (['key_id', 'public_key', 'valid_until'] as $field) {
+                if (!\is_string($key[$field] ?? null) || '' === $key[$field]) {
+                    throw new \InvalidArgumentException(\sprintf('Retired key %d needs %s.', $position + 1, $field));
+                }
+            }
+            $from = $key['valid_from'] ?? null;
+            if (null !== $from && !\is_string($from)) {
+                throw new \InvalidArgumentException(\sprintf('Retired key %d: valid_from must be a time.', $position + 1));
+            }
+            $keys[] = new TrustedKey($key['key_id'], $key['public_key'], null === $from || '' === $from ? null : TrustedKey::time($from), TrustedKey::time($key['valid_until']));
+        }
+
+        return $keys;
     }
 
     /**

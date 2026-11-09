@@ -57,6 +57,10 @@ final class AuditHeadCommand extends Command
                     : '<error>The chain does not verify, so this is no checkpoint to keep. Open the audit log to see which entries fail.</error>',
                 $head['seq'].':'.$head['hash'],
             ]);
+            // The usual reason after a key change: the rotation away from the old key is not recorded yet.
+            foreach ($this->audit->unvouchedKeys() as $keyId) {
+                $output->writeln(\sprintf('<error>Key "%s" has closed, and nothing signed with a key in use vouches for its entries yet, so passkeys enrolled under it cannot approve. Record the rotation away from it: %s %s</error>', $keyId, RecordKeyRotationCommand::NAME, $keyId));
+            }
         }
 
         return null === $head || $head['intact'] ? Command::SUCCESS : Command::FAILURE;
@@ -71,21 +75,13 @@ final class AuditHeadCommand extends Command
         }
         [, $seq, $hash] = $match;
         $seq = (int) $seq;
-        $report = $audit->verify();
-        $kept = array_values(array_filter($report['entries'], static fn (array $item): bool => $item['seq'] === $seq))[0] ?? null;
-        $problem = match (true) {
-            $report['newest'] < $seq => \sprintf('The log now ends at entry %d, before the kept entry %d: entries were cut off.', $report['newest'], $seq),
-            null === $kept => \sprintf('Entry %d is missing from the log.', $seq),
-            !hash_equals($hash, $kept['hash']) => \sprintf('Entry %d is no longer the entry kept: it, or the chain before it, was rewritten.', $seq),
-            !$report['intact'] => \sprintf('Entry %d is unchanged, but the chain does not verify. Open the audit log to see which entries fail.', $seq),
-            default => null,
-        };
+        $problem = $audit->checkpoint($seq, $hash);
         if (null !== $problem) {
             $output->writeln('<error>'.$problem.'</error>');
 
             return Command::FAILURE;
         }
-        $output->writeln(\sprintf('The checkpoint holds: entry %d is unchanged, and all %d entries verify in an unbroken chain.', $seq, $report['newest']));
+        $output->writeln(\sprintf('The checkpoint holds: entry %d is unchanged, and all %d entries verify in an unbroken chain.', $seq, $audit->head()['seq'] ?? $seq));
 
         return Command::SUCCESS;
     }

@@ -87,11 +87,29 @@ final class AuditKeyRotationTest extends TestCase
         $report = $after->verify();
         self::assertFalse($report['intact']);
         self::assertSame('it is signed with key "application-1", whose window has closed, and no later entry signed with a key in use vouches for it', $report['entries'][0]['problem']);
+        self::assertTrue($report['entries'][0]['unvouched']);
+        self::assertSame(['application-1'], $after->unvouchedKeys(), 'The log says which key waits for its rotation to be recorded.');
 
         // Recording the rotation is the new key's first entry, and it vouches for the chain before it.
         $after->recordRotation('application-1');
         self::assertSame('Laptop', $after->find('passkey.enrolled', 'cred-1')['data']->label);
         self::assertTrue($after->verify()['intact']);
+        self::assertSame([], $after->unvouchedKeys());
+    }
+
+    public function testACheckpointHoldsUntilTheChainIsCutOrRewritten(): void
+    {
+        $log = $this->before();
+        $log->append('tenant-a', 'passkey.enrolled', 'cred-1', ['userId' => 'alice']);
+        $log->append('tenant-a', 'passkey.enrolled', 'cred-2', ['userId' => 'alice']);
+        $head = $log->head();
+        self::assertNotNull($head);
+        self::assertNull($log->checkpoint($head['seq'], $head['hash']), 'The checkpoint holds.');
+        self::assertSame('Entry 2 is no longer the entry kept: it, or the chain before it, was rewritten.', $log->checkpoint(2, str_repeat('0', 64)));
+        $log->append('tenant-a', 'passkey.revoked', 'cred-2', ['userId' => 'alice']);
+        self::assertNull($log->checkpoint($head['seq'], $head['hash']), 'A later entry leaves an earlier checkpoint holding.');
+        $this->pdo->exec('DELETE FROM verified_human_approval_audit WHERE seq >= 2');
+        self::assertSame('The log now ends at entry 1, before the kept entry 2: entries were cut off.', $log->checkpoint($head['seq'], $head['hash']));
     }
 
     public function testWhileTheOldKeysWindowIsStillOpenWhatItSignedCountsOnItsOwn(): void

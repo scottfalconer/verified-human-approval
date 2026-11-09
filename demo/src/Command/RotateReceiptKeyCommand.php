@@ -11,12 +11,12 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
-use VerifiedHumanApproval\Bundle\TrustedKeysFactory;
 use VerifiedHumanApproval\Core\ApprovalRequest;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\Audit\AuditStore;
 use VerifiedHumanApproval\Core\ChallengeBinding;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 
 /**
  * The demo's key rotation: the procedure in docs/evidence.md in one step, for a site on one host. A new
@@ -54,7 +54,7 @@ final class RotateReceiptKeyCommand extends Command
         $keypair = sodium_crypto_sign_keypair();
         $signer = new SodiumEvidenceSigner($id, sodium_crypto_sign_secretkey($keypair));
         // Checked before anything changes: the new configuration must build.
-        $audit = new AuditLog($this->auditStore, $signer, TrustedKeysFactory::fromConfiguration($signer, $now, $retired), $this->clock);
+        $audit = new AuditLog($this->auditStore, $signer, TrustedKeys::forSigner($signer, $now, $retired), $this->clock);
 
         // The old private key is not kept: from here on, only its public key and window are.
         $settings = [

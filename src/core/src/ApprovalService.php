@@ -249,7 +249,13 @@ final class ApprovalService
 
             return $result;
         }, $executing);
-        $this->assertCurrent($request);
+        // Authority once more, before the commit; an authorizer that needs what the action did is handed its result.
+        if ($this->authorizer instanceof ExecutedActionAuthorizer) {
+            $this->assertCurrent($request, false);
+            $this->authorizer->assertStillAllowed($actor, $action, $result);
+        } else {
+            $this->assertCurrent($request);
+        }
         $execution = [
             'format' => 'verified-human-approval/execution/v1', 'requestId' => $request->id, 'proposalDigest' => $request->digest,
             'actor' => (object) $actor->toArray(), 'actionId' => $action->actionId, 'actionVersion' => $action->version,

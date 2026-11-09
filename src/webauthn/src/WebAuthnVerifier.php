@@ -60,6 +60,10 @@ final class WebAuthnVerifier implements ApprovalVerifier
         $this->assertChallenge($challenge);
         $credentials = $this->credentials->forActor($actor);
         if ([] === $credentials) {
+            // Passkeys the person enrolled, which nothing vouches for right now: enrolling another would not help.
+            if ($this->credentials instanceof AnchoredCredentialRepository && [] !== $this->credentials->unvouched($actor)) {
+                throw new ApprovalException('credential_unvouched', 'Your passkey cannot approve right now: the site cannot confirm its enrollment. Ask the site’s administrator.');
+            }
             throw new ApprovalException('credential_required', 'Enroll an approval passkey through your trusted account settings first.');
         }
         $records = [];

@@ -9,10 +9,10 @@ use Symfony\Component\Config\Definition\ConfigurationInterface;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\Config\Definition\Processor;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
-use VerifiedHumanApproval\Bundle\TrustedKeysFactory;
 use VerifiedHumanApproval\Bundle\VerifiedHumanApprovalBundle;
 use VerifiedHumanApproval\Core\ChallengeBinding;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 
 /** The bundle's receipt_keys configuration: the signer's key and the retired ones, each with its window. */
 final class ReceiptKeysConfigurationTest extends TestCase
@@ -32,7 +32,7 @@ final class ReceiptKeysConfigurationTest extends TestCase
             'valid_from' => '2026-11-09T12:00:00Z',
             'retired' => [['key_id' => 'application-1', 'public_key' => $this->retired, 'valid_from' => '2026-01-05T09:00:00+01:00', 'valid_until' => '2026-11-09T12:05:00Z']],
         ]]);
-        $keys = TrustedKeysFactory::fromConfiguration($this->signer, $config['receipt_keys']['valid_from'], $config['receipt_keys']['retired']);
+        $keys = TrustedKeys::forSigner($this->signer, $config['receipt_keys']['valid_from'], $config['receipt_keys']['retired']);
         self::assertSame([
             ['keyId' => 'application-2', 'publicKey' => $this->signer->publicKey(), 'validFrom' => '2026-11-09T12:00:00.000000Z', 'validUntil' => null],
             ['keyId' => 'application-1', 'publicKey' => $this->retired, 'validFrom' => '2026-01-05T08:00:00.000000Z', 'validUntil' => '2026-11-09T12:05:00.000000Z'],
@@ -41,10 +41,10 @@ final class ReceiptKeysConfigurationTest extends TestCase
         // Unconfigured: the signer's key alone, without a window, as before.
         $config = $this->process(['receipt_signer' => 'app.receipt_signer']);
         self::assertSame([null, []], [$config['receipt_keys']['valid_from'], $config['receipt_keys']['retired']]);
-        self::assertFalse(TrustedKeysFactory::fromConfiguration($this->signer, null, [])->get('application-2')?->bounded());
+        self::assertFalse(TrustedKeys::forSigner($this->signer, null, [])->get('application-2')?->bounded());
         // An environment variable, read with the json: processor, gives the same list; empty means not recorded.
         $fromEnvironment = json_decode((string) json_encode([['key_id' => 'application-1', 'public_key' => $this->retired, 'valid_until' => '2026-11-09T12:05:00Z']]), true);
-        self::assertNull(TrustedKeysFactory::fromConfiguration($this->signer, '', $fromEnvironment)->get('application-1')?->validFrom);
+        self::assertNull(TrustedKeys::forSigner($this->signer, '', $fromEnvironment)->get('application-1')?->validFrom);
     }
 
     public function testTheConfigurationRefusesWhatCannotBeAListOfRetiredKeys(): void
@@ -72,7 +72,7 @@ final class ReceiptKeysConfigurationTest extends TestCase
             'The trusted key "application-1" needs a base64url Ed25519 public key.' => [['key_id' => 'application-1', 'public_key' => 'not-a-key', 'valid_until' => '2026-11-09T12:00:00Z']],
         ] as $message => $retired) {
             try {
-                TrustedKeysFactory::fromConfiguration($this->signer, null, $retired);
+                TrustedKeys::forSigner($this->signer, null, $retired);
                 self::fail('The keys were built: '.$message);
             } catch (\InvalidArgumentException $error) {
                 self::assertSame($message, $error->getMessage());

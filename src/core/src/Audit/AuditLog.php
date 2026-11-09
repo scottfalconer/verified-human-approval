@@ -161,9 +161,11 @@ final readonly class AuditLog
 
     /**
      * Every entry, oldest first, each checked on its own and against the one before it. Each names the key
-     * its row says signed it and its hash; the entry itself is there once its signature verifies.
+     * its row says signed it and its hash; the entry itself is there once its signature verifies. "unvouched"
+     * marks an entry signed with a key whose window has closed that no later entry signed with a key in use
+     * vouches for, so find() does not count it (see unvouchedKeys()).
      *
-     * @return array{entries: list<array{entry: ?array<string, mixed>, seq: int, valid: bool, problem: ?string, keyId: string, hash: string}>, intact: bool, newest: int}
+     * @return array{entries: list<array{entry: ?array<string, mixed>, seq: int, valid: bool, problem: ?string, keyId: string, hash: string, unvouched: bool}>, intact: bool, newest: int}
      */
     public function verify(): array
     {
@@ -208,10 +210,48 @@ final readonly class AuditLog
             $problem = isset($unvouched[$position])
                 ? \sprintf('it is signed with key "%s", whose window has closed, and no later entry signed with a key in use vouches for it', $item['row']['key_id'])
                 : $item['problem'];
-            $entries[] = ['entry' => $item['entry'], 'seq' => (int) $item['row']['seq'], 'valid' => null === $problem, 'problem' => $problem, 'keyId' => $item['row']['key_id'], 'hash' => $item['row']['hash']];
+            $entries[] = ['entry' => $item['entry'], 'seq' => (int) $item['row']['seq'], 'valid' => null === $problem, 'problem' => $problem, 'keyId' => $item['row']['key_id'], 'hash' => $item['row']['hash'], 'unvouched' => isset($unvouched[$position])];
         }
 
         return ['entries' => $entries, 'intact' => [] === array_filter($entries, static fn (array $item): bool => !$item['valid']), 'newest' => $expected - 1];
+    }
+
+    /**
+     * The keys whose window has closed and whose entries nothing in use vouches for yet, by id. Until something
+     * does, find() counts nothing they signed, so passkeys enrolled under them cannot approve. Usually the
+     * rotation away from such a key has not been recorded yet: recordRotation() ends it. If it has been, the
+     * chain is broken after those entries, and verify() says where.
+     *
+     * @return list<string>
+     */
+    public function unvouchedKeys(): array
+    {
+        $keys = [];
+        foreach ($this->verify()['entries'] as $item) {
+            if ($item['unvouched']) {
+                $keys[$item['keyId']] = true;
+            }
+        }
+
+        return array_keys($keys);
+    }
+
+    /**
+     * What is wrong with a checkpoint kept earlier, the sequence and hash head() gave, or null when it holds: the
+     * entry at that sequence is unchanged and the whole chain still verifies.
+     */
+    public function checkpoint(int $seq, string $hash): ?string
+    {
+        $report = $this->verify();
+        $kept = array_values(array_filter($report['entries'], static fn (array $item): bool => $item['seq'] === $seq))[0] ?? null;
+
+        return match (true) {
+            $report['newest'] < $seq => \sprintf('The log now ends at entry %d, before the kept entry %d: entries were cut off.', $report['newest'], $seq),
+            null === $kept => \sprintf('Entry %d is missing from the log.', $seq),
+            !hash_equals($hash, $kept['hash']) => \sprintf('Entry %d is no longer the entry kept: it, or the chain before it, was rewritten.', $seq),
+            !$report['intact'] => \sprintf('Entry %d is unchanged, but the chain does not verify. Open the audit log to see which entries fail.', $seq),
+            default => null,
+        };
     }
 
     /**

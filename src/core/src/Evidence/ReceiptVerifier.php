@@ -33,6 +33,13 @@ final class ReceiptVerifier
             if (($bundle['format'] ?? null) !== EvidenceExporter::FORMAT || !\is_string($bundle['proposal'] ?? null)) {
                 throw new \UnexpectedValueException('Unknown evidence format.');
             }
+            // json_decode($json, true) turns the file's objects into arrays, and an empty object into an empty array,
+            // so the bytes the digests cover could not be rebuilt from it.
+            foreach (['receipt', 'execution', 'proof'] as $part) {
+                if (\is_array($bundle[$part] ?? null)) {
+                    throw new \UnexpectedValueException('Read the evidence with CanonicalJson::decode() and CanonicalJson::map(), not json_decode($json, true): its objects must stay objects, because their exact bytes are what the receipt signs.');
+                }
+            }
             $proposal = CanonicalJson::map(CanonicalJson::decode($bundle['proposal']));
             $digest = hash('sha256', $bundle['proposal']);
             $request = new ApprovalRequest($proposal['id'], $bundle['proposal'], $digest);
