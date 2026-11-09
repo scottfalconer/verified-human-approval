@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Bundle;
 
+use Doctrine\ORM\Tools\Event\GenerateSchemaEventArgs;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
 use Symfony\Component\Lock\LockFactory;
 use Symfony\Component\Lock\Store\FlockStore;
+use VerifiedHumanApproval\Bundle\Command\InstallStorageCommand;
 use VerifiedHumanApproval\Bundle\Controller\ApprovalController;
 use VerifiedHumanApproval\Bundle\Handoff\ApprovalHandoff;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp;
@@ -18,13 +20,25 @@ use VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool;
 use VerifiedHumanApproval\Bundle\Security\ReviewRequestMatcher;
 use VerifiedHumanApproval\Core\ActionAdapter;
 use VerifiedHumanApproval\Core\ActionRegistry;
+use VerifiedHumanApproval\Core\ApprovalHistory;
 use VerifiedHumanApproval\Core\ApprovalObserver;
 use VerifiedHumanApproval\Core\ApprovalService;
+use VerifiedHumanApproval\Core\Audit\AuditLog;
+use VerifiedHumanApproval\Core\Audit\AuditStore;
 use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
 use VerifiedHumanApproval\Core\ExecutionGuard;
+use VerifiedHumanApproval\Doctrine\DbalApprovalStore;
+use VerifiedHumanApproval\Doctrine\DbalAuditStore;
+use VerifiedHumanApproval\Doctrine\DbalCredentialRepository;
+use VerifiedHumanApproval\Doctrine\DbalTransaction;
+use VerifiedHumanApproval\Doctrine\Orm\ApprovalSchemaListener;
+use VerifiedHumanApproval\Doctrine\Orm\ProtectedEntityListener;
 use VerifiedHumanApproval\Mcp\ApprovalFlow;
 use VerifiedHumanApproval\Mcp\ResultPresenter;
 use VerifiedHumanApproval\Mcp\UrlPrompt;
+use VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository;
+use VerifiedHumanApproval\WebAuthn\CredentialRepository;
+use VerifiedHumanApproval\WebAuthn\RevocableCredentialRepository;
 
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\tagged_iterator;
@@ -49,7 +63,27 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             ->scalarNode('actor_provider')->isRequired()->cannotBeEmpty()->info('Service id of your VerifiedHumanApproval\\Bundle\\ActorProvider.')->end()
             ->scalarNode('policy_provider')->isRequired()->cannotBeEmpty()->info('Service id of your VerifiedHumanApproval\\Core\\PolicyProvider: the administrator\'s rule.')->end()
             ->scalarNode('authorizer')->isRequired()->cannotBeEmpty()->info('Service id of your VerifiedHumanApproval\\Core\\Authorizer, which rechecks current permissions as the action executes.')->end()
-            ->scalarNode('store')->isRequired()->cannotBeEmpty()->info('Service id of the VerifiedHumanApproval\\Core\\ApprovalStore, such as VerifiedHumanApproval\\Core\\Storage\\PdoApprovalStore.')->end()
+            ->scalarNode('store')->defaultNull()->info('Service id of the VerifiedHumanApproval\\Core\\ApprovalStore, such as VerifiedHumanApproval\\Core\\Storage\\PdoApprovalStore. Leave it out when persistence.driver is "doctrine", which wires the store itself.')->end()
+            ->arrayNode('persistence')
+                ->info('Storage the bundle wires for you. With driver "doctrine" (composer require verified-human-approval/doctrine), the approval store, the signed audit log and the passkey repository use one DBAL connection of DoctrineBundle, in one transaction with your entities and queries.')
+                ->children()
+                    ->enumNode('driver')->values(['doctrine'])->isRequired()->end()
+                    ->scalarNode('connection')->defaultValue('default')->cannotBeEmpty()
+                        ->info('The DoctrineBundle connection your protected writes, permissions and entity manager use.')->end()
+                    ->scalarNode('audit_public_key')->defaultNull()
+                        ->info('The separately trusted public key (base64url) the audit log checks its entries against. Defaults to the receipt signer\'s own key.')->end()
+                    ->arrayNode('protected_entities')
+                        ->info('Entity classes that change only through an approved action, each with its protected fields, or ~ for the whole entity. The #[RequiresApproval] attribute does the same on the entity.')
+                        ->useAttributeAsKey('class')
+                        ->variablePrototype()
+                            ->validate()
+                                ->ifTrue(static fn (mixed $fields): bool => null !== $fields && (!\is_array($fields) || !array_is_list($fields) || [] !== array_filter($fields, static fn (mixed $field): bool => !\is_string($field) || '' === $field)))
+                                ->thenInvalid('List the protected fields of an entity class, or give ~ to protect the whole entity.')
+                            ->end()
+                        ->end()
+                    ->end()
+                ->end()
+            ->end()
             ->scalarNode('verifier')->isRequired()->cannotBeEmpty()->info('Service id of the VerifiedHumanApproval\\Core\\ApprovalVerifier, such as VerifiedHumanApproval\\WebAuthn\\WebAuthnVerifier.')->end()
             ->scalarNode('requester_label')->defaultNull()
                 ->info('Service id of a VerifiedHumanApproval\\Bundle\\RequesterLabel that names who asked on the review page. Unset, a service aliased to that interface is used if there is one.')->end()
@@ -76,6 +110,18 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
                     ->end()
                 ->end()
             ->end()
+        ->end()
+        ->validate()
+            ->ifTrue(static fn (array $config): bool => null === $config['store'] && !isset($config['persistence']))
+            ->thenInvalid('Name the approval store with "store", or let the bundle wire it with "persistence: { driver: doctrine }".')
+        ->end()
+        ->validate()
+            ->ifTrue(static fn (array $config): bool => null !== $config['store'] && isset($config['persistence']))
+            ->thenInvalid('Use "store" or "persistence", not both: persistence wires the approval store itself.')
+        ->end()
+        ->validate()
+            ->ifTrue(static fn (array $config): bool => isset($config['persistence']) && null === $config['receipt_signer'])
+            ->thenInvalid('"persistence" needs a "receipt_signer": it signs the audit log that vouches for every passkey.')
         ->end();
     }
 
@@ -113,11 +159,15 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             ->args([tagged_iterator('verified_human_approval.action')]);
         $services->set('verified_human_approval.execution_guard', ExecutionGuard::class);
         $services->alias(ExecutionGuard::class, 'verified_human_approval.execution_guard');
+        $store = $config['store'];
+        if (isset($config['persistence'])) {
+            $store = $this->loadDoctrine($config['persistence'], $config['receipt_signer'], $container);
+        }
         $services->set('verified_human_approval.approval_service', ApprovalService::class)->args([
             service('verified_human_approval.action_registry'),
             service($config['policy_provider']),
             service($config['authorizer']),
-            service($config['store']),
+            service($store),
             service($config['verifier']),
             service('verified_human_approval.clock'),
             service('verified_human_approval.execution_guard'),
@@ -189,5 +239,63 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
         $services->set('verified_human_approval.security_headers', SecurityHeadersSubscriber::class)->tag('kernel.event_subscriber');
         // For access_control: the review pages open without a sign-in; their controller checks who is reviewing.
         $services->set('verified_human_approval.review_request_matcher', ReviewRequestMatcher::class);
+    }
+
+    /**
+     * The Doctrine storage on one DBAL connection: the approval transaction, the three stores, the signed audit log,
+     * the anchored passkey repository, the install command and, with the ORM, the schema and protection listeners.
+     *
+     * @param array{driver: string, connection: string, audit_public_key: ?string, protected_entities: array<class-string, list<string>|null>} $persistence
+     *
+     * @return string the approval store's service id
+     */
+    private function loadDoctrine(array $persistence, string $receiptSigner, ContainerConfigurator $container): string
+    {
+        if (!class_exists(DbalTransaction::class)) {
+            throw new \LogicException('persistence.driver "doctrine" needs the Doctrine storage package: composer require verified-human-approval/doctrine.');
+        }
+        $connection = \sprintf('doctrine.dbal.%s_connection', $persistence['connection']);
+        $services = $container->services();
+
+        $services->set('verified_human_approval.doctrine.transaction', DbalTransaction::class)->args([service($connection)]);
+        $services->alias(DbalTransaction::class, 'verified_human_approval.doctrine.transaction');
+        $services->set('verified_human_approval.doctrine.approval_store', DbalApprovalStore::class)->args([service('verified_human_approval.doctrine.transaction')]);
+        $services->alias(DbalApprovalStore::class, 'verified_human_approval.doctrine.approval_store');
+        $services->alias(ApprovalHistory::class, 'verified_human_approval.doctrine.approval_store');
+        $services->set('verified_human_approval.doctrine.audit_store', DbalAuditStore::class)->args([service('verified_human_approval.doctrine.transaction')]);
+        $services->alias(DbalAuditStore::class, 'verified_human_approval.doctrine.audit_store');
+        $services->alias(AuditStore::class, 'verified_human_approval.doctrine.audit_store');
+        $services->set('verified_human_approval.doctrine.credentials', DbalCredentialRepository::class)->args([service('verified_human_approval.doctrine.transaction')]);
+        $services->alias(DbalCredentialRepository::class, 'verified_human_approval.doctrine.credentials');
+        $services->alias(RevocableCredentialRepository::class, 'verified_human_approval.doctrine.credentials');
+
+        $services->set('verified_human_approval.audit_log', AuditLog::class)
+            ->factory([AuditLogFactory::class, 'create'])
+            ->args([service('verified_human_approval.doctrine.audit_store'), service($receiptSigner), service('verified_human_approval.clock'), $persistence['audit_public_key']]);
+        $services->alias(AuditLog::class, 'verified_human_approval.audit_log');
+        // Verification reads passkeys through the anchored wrapper, and the wrapper reads the raw rows.
+        $services->set('verified_human_approval.anchored_credentials', AnchoredCredentialRepository::class)
+            ->args([service('verified_human_approval.doctrine.credentials'), service('verified_human_approval.audit_log')]);
+        $services->alias(AnchoredCredentialRepository::class, 'verified_human_approval.anchored_credentials');
+        $services->alias(CredentialRepository::class, 'verified_human_approval.anchored_credentials');
+
+        $services->set('verified_human_approval.doctrine.install_command', InstallStorageCommand::class)
+            ->args([service($connection)])
+            ->tag('console.command', ['command' => 'verified-human-approval:install']);
+
+        if (class_exists(GenerateSchemaEventArgs::class)) {
+            // doctrine:migrations:diff and doctrine:schema:update create the tables instead of proposing to drop them.
+            $services->set('verified_human_approval.doctrine.schema_listener', ApprovalSchemaListener::class)
+                ->args([service($connection)])
+                ->tag('doctrine.event_listener', ['event' => 'postGenerateSchema', 'connection' => $persistence['connection']]);
+            // Last, so it sees what every other listener changed in the flush.
+            $services->set('verified_human_approval.doctrine.protected_entities', ProtectedEntityListener::class)
+                ->args([service('verified_human_approval.execution_guard'), $persistence['protected_entities']])
+                ->tag('doctrine.event_listener', ['event' => 'onFlush', 'connection' => $persistence['connection'], 'priority' => -1024])
+                ->tag('doctrine.event_listener', ['event' => 'preUpdate', 'connection' => $persistence['connection'], 'priority' => -1024]);
+            $services->alias(ProtectedEntityListener::class, 'verified_human_approval.doctrine.protected_entities');
+        }
+
+        return 'verified_human_approval.doctrine.approval_store';
     }
 }

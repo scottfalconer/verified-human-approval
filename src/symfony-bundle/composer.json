@@ -20,6 +20,9 @@
     "symfony/lock": "^7.4 || ^8.0",
     "symfony/clock": "^7.4 || ^8.0"
   },
+  "suggest": {
+    "verified-human-approval/doctrine": "persistence.driver \"doctrine\": the approval store, signed audit log and passkey repository on a DoctrineBundle connection."
+  },
   "autoload": {
     "psr-4": {
       "VerifiedHumanApproval\\Bundle\\": "src/"
