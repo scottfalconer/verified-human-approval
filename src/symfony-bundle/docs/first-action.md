@@ -148,6 +148,9 @@ services:
 
     VerifiedHumanApproval\Core\Storage\PdoApprovalStore: ~
     VerifiedHumanApproval\WebAuthn\PdoCredentialRepository: ~
+    VerifiedHumanApproval\Core\Storage\PdoAuditStore: ~
+    VerifiedHumanApproval\Core\Audit\AuditStore:
+        alias: VerifiedHumanApproval\Core\Storage\PdoAuditStore
 
     VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner:
         factory: ['VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner', 'fromEncoded']
@@ -161,7 +164,11 @@ services:
             $trustedPublicKey: '%env(APPROVAL_RECEIPT_PUBLIC_KEY)%'
             $clock: '@verified_human_approval.clock'
 
-    VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository: ~
+    # Verification reads passkeys through the anchored wrapper, and the wrapper reads the raw rows.
+    # Name the raw repository explicitly, so the wrapper never resolves to itself.
+    VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository:
+        arguments:
+            $credentials: '@VerifiedHumanApproval\WebAuthn\PdoCredentialRepository'
     VerifiedHumanApproval\WebAuthn\CredentialRepository:
         alias: VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository
 
@@ -197,8 +204,8 @@ use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
-use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\Storage\PdoApprovalStore;
+use VerifiedHumanApproval\Core\Storage\PdoAuditStore;
 use VerifiedHumanApproval\WebAuthn\PdoCredentialRepository;
 
 #[AsCommand(name: 'app:approval:install', description: 'Create the approval, credential and audit tables.')]
@@ -207,7 +214,7 @@ final class InitializeApprovalStorageCommand extends Command
     public function __construct(
         private readonly PdoApprovalStore $store,
         private readonly PdoCredentialRepository $credentials,
-        private readonly AuditLog $audit,
+        private readonly PdoAuditStore $audit,
     ) {
         parent::__construct();
     }
@@ -673,7 +680,7 @@ The low-level hooks are:
 3. On completion, consume the saved options once. Check the same account, CSRF token and expiry. Never accept replacement registration options from request JSON.
 4. In one transaction on the shared PDO, call `WebAuthnVerifier::register($actor, $savedOptions, $browserResponse, $label)`. This validates and inserts the credential. Then call `AnchoredCredentialRepository::anchor($credential, $context)` before committing. The context records how enrollment was authorized. Roll back both operations on failure.
 
-`AnchoredCredentialRepository::add()` does not create the signed enrollment record by itself. Without `anchor()`, the configured repository will not accept the new passkey for approval. In your trusted account flow, wrap its `revoke()` call in a transaction on the shared PDO so the revocation and signed audit entry commit together.
+`AnchoredCredentialRepository::add()` does not create the signed enrollment record by itself. Without `anchor()`, the configured repository will not accept the new passkey for approval. In your trusted account flow, call its `revoke()` inside a transaction on the shared PDO, so the revocation and its signed audit entry commit together and a failure to sign or store the entry leaves the passkey active; the demo's [`PasskeyRevocation`](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/src/Account/PasskeyRevocation.php) shows it. The wrapper accepts any `RevocableCredentialRepository`, so the passkeys and the audit rows (`AuditStore`) can live in your own storage.
 
 The [WebAuthn guide](https://github.com/scottfalconer/verified-human-approval/blob/main/src/webauthn/README.md#trusted-enrollment) explains the browser payload and adapter responsibilities. The bundle's review controller handles approval ceremonies once a credential is enrolled; it does not supply enrollment or recovery controllers.
 

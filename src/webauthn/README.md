@@ -51,6 +51,8 @@ $credential = $verifier->register(
 
 Before invoking enrollment, the host must require its trusted human account flow. An agent's MCP token must not reach enrollment, recovery or policy-administration routes. Completion must consume the saved options once, reject expired enrollment, and use the options from server-side storage rather than a copy submitted by the browser. Registration rejects a different owner, RP, challenge or missing user verification, and it cannot replace an existing credential.
 
+`AnchoredCredentialRepository` accepts a passkey only while a signed enrollment entry in the audit log vouches for it. It wraps any `RevocableCredentialRepository`, the raw storage: `PdoCredentialRepository`, or a host's own (a Drupal table, say), which must never overwrite, reassign or reactivate an ID, must treat ownership as user and tenant, and must compare and replace on the active source, matching an identical source from a zero-counter passkey. Call `anchor()` in the same transaction as `register()`, and `revoke()` in the same transaction as its signed entry, so a failure to sign or store the entry undoes the change. The audit rows can live in the host's storage too, through core's `AuditStore`.
+
 ## What is required from the authenticator
 
 Both enrollment and approval request `userVerification: "required"`. Assertion verification also requires the user-presence flag. The first integration uses top-level browser ceremonies, a single explicitly configured origin, and no cross-origin iframe ceremonies or subdomain wildcard. The origin must use HTTPS; `http://localhost` is the explicit local-development exception. Do not derive configuration from untrusted Host headers or MCP tool arguments.

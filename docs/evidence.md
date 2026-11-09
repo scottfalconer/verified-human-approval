@@ -121,6 +121,7 @@ require getcwd().'/vendor/autoload.php';
 use Symfony\Component\Clock\NativeClock;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\Storage\PdoAuditStore;
 use VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository;
 use VerifiedHumanApproval\WebAuthn\PdoCredentialRepository;
 
@@ -140,7 +141,7 @@ $pdo = new PDO('sqlite:'.$runtime.'/application.sqlite');
 $signer = SodiumEvidenceSigner::fromEncoded(
     $settings['receipt_key_id'], $settings['receipt_secret_key'],
 );
-$audit = new AuditLog($pdo, $signer, $settings['receipt_public_key'], new NativeClock());
+$audit = new AuditLog(new PdoAuditStore($pdo), $signer, $settings['receipt_public_key'], new NativeClock());
 $credentials = new AnchoredCredentialRepository(new PdoCredentialRepository($pdo), $audit);
 $credential = $credentials->enrolled($credentialId)
     ?? throw new RuntimeException('No valid signed enrollment for this credential.');
@@ -187,7 +188,7 @@ The evidence proves approval by the enrolled credential and preserves the applic
 
 ### Optional signing at export
 
-An application that has **never** signed receipts at commit can explicitly use `EvidenceExporter(..., signAtExport: true)`. Its receipt says `export`, and the CLI reports `applicationReportSignedAt: "export"`. That only protects the record from the time it was exported; it cannot detect edits made earlier. Do not enable this option to replace a missing commit receipt.
+Serving original receipts needs no signing key: construct the exporter without a signer (`new EvidenceExporter()`), and it returns each receipt exactly as it was signed at commit. An application that has **never** signed receipts at commit can explicitly use `new EvidenceExporter($signer, signAtExport: true)`. Its receipt says `export`, and the CLI reports `applicationReportSignedAt: "export"`. That only protects the record from the time it was exported; it cannot detect edits made earlier. Do not enable this option to replace a missing commit receipt.
 
 ## Regression checks
 
