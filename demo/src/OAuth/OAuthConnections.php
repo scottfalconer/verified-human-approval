@@ -11,7 +11,8 @@ use VerifiedHumanApproval\Demo\DemoDatabase;
  * approval request records and the authorizer rechecks. league/oauth2-server issues and checks the tokens; this
  * only decides which connection a token belongs to, and ends them all when a connection is revoked.
  *
- * Allowing a client opens a new connection, which replaces the person's earlier one with that client. However
+ * Allowing a client opens a new connection (when league saves the code it issues: ConnectionOpeningCodeManager),
+ * which replaces the person's earlier one with that client. However
  * often the client refreshes its tokens, a connection ends after LIFETIME_SECONDS and the person connects again.
  */
 final readonly class OAuthConnections

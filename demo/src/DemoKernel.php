@@ -34,9 +34,9 @@ use VerifiedHumanApproval\Demo\Controller\DemoController;
 use VerifiedHumanApproval\Demo\Controller\PublicController;
 use VerifiedHumanApproval\Demo\Mcp\DemoTools;
 use VerifiedHumanApproval\Demo\OAuth\ClientMetadataHttpClient;
+use VerifiedHumanApproval\Demo\OAuth\ConnectionOpeningCodeManager;
 use VerifiedHumanApproval\Demo\OAuth\ConsentExtension;
 use VerifiedHumanApproval\Demo\OAuth\Storage\PdoAccessTokenManager;
-use VerifiedHumanApproval\Demo\OAuth\Storage\PdoAuthorizationCodeManager;
 use VerifiedHumanApproval\Demo\OAuth\Storage\PdoClientManager;
 use VerifiedHumanApproval\Demo\OAuth\Storage\PdoCredentialsRevoker;
 use VerifiedHumanApproval\Demo\OAuth\Storage\PdoRefreshTokenManager;
@@ -225,7 +225,8 @@ final class DemoKernel extends Kernel
             'scopes' => ['available' => array_keys(ConsentExtension::SCOPE_DESCRIPTIONS), 'default' => array_keys(ConsentExtension::SCOPE_DESCRIPTIONS)],
             'persistence' => ['custom' => [
                 'access_token_manager' => PdoAccessTokenManager::class,
-                'authorization_code_manager' => PdoAuthorizationCodeManager::class,
+                // Saving a new code is when the person's consent opens the agent connection its tokens belong to.
+                'authorization_code_manager' => ConnectionOpeningCodeManager::class,
                 'client_manager' => PdoClientManager::class,
                 'refresh_token_manager' => PdoRefreshTokenManager::class,
                 'credentials_revoker' => PdoCredentialsRevoker::class,

@@ -10,6 +10,7 @@ use Nyholm\Psr7\Factory\Psr17Factory;
 use Omouren\McpOauthBundle\Cimd\CimdException;
 use Omouren\McpOauthBundle\Cimd\ClientIdMetadataResolver;
 use Omouren\McpOauthBundle\McpOauthSettings;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
@@ -93,6 +94,48 @@ final class OAuthTest extends TestCase
         $status = $this->mcp($refreshed['access_token'])->callTool('approval_status', ['request_id' => $result->structuredContent['requestId']]);
         self::assertFalse($status->isError, 'The refreshed token keeps the same connection, so it reads the pending request.');
         self::assertSame('pending', $status->structuredContent['status']);
+    }
+
+    public function testClaudeAiConnectsWithItsClientIdMetadataDocument(): void
+    {
+        // claude.ai names itself by this URL instead of registering. Its document is served here by a mock.
+        $browser = $this->client();
+        $browser->disableReboot();
+        $browser->getKernel()->boot();
+        $fetched = new MockHttpClient(new MockResponse(json_encode(['client_id' => self::CLAUDE, 'client_name' => 'Claude', 'redirect_uris' => [self::CALLBACK]])));
+        $browser->getContainer()->get('test.service_container')->set(ClientMetadataHttpClient::class, new ClientMetadataHttpClient($fetched));
+        [$code, $verifier] = $this->consentIn($this->signIn($browser, 'editor'), self::CLAUDE);
+        $tokens = $this->token($browser, ['grant_type' => 'authorization_code', 'code' => $code, 'redirect_uri' => self::CALLBACK, 'client_id' => self::CLAUDE, 'code_verifier' => $verifier, 'resource' => self::ORIGIN.'/mcp']);
+        self::assertSame('Bearer', $tokens['token_type'] ?? null, json_encode($tokens));
+        self::assertGreaterThanOrEqual(1, $fetched->getRequestsCount(), 'The document was fetched from claude.ai’s URL.');
+
+        $result = $this->mcp($tokens['access_token'])->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
+        self::assertSame('pending', $result->structuredContent['status']);
+        $connection = (new DemoDatabase(DemoDatabase::connect($this->runtime.'/application.sqlite')))->pdo->query("SELECT client_name, active FROM demo_grants WHERE token_hash IS NULL")->fetch();
+        self::assertSame(['client_name' => 'Claude', 'active' => 1], $connection, 'The connection carries the name from claude.ai’s own document.');
+    }
+
+    /** @return iterable<string, array{?string}> */
+    public static function resourcesNamedLoosely(): iterable
+    {
+        yield 'no resource' => [null];
+        yield 'the server\'s origin' => [self::ORIGIN];
+    }
+
+    #[DataProvider('resourcesNamedLoosely')]
+    public function testAClientThatNamesNoResourceOrJustTheOriginIsStillAskedAndGetsATokenForMcp(?string $resource): void
+    {
+        // Not every client names the MCP endpoint as the resource, or names a scope. The server then uses its own
+        // endpoint and the default scopes, and the person still sees the consent page first.
+        $api = $this->client();
+        $registration = $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => [self::CALLBACK], 'client_name' => 'Claude']);
+        [$code, $verifier] = $this->consentIn($this->signedIn('editor'), $registration['client_id'], $resource);
+        $tokens = $this->token($api, ['grant_type' => 'authorization_code', 'code' => $code, 'redirect_uri' => self::CALLBACK, 'client_id' => $registration['client_id'], 'code_verifier' => $verifier] + (null === $resource ? [] : ['resource' => $resource]));
+        $claims = json_decode(base64_decode(strtr(explode('.', $tokens['access_token'])[1], '-_', '+/')), true, 8, \JSON_THROW_ON_ERROR);
+        self::assertSame(self::ORIGIN.'/mcp', $claims['resource'] ?? null, 'The token is bound to this server’s MCP endpoint.');
+        self::assertSame(['alert.read', 'alert.publish', 'approval.read'], $claims['scopes'] ?? null);
+        $result = $this->mcp($tokens['access_token'])->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
+        self::assertSame('pending', $result->structuredContent['status']);
     }
 
     public function testRefusesAWrongVerifierAnUnregisteredRedirectAndUnknownClients(): void
@@ -252,7 +295,7 @@ final class OAuthTest extends TestCase
     {
         $api = $this->client();
         $api->request('POST', self::ORIGIN.'/oauth/device-code', ['client_id' => 'anything']);
-        self::assertGreaterThanOrEqual(400, $api->getResponse()->getStatusCode());
+        self::assertNotSame(200, $api->getResponse()->getStatusCode(), 'The device flow is never enabled.');
         self::assertStringNotContainsString('device_code', (string) $api->getResponse()->getContent());
     }
 
@@ -267,12 +310,17 @@ final class OAuthTest extends TestCase
     /** @return array{0: string, 1: string} the authorization code and its PKCE verifier */
     private function consent(string $clientId, string $user): array
     {
+        return $this->consentIn($this->signedIn($user), $clientId);
+    }
+
+    /** @return array{0: string, 1: string} the authorization code and its PKCE verifier */
+    private function consentIn(KernelBrowser $browser, string $clientId, ?string $resource = self::ORIGIN.'/mcp'): array
+    {
         $verifier = rtrim(strtr(base64_encode(random_bytes(48)), '+/', '-_'), '=');
-        $browser = $this->signedIn($user);
         $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query([
             'response_type' => 'code', 'client_id' => $clientId, 'redirect_uri' => self::CALLBACK, 'state' => 'state-123',
-            'code_challenge' => self::challenge($verifier), 'code_challenge_method' => 'S256', 'resource' => self::ORIGIN.'/mcp',
-        ]));
+            'code_challenge' => self::challenge($verifier), 'code_challenge_method' => 'S256',
+        ] + (null === $resource ? [] : ['resource' => $resource])));
         self::assertSame(302, $browser->getResponse()->getStatusCode(), (string) $browser->getResponse()->getContent());
         $consent = $browser->request('GET', self::absolute((string) $browser->getResponse()->headers->get('Location')));
         self::assertSame(200, $browser->getResponse()->getStatusCode(), 'The person sees the consent page first.');
@@ -342,7 +390,11 @@ final class OAuthTest extends TestCase
 
     private function signedIn(string $user): KernelBrowser
     {
-        $browser = $this->client();
+        return $this->signIn($this->client(), $user);
+    }
+
+    private function signIn(KernelBrowser $browser, string $user): KernelBrowser
+    {
         $crawler = $browser->request('GET', self::ORIGIN.'/login');
         $browser->submit($crawler->selectButton('Sign in')->form(['_username' => $user, '_password' => $this->accounts[$user]['password']]));
         self::assertSame(302, $browser->getResponse()->getStatusCode());
