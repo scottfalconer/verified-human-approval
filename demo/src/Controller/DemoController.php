@@ -63,7 +63,7 @@ final readonly class DemoController
             throw new AccessDeniedException($error->getMessage());
         }
 
-        return new RedirectResponse($this->urls->generate('verified_human_approval_review', ['id' => $state->request->id]));
+        return new RedirectResponse($this->urls->generate('verified_human_approval_review', ['id' => $state->request->id, 'return' => $this->urls->generate('demo_home')]));
     }
 
     public function editDraft(Request $request, string $id): Response
@@ -106,7 +106,7 @@ final readonly class DemoController
                 try {
                     $state = $this->approvals->request($actor, ChangeAlertRule::ID, ['manager' => $data['manager'], 'staff' => $data['staff'], 'statement' => $data['statement']]);
 
-                    return new RedirectResponse($this->urls->generate('verified_human_approval_review', ['id' => $state->request->id]));
+                    return new RedirectResponse($this->urls->generate('verified_human_approval_review', ['id' => $state->request->id, 'return' => $this->urls->generate('demo_policy')]));
                 } catch (ApprovalException $error) {
                     $form->addError(new FormError($error->getMessage()));
                 }

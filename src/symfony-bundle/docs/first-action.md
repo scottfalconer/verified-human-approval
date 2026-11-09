@@ -143,6 +143,7 @@ services:
         resource: '../src/Mcp/'
 
     PDO:
+        class: PDO
         factory: ['App\Approval\Database', 'connect']
         arguments: ['%env(APP_SQLITE_PATH)%']
 
@@ -579,7 +580,7 @@ The default review template already shows `effect.title` and `effect.body`. To u
 {% endblock %}
 ```
 
-Keep Twig escaping enabled. Do not query the latest draft from this block. For a browser publish button, call `ApprovalService::request()` with `ActorProvider::interactive()` after your usual CSRF check; do not call the adapter's `execute()` method.
+Keep Twig escaping enabled. Do not query the latest draft from this block. For a browser publish button, call `ApprovalService::request()` with `ActorProvider::interactive()` after your usual CSRF check; do not call the adapter's `execute()` method. Then redirect to the review page, naming where the person came from, so the finished page leads back there: `$urls->generate('verified_human_approval_review', ['id' => $state->request->id, 'return' => '/documents/'.$id])`, where `return` is the page the button was on. The review page accepts only a path on your site for `return` and ignores anything else.
 
 ## 6. Expose the action through MCP
 

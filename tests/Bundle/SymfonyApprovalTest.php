@@ -329,6 +329,30 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame(403, $reader->getResponse()->getStatusCode());
     }
 
+    public function testARequestMadeOnTheSiteLeadsBackToTheSiteNotToClaude(): void
+    {
+        $browser = $this->browser('editor');
+        $key = $this->enroll($browser);
+        $browser->submit($browser->request('GET', self::ORIGIN.'/')->selectButton('Issue alert')->form());
+        $location = (string) $browser->getResponse()->headers->get('Location');
+        self::assertStringEndsWith('?return=/', $location, 'The site names the page the request came from.');
+        self::assertSame(1, preg_match('#/approval/([^?]+)#', $location, $match));
+        $pending = $browser->request('GET', $location);
+        self::assertSame('Approval requested · Riverside Council website', $pending->filter('.approval-sheet .eyebrow')->text());
+
+        self::assertSame('completed', $this->approveWith($browser, $match[1], $key)['status']);
+        $done = $browser->request('GET', $location);
+        self::assertSame('Approved · Riverside Council website', $done->filter('.approval-sheet .eyebrow')->text());
+        self::assertSame('Back to Riverside Council website', $done->filter('.approval-sheet .sheet-back a[href="/"]')->text());
+        self::assertCount(0, $done->filter('[data-return-hint]'), 'A request made on the site does not send the person to Claude.');
+
+        // Only a path on this site is ever offered as the way back.
+        foreach (['//evil.example/', '/\\evil.example', 'https://evil.example/', 'javascript:alert(1)', "/ok\nnext"] as $hostile) {
+            $page = $browser->request('GET', self::ORIGIN.'/approval/'.$match[1].'?return='.rawurlencode($hostile));
+            self::assertCount(0, $page->filter('.sheet-back'), $hostile);
+        }
+    }
+
     public function testDirectPublicationServiceCannotBypassTheApplicationGuard(): void
     {
         $publisher = new AlertPublisher($this->database, new ExecutionGuard());
@@ -755,7 +779,9 @@ final class SymfonyApprovalTest extends TestCase
         $browser->submit($form);
         self::assertSame(302, $browser->getResponse()->getStatusCode(), (string) $browser->getResponse()->getContent());
 
-        return basename((string) $browser->getResponse()->headers->get('Location'));
+        self::assertSame(1, preg_match('#/approval/([^/?]+)#', (string) $browser->getResponse()->headers->get('Location'), $match));
+
+        return $match[1];
     }
 
     private function approveWith(KernelBrowser $browser, string $id, VirtualAuthenticator $authenticator): array

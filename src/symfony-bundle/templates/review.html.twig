@@ -5,22 +5,27 @@
    stack in that order, so nobody approves what they have not seen; on a wide screen the effect sits beside the
    decision, so the whole of it fits on one screen. #}
 {% set agent = proposal.actor.delegationId is not empty %}
+{% set application = prepared.target.application|default('This application') %}
+{# The label above the title says where the request stands, not only that it was made. #}
+{% set standing = state.status == 'pending' ? 'Approval requested' : (state.status == 'completed' ? (state.proof ? 'Approved' : 'Completed') : ({cancelled: 'Cancelled', expired: 'Expired'}[state.status] ?? 'Blocked')) %}
 <section class="card approval-sheet" data-status="{{ state.status }}">
     <div class="sheet-head">
-        <p class="eyebrow">Approval requested · {{ prepared.target.application|default('This application') }}</p>
+        <p class="eyebrow">{{ standing }} · {{ application }}</p>
         <h1>{{ prepared.display.title|default('Review this exact action') }}</h1>
         <p class="requester"><span class="pill {{ agent ? 'pill-agent' : 'pill-person' }}">{{ agent ? 'Agent request' : 'Your request' }}</span> Requested by {{ requested_by ?? (agent ? 'an agent connected to your account' : 'you, on this site') }}.</p>
         {% if state.status == 'completed' %}
         <div class="done">
             {# Only a recorded passkey proof means a person approved it; under a rule that needs none, say so. #}
             <p class="notice outcome"><span>{% if state.proof %}<strong>Approved with your passkey.</strong> This request is completed.{% else %}<strong>Completed without a passkey:</strong> the application's rule did not require one for this request.{% endif %}</span></p>
-            {# The way back to the agent. The approval card adds #return=claude-desktop, claude-mobile or claude-web to the link. #}
+            {# The way back: to the page on this site the request came from, or to the agent that asked. The
+               approval card adds #return=claude-desktop, claude-mobile or claude-web to an agent's review link. #}
             {% block return %}
+            {% if return_path %}<div class="actions sheet-back"><a class="button" href="{{ return_path }}">Back to {{ application }}</a></div>{% endif %}
             <div class="actions" data-return hidden>
                 <a class="button" href="claude://" data-return-app hidden>Back to Claude</a>
                 <button type="button" data-return-tab hidden>Back to your Claude tab</button>
             </div>
-            <p class="muted" data-return-hint>You can close this tab and return to Claude.</p>
+            {% if agent %}<p class="muted" data-return-hint>You can close this tab and return to Claude.</p>{% endif %}
             {% endblock %}
         </div>
         {% elseif state.status != 'pending' %}
@@ -35,6 +40,7 @@
             <p class="stopped-title">{{ stopped[0] }}</p>
             <p>{{ stopped[1] }}{% if state.reason and state.status in ['invalidated', 'denied'] %} <span class="small">Reason: {{ state.reason }}.</span>{% endif %}</p>
         </div>
+        {% if return_path %}<div class="actions sheet-back"><a class="button secondary" href="{{ return_path }}">Back to {{ application }}</a></div>{% endif %}
         {% endif %}
         <p class="statement">{{ state.request.statement }}</p>
     </div>

@@ -65,7 +65,18 @@ final readonly class ApprovalController
             'scoped' => null !== $this->handoff?->personFor($request, $id),
             // Whether this site signs receipts, so a completed request offers the person their copy.
             'receipts' => null !== $this->receipts,
+            // Where a request made on this site came from, so the finished page can lead back there.
+            'return_path' => self::localPath($request->query->get('return')),
         ]));
+    }
+
+    /**
+     * A path on this site, or null. The page that sends someone here names where they came from, and the review
+     * leads back there once the request finishes; anything that could reach another site is ignored.
+     */
+    private static function localPath(mixed $path): ?string
+    {
+        return \is_string($path) && \strlen($path) <= 2048 && 1 === preg_match('#^/(?![/\\\\])[^\s\\\\\x00-\x1f\x7f]*$#D', $path) ? $path : null;
     }
 
     /**
