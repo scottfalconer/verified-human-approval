@@ -57,10 +57,7 @@ final class ArchiveArticles extends ArticleAction
             $this->target($actor, implode(',', $ids)),
             ['status' => Article::ARCHIVED, 'articles' => $after],
             ['articles' => $live],
-            [
-                'title' => 1 === \count($live) ? 'Archive “'.$live[0]['title'].'”' : 'Archive '.\count($live).' articles',
-                'consequence' => 'Visitors stop seeing '.(1 === \count($live) ? 'it' : 'them').' as soon as you approve. If any of them changes first, none is archived.',
-            ],
+            ['title' => 1 === \count($live) ? 'Archive “'.$live[0]['title'].'”' : 'Archive '.\count($live).' articles'],
             ['articles' => ([] === $names ? '' : implode(', ', $names).' and ').$last, 'application' => self::APPLICATION],
         );
     }

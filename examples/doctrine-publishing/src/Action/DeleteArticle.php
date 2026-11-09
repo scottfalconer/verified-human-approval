@@ -46,10 +46,7 @@ final class DeleteArticle extends ArticleAction
             ['deleted' => true],
             // What disappears, exactly: the article is deleted only while it is still this.
             self::snapshot($article),
-            [
-                'title' => 'Delete “'.$article->title().'”',
-                'consequence' => Article::LIVE === $article->status() ? 'Visitors stop seeing it as soon as you approve, and it cannot be restored.' : 'It cannot be restored.',
-            ],
+            ['title' => 'Delete “'.$article->title().'”'] + (Article::LIVE === $article->status() ? ['consequence' => 'Visitors stop seeing it as soon as you approve.'] : []),
             ['title' => $article->title(), 'what' => $what, 'application' => self::APPLICATION],
         );
     }

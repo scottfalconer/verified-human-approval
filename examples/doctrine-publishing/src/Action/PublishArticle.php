@@ -43,7 +43,8 @@ final class PublishArticle extends ArticleAction
             // What visitors will see. The badge on the public page later compares the live text with this title and body.
             ['title' => $article->draftTitle(), 'body' => $article->draftBody(), 'status' => Article::LIVE, 'revision' => $revision],
             ['status' => $article->status(), 'revision' => $article->revision()],
-            ['title' => 'Publish “'.$article->draftTitle().'”', 'consequence' => 'Visitors see this exact text on the public page as soon as you approve.'],
+            // The statement already says what happens on approval, so no separate consequence.
+            ['title' => 'Publish “'.$article->draftTitle().'”'],
             ['title' => $article->draftTitle(), 'revision' => (string) $revision, 'application' => self::APPLICATION],
         );
     }
