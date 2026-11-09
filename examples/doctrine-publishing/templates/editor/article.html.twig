@@ -1,0 +1,67 @@
+{% extends '@VerifiedHumanApproval/base.html.twig' %}
+{% block title %}{{ article.title }} · Newsroom{% endblock %}
+{% block body %}
+<p class="eyebrow"><a href="{{ path('editor') }}">Editing</a> · {{ article.status }}{% if article.revision %} · live revision {{ article.revision }}{% endif %}</p>
+<h1>{{ article.title }}</h1>
+{% include '_flashes.html.twig' %}
+{% set editor = is_granted('ROLE_EDITOR') %}
+{% if article.status == 'live' %}
+<section class="card">
+    <h2>What visitors see</h2>
+    {% include 'public/_article.html.twig' with {title: article.liveTitle, body: article.liveBody} only %}
+    {{ verified_human_approval_badge(article.liveRequestId, article.id, {title: article.liveTitle, body: article.liveBody}) }}
+</section>
+{% if editor %}
+<section class="card">
+    <h2>Change what visitors see</h2>
+    <p class="muted">You review your text side by side with the live text before you approve it. Visitors keep seeing the live text until then.</p>
+    <form method="post" action="{{ path('editor_edit_live', {id: article.id}) }}">
+        <input type="hidden" name="_token" value="{{ csrf_token('newsroom') }}">
+        <label>Title <input name="title" required maxlength="200" value="{{ article.liveTitle }}"></label>
+        <label>Text <textarea name="body" rows="8" required>{{ article.liveBody }}</textarea></label>
+        <button>Ask to change the live article</button>
+    </form>
+</section>
+{% endif %}
+{% else %}
+<section class="card">
+    <h2>Draft</h2>
+    {% if editor %}
+    <form method="post" action="{{ path('editor_save', {id: article.id}) }}">
+        <input type="hidden" name="_token" value="{{ csrf_token('newsroom') }}">
+        <label>Title <input name="title" required maxlength="200" value="{{ article.draftTitle }}"></label>
+        <label>Text <textarea name="body" rows="8" required>{{ article.draftBody }}</textarea></label>
+        <button>Save draft</button>
+    </form>
+    <form method="post" action="{{ path('editor_publish', {id: article.id}) }}">
+        <input type="hidden" name="_token" value="{{ csrf_token('newsroom') }}">
+        <button class="primary">Ask to publish the saved draft</button>
+    </form>
+    {% else %}
+    {% include 'public/_article.html.twig' with {title: article.draftTitle, body: article.draftBody} only %}
+    {% endif %}
+</section>
+{% if article.status == 'archived' %}
+<section class="card">
+    <h2>Archived: what visitors last saw</h2>
+    {% include 'public/_article.html.twig' with {title: article.liveTitle, body: article.liveBody} only %}
+</section>
+{% endif %}
+{% endif %}
+{% if editor %}
+<section class="card">
+    <h2>Archive or delete</h2>
+    {% if article.status == 'live' %}
+    <form class="inline" method="post" action="{{ path('editor_archive') }}">
+        <input type="hidden" name="_token" value="{{ csrf_token('newsroom') }}">
+        <input type="hidden" name="article_ids[]" value="{{ article.id }}">
+        <button>Ask to archive</button>
+    </form>
+    {% endif %}
+    <form class="inline" method="post" action="{{ path('editor_delete', {id: article.id}) }}">
+        <input type="hidden" name="_token" value="{{ csrf_token('newsroom') }}">
+        <button class="danger">Ask to delete for good</button>
+    </form>
+</section>
+{% endif %}
+{% endblock %}

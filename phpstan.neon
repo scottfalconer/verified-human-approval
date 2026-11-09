@@ -10,6 +10,17 @@ parameters:
         - src/store-contracts/bin
         - demo/src
         - src/webauthn/bin
+        # The publishing example: its code, its configuration and its entry points. Not config/reference.php, which
+        # Symfony generates when the example boots with debug on.
+        - examples/doctrine-publishing/src
+        - examples/doctrine-publishing/config/packages
+        - examples/doctrine-publishing/config/bootstrap.php
+        - examples/doctrine-publishing/config/bundles.php
+        - examples/doctrine-publishing/config/routes.php
+        - examples/doctrine-publishing/config/services.php
+        - examples/doctrine-publishing/public/index.php
+        - examples/doctrine-publishing/bin/console
+        - examples/doctrine-publishing/bin/setup
     tmpDir: .phpstan
     ignoreErrors:
         # The demo's arrays are database rows and form data; the packages declare every array's value type.

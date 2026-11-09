@@ -1,0 +1,22 @@
+{% extends '@VerifiedHumanApproval/base.html.twig' %}
+{% block title %}Your passkey · Newsroom{% endblock %}
+{% block body %}
+<h1>Your passkey</h1>
+<p>Your passkey approves each exact change to what visitors see, with a fresh check every time. Your agent can ask for changes; it can never approve one.</p>
+<section class="card">
+    {% if passkeys %}
+    <ul class="plain">{% for passkey in passkeys %}<li><strong>{{ passkey.label }}</strong> <code>{{ passkey.id|slice(0, 12) }}…</code></li>{% endfor %}</ul>
+    {% else %}
+    <p>No passkey is registered for this account yet.</p>
+    {% endif %}
+    {% if can_register %}
+    <div data-passkey-panel data-mode="registration" data-csrf="{{ csrf_token(csrf_id) }}" data-options-url="{{ path('passkey_options') }}" data-complete-url="{{ path('passkey_complete') }}">
+        <p class="muted">Your one-time link lets you register a passkey now.</p>
+        <div class="actions"><button type="button" class="primary" data-approve>Register a passkey</button></div>
+        <p data-message aria-live="polite"></p>
+    </div>
+    {% else %}
+    <p class="muted">To register a passkey, open the one-time link the setup command printed for you, while signed in. A password alone cannot add one.</p>
+    {% endif %}
+</section>
+{% endblock %}

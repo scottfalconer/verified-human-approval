@@ -1,0 +1,41 @@
+{% extends '@VerifiedHumanApproval/base.html.twig' %}
+{% block title %}Editing · Newsroom{% endblock %}
+{% block body %}
+<h1>Editing</h1>
+{% include '_flashes.html.twig' %}
+<p class="muted">Drafts save at once: visitors never see them. Publishing, changing a live article, archiving and
+deleting each wait for your passkey, on a review page that shows exactly what will change.</p>
+<section class="card">
+    <h2>Articles</h2>
+    {# Only an editor may ask; the authorizer refuses anyone else all the same. #}
+    {% set live = is_granted('ROLE_EDITOR') and articles|filter(article => article.status == 'live')|length > 0 %}
+    <form id="archive" method="post" action="{{ path('editor_archive') }}"><input type="hidden" name="_token" value="{{ csrf_token('newsroom') }}"></form>
+    <table class="articles">
+        <thead><tr><th scope="col">Article</th><th scope="col">Status</th><th scope="col">Live revision</th>{% if live %}<th scope="col">Archive</th>{% endif %}</tr></thead>
+        <tbody>
+        {% for article in articles %}
+            <tr>
+                <td><a href="{{ path('editor_article', {id: article.id}) }}">{{ article.title }}</a></td>
+                <td>{{ article.status }}</td>
+                <td>{{ article.revision ?? '–' }}</td>
+                {% if live %}<td>{% if article.status == 'live' %}<input type="checkbox" form="archive" name="article_ids[]" value="{{ article.id }}" aria-label="Archive {{ article.title }}">{% endif %}</td>{% endif %}
+            </tr>
+        {% else %}
+            <tr><td colspan="4">No articles yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% if live %}<p><button form="archive">Ask to archive the selected articles</button> <span class="muted">One approval for all of them: if any changes first, none is archived.</span></p>{% endif %}
+</section>
+{% if is_granted('ROLE_EDITOR') %}
+<section class="card">
+    <h2>New draft</h2>
+    <form method="post" action="{{ path('editor_create') }}">
+        <input type="hidden" name="_token" value="{{ csrf_token('newsroom') }}">
+        <label>Title <input name="title" required maxlength="200"></label>
+        <label>Text <textarea name="body" rows="6" required></textarea></label>
+        <button>Save draft</button>
+    </form>
+</section>
+{% endif %}
+{% endblock %}

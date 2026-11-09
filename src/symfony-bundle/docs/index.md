@@ -128,6 +128,8 @@ Two console commands work with your signed audit log: `verified-human-approval:a
 
 With `verified-human-approval/doctrine`, the bundle wires the storage on a DoctrineBundle connection: the approval store, the signed audit log and the passkey repository share one transaction with your entity manager and your queries, on SQLite, PostgreSQL, MySQL 8.0.17 or later, or MariaDB. The [package guide](https://github.com/scottfalconer/verified-human-approval/blob/main/src/doctrine/README.md) has the details.
 
+For a complete application to copy, see the [publishing example](https://github.com/scottfalconer/verified-human-approval/blob/main/examples/doctrine-publishing/README.md): an `Article` entity whose live fields are `#[RequiresApproval]`, four `EntityAction`s (publish, edit live content, archive one or a batch, delete) requested from the web and from MCP through the same `ApprovalService`, an authorizer and actions that lock what they read, the review page's preview, and a public page with the badge, with tests for SQLite, PostgreSQL and MySQL.
+
 ```yaml
 # config/packages/verified_human_approval.yaml
 verified_human_approval:

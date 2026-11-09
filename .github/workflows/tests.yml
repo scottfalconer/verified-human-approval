@@ -79,8 +79,9 @@ jobs:
       - name: Package archives
         run: php tests/Package/check-consumer.php archives
   postgresql:
-    # The storage contracts, the approval transaction, the schema and the ORM helpers on a PostgreSQL server.
-    # Only the PostgreSQL test classes run, and a skipped one fails the job, so a missing server never passes.
+    # The storage contracts, the approval transaction, the schema, the ORM helpers and the publishing example on a
+    # PostgreSQL server. Only the PostgreSQL test classes run, and a skipped one fails the job, so a missing server
+    # never passes.
     name: Storage on PostgreSQL ${{ matrix.postgres }}
     runs-on: ubuntu-latest
     strategy:
@@ -105,10 +106,10 @@ jobs:
           extensions: pdo_sqlite, pdo_pgsql, openssl, sodium, mbstring
           coverage: none
       - run: composer install --no-interaction --prefer-dist
-      - run: vendor/bin/phpunit --testsuite contract,doctrine --filter Postgres --fail-on-skipped
+      - run: vendor/bin/phpunit --testsuite contract,doctrine,example --filter Postgres --fail-on-skipped
   mysql:
     # The same on MySQL and MariaDB: LONGTEXT for a 256 KiB proposal, the binary no-pad collation, an
-    # identical passkey write-back that changes no row, READ COMMITTED and the lock clauses.
+    # identical passkey write-back that changes no row, READ COMMITTED and the lock clauses, then the publishing example.
     name: Storage on ${{ matrix.image }}
     runs-on: ubuntu-latest
     strategy:
@@ -140,4 +141,4 @@ jobs:
           extensions: pdo_sqlite, pdo_mysql, openssl, sodium, mbstring
           coverage: none
       - run: composer install --no-interaction --prefer-dist
-      - run: vendor/bin/phpunit --testsuite contract,doctrine --filter Mysql --fail-on-skipped
+      - run: vendor/bin/phpunit --testsuite contract,doctrine,example --filter Mysql --fail-on-skipped
