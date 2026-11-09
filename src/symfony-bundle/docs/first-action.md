@@ -311,6 +311,7 @@ final readonly class CurrentAuthority implements Authorizer
         $this->assertGrant($actor, ['approval.read']);
     }
 
+    /** @return array<string, mixed> */
     private function account(Actor $actor): array
     {
         $query = $this->pdo->prepare('SELECT * FROM app_accounts WHERE id = ? AND tenant_id = ?');
@@ -323,6 +324,7 @@ final readonly class CurrentAuthority implements Authorizer
         return $row;
     }
 
+    /** @param list<string> $requiredScopes */
     private function assertGrant(Actor $actor, array $requiredScopes): void
     {
         $query = $this->pdo->prepare('SELECT * FROM app_agent_grants WHERE id = ? AND user_id = ? AND tenant_id = ?');
@@ -537,6 +539,7 @@ SQL);
         }
     }
 
+    /** @return array<string, mixed> */
     private function document(Actor $actor, string $id): array
     {
         $query = $this->pdo->prepare('SELECT * FROM app_documents WHERE id = ? AND tenant_id = ?');
