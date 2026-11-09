@@ -11,13 +11,19 @@ use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigura
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
 use Symfony\Component\Lock\LockFactory;
 use Symfony\Component\Lock\Store\FlockStore;
+use VerifiedHumanApproval\Bundle\Command\AuditHeadCommand;
 use VerifiedHumanApproval\Bundle\Command\InstallStorageCommand;
+use VerifiedHumanApproval\Bundle\Command\RecordKeyRotationCommand;
 use VerifiedHumanApproval\Bundle\Controller\ApprovalController;
+use VerifiedHumanApproval\Bundle\Controller\VerificationController;
 use VerifiedHumanApproval\Bundle\Handoff\ApprovalHandoff;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool;
 use VerifiedHumanApproval\Bundle\Security\ReviewRequestMatcher;
+use VerifiedHumanApproval\Bundle\Twig\ContentSecurityPolicyExtension;
+use VerifiedHumanApproval\Bundle\Twig\VerificationExtension;
+use VerifiedHumanApproval\Bundle\Verification\PublicVerification;
 use VerifiedHumanApproval\Core\ActionAdapter;
 use VerifiedHumanApproval\Core\ActionRegistry;
 use VerifiedHumanApproval\Core\ApprovalHistory;
@@ -26,6 +32,7 @@ use VerifiedHumanApproval\Core\ApprovalService;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\Audit\AuditStore;
 use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 use VerifiedHumanApproval\Core\ExecutionGuard;
 use VerifiedHumanApproval\Doctrine\DbalApprovalStore;
 use VerifiedHumanApproval\Doctrine\DbalAuditStore;
@@ -57,7 +64,8 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
 
     public function configure(DefinitionConfigurator $definition): void
     {
-        $definition->rootNode()->children()
+        $root = $definition->rootNode();
+        $root->children()
             ->scalarNode('public_origin')->isRequired()->cannotBeEmpty()
                 ->info('The origin people reach the application at, such as https://app.example.com. Review links are built from it, never from request headers.')->end()
             ->scalarNode('actor_provider')->isRequired()->cannotBeEmpty()->info('Service id of your VerifiedHumanApproval\\Bundle\\ActorProvider.')->end()
@@ -70,8 +78,6 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
                     ->enumNode('driver')->values(['doctrine'])->isRequired()->end()
                     ->scalarNode('connection')->defaultValue('default')->cannotBeEmpty()
                         ->info('The DoctrineBundle connection your protected writes, permissions and entity manager use.')->end()
-                    ->scalarNode('audit_public_key')->defaultNull()
-                        ->info('The separately trusted public key (base64url) the audit log checks its entries against. Defaults to the receipt signer\'s own key.')->end()
                     ->arrayNode('protected_entities')
                         ->info('Entity classes that change only through an approved action, each with its protected fields, or ~ for the whole entity. The #[RequiresApproval] attribute does the same on the entity.')
                         ->useAttributeAsKey('class')
@@ -94,11 +100,30 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             ->scalarNode('lock_factory')->defaultValue('verified_human_approval.lock_factory')
                 ->info('Service id of a Symfony\\Component\\Lock\\LockFactory that makes each phone code single-use. The default locks files on this host; use "lock.factory" with a shared store when several hosts serve the application.')->end()
             ->scalarNode('receipt_signer')
-                ->info('Service id of a VerifiedHumanApproval\\Core\\Evidence\\EvidenceSigner. When set, each execution\'s receipt is signed inside the completing transaction, so later edits to the record show; the person can download their receipt, and the signer\'s public key is published to check it.')
+                ->info('Service id of a VerifiedHumanApproval\\Core\\Evidence\\EvidenceSigner. When set, each execution\'s receipt is signed inside the completing transaction, so later edits to the record show; the person can download their receipt, and the public keys that check it are published.')
                 ->defaultNull()
             ->end()
+            ->arrayNode('receipt_keys')
+                ->info('The receipt_signer\'s key and the keys it replaced, which check receipts and the signed audit log, each only within the window it signed in. The bundle publishes them at /approval/receipt-keys.json, and serves them as the service VerifiedHumanApproval\\Core\\Evidence\\TrustedKeys for your AuditLog. See the key rotation procedure in docs/evidence.md.')
+                ->addDefaultsIfNotSet()
+                ->children()
+                    ->scalarNode('valid_from')->defaultNull()
+                        ->info('When the receipt_signer began signing: an RFC 3339 time with its offset, such as 2026-11-09T12:00:00Z. A record it signed that claims an earlier time does not verify. Unset or empty: no earlier limit, as for a key whose start was never recorded.')->end()
+                    ->variableNode('retired')->defaultValue([])
+                        ->info('Keys that signed before the receipt_signer, by public key only: a list of maps with key_id, public_key, valid_until and, optionally, valid_from. What each signed keeps verifying while its claimed time falls inside its window. An environment variable read with the json: processor works too.')
+                        ->validate()
+                            ->ifTrue(static fn (mixed $keys): bool => !\is_string($keys) && !self::retiredShape($keys))
+                            ->thenInvalid('receipt_keys.retired must be a list of keys, each naming only key_id, public_key, valid_from and valid_until: %s')
+                        ->end()
+                    ->end()
+                ->end()
+            ->end()
+            ->scalarNode('audit_log')->defaultNull()
+                ->info('Service id of the VerifiedHumanApproval\\Core\\Audit\\AuditLog that the console commands verified-human-approval:audit-head and verified-human-approval:record-key-rotation read and append to. Unset, a service named after that class is used if there is one.')->end()
+            ->booleanNode('public_verification')->defaultFalse()
+                ->info('Serve /approval/{id}/verified, the public page a "verified" badge links to: what was approved, when, and the signed receipt, with no account, tenant, connection or passkey ids. Anyone with the link can open it. Needs receipt_signer.')->end()
             ->scalarNode('relying_party_id')->defaultNull()
-                ->info('The passkey relying party id published with the receipt key, so a receipt\'s passkey signature can be checked offline. Defaults to the public origin\'s host.')->end()
+                ->info('The passkey relying party id published with the receipt keys, so a receipt\'s passkey signature can be checked offline. Defaults to the public origin\'s host.')->end()
             ->arrayNode('url_elicitation')
                 ->info('Native URL-mode elicitation for pending approvals, on MCP 2026-07-28 or later. Off by default: the card and link always work, and some clients declare URL mode and then decline or drop it.')
                 ->addDefaultsIfNotSet()
@@ -110,6 +135,12 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
                     ->end()
                 ->end()
             ->end()
+            ->stringNode('agent_name')->defaultValue('Claude')->cannotBeEmpty()
+                ->info('What the review pages call the agent\'s app when they send the person back to it, as in "return to Claude". Only requests an agent made say it.')->end()
+        ->end()
+        ->validate()
+            ->ifTrue(static fn (array $config): bool => null === $config['receipt_signer'] && (null !== $config['receipt_keys']['valid_from'] || [] !== $config['receipt_keys']['retired']))
+            ->thenInvalid('receipt_keys describes the receipt_signer\'s keys: configure receipt_signer too.')
         ->end()
         ->validate()
             ->ifTrue(static fn (array $config): bool => null === $config['store'] && !isset($config['persistence']))
@@ -123,6 +154,39 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             ->ifTrue(static fn (array $config): bool => isset($config['persistence']) && null === $config['receipt_signer'])
             ->thenInvalid('"persistence" needs a "receipt_signer": it signs the audit log that vouches for every passkey.')
         ->end();
+
+        // Checked here, as the container is built, so a policy that would let injected script run never ships.
+        $sources = $root->children()->arrayNode('content_security_policy')
+            ->info('Sources the review pages\' Content-Security-Policy adds for your own layout: \'self\', https:// origins, and data: for images and fonts. Anything else, such as \'unsafe-inline\', \'unsafe-eval\', * or http:, is refused. An inline script or style takes the nonce instead: verified_human_approval_csp_nonce() in Twig.')
+            ->addDefaultsIfNotSet()
+            ->children();
+        foreach (ContentSecurityPolicy::DIRECTIVES as $key => $directive) {
+            $sources->arrayNode($key)
+                ->info(\sprintf('Added to %s, such as https://cdn.example.com.', $directive))
+                ->beforeNormalization()->ifString()->then(static fn (string $source): array => [$source])->end()
+                ->scalarPrototype()
+                    ->validate()
+                        ->ifTrue(static fn (mixed $source): bool => null !== ContentSecurityPolicy::refusal($directive, $source))
+                        ->then(static fn (mixed $source): never => throw new \InvalidArgumentException((string) ContentSecurityPolicy::refusal($directive, $source)))
+                    ->end()
+                ->end()
+            ->end();
+        }
+    }
+
+    /** Whether $keys has the shape of receipt_keys.retired; the values are checked as the container builds the keys. */
+    private static function retiredShape(mixed $keys): bool
+    {
+        if (!\is_array($keys) || !array_is_list($keys)) {
+            return false;
+        }
+        foreach ($keys as $key) {
+            if (!\is_array($key) || [] !== array_diff(array_keys($key), TrustedKeysFactory::RETIRED_FIELDS)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -201,15 +265,39 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
         ]);
         $services->alias(ApprovalFlow::class, 'verified_human_approval.flow');
 
-        // With a receipt signer, the person can download their receipt, and the key that checks it is published.
+        // With a receipt signer, the person can download their receipt, and the keys that check it are published.
         // The download serves the original receipts only, so the exporter gets no access to the private key.
         if (null !== $config['receipt_signer']) {
+            // The signer's key and every key it replaced, each with its window: what receipts and the audit log are checked against.
+            $services->set('verified_human_approval.trusted_keys', TrustedKeys::class)
+                ->factory([TrustedKeysFactory::class, 'fromConfiguration'])
+                ->args([service($config['receipt_signer']), $config['receipt_keys']['valid_from'], $config['receipt_keys']['retired']]);
+            $services->alias(TrustedKeys::class, 'verified_human_approval.trusted_keys');
             $services->set('verified_human_approval.evidence_exporter', EvidenceExporter::class);
             $services->alias(EvidenceExporter::class, 'verified_human_approval.evidence_exporter');
             $services->set('verified_human_approval.receipt_key', ReceiptKey::class)
-                ->args([service($config['receipt_signer']), $config['public_origin'], $config['relying_party_id']]);
+                ->args([service($config['receipt_signer']), $config['public_origin'], $config['relying_party_id'], service('verified_human_approval.trusted_keys')]);
             $services->alias(ReceiptKey::class, 'verified_human_approval.receipt_key');
         }
+
+        // The signed audit log's console commands: print its head to keep as a checkpoint, and record a key rotation.
+        $audit = null === $config['audit_log'] ? service(AuditLog::class)->nullOnInvalid() : service($config['audit_log']);
+        $services->set('verified_human_approval.audit_head_command', AuditHeadCommand::class)->args([$audit])
+            ->tag('console.command', ['command' => AuditHeadCommand::NAME, 'description' => 'Print the signed audit log\'s newest entry (sequence and hash) to keep outside the application, or check a kept one.']);
+        $services->set('verified_human_approval.record_key_rotation_command', RecordKeyRotationCommand::class)->args([$audit])
+            ->tag('console.command', ['command' => RecordKeyRotationCommand::NAME, 'description' => 'Record in the signed audit log that the signing key moved from an old key to the current receipt signer.']);
+        // "Approved with a passkey" on your own pages: a Twig badge, and the public page it links to when enabled.
+        $services->set('verified_human_approval.public_verification', PublicVerification::class)->args([
+            service($store),
+            null === $config['receipt_signer'] ? null : service('verified_human_approval.trusted_keys'),
+        ]);
+        $services->alias(PublicVerification::class, 'verified_human_approval.public_verification');
+        $services->set('verified_human_approval.twig.verification', VerificationExtension::class)
+            ->args([service('verified_human_approval.public_verification'), service('router'), $config['public_verification']])
+            ->tag('twig.extension');
+        $services->set('verified_human_approval.verification_controller', VerificationController::class)->public()->args([
+            service('verified_human_approval.public_verification'), service('twig'), $config['public_verification'],
+        ]);
 
         // The review pages. Public, because routes name it by service id.
         $services->set('verified_human_approval.approval_controller', ApprovalController::class)->public()->args([
@@ -224,6 +312,7 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             null === $config['requester_label'] ? service(RequesterLabel::class)->nullOnInvalid() : service($config['requester_label']),
             null === $config['receipt_signer'] ? null : service('verified_human_approval.evidence_exporter'),
             null === $config['receipt_signer'] ? null : service('verified_human_approval.receipt_key'),
+            $config['agent_name'],
         ]);
 
         // MCP elements, tagged here because the MCP bundle's attribute autoconfiguration does not reach a
@@ -236,7 +325,16 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             ->tag('mcp.tool', ['method' => 'handoff']);
         $services->set('verified_human_approval.card_app', ApprovalCardApp::class)->tag('mcp.app');
 
-        $services->set('verified_human_approval.security_headers', SecurityHeadersSubscriber::class)->tag('kernel.event_subscriber');
+        // The review pages' headers, and their policy's nonce for your layout's templates.
+        $services->set('verified_human_approval.content_security_policy', ContentSecurityPolicy::class)
+            ->args([$config['content_security_policy']]);
+        $services->alias(ContentSecurityPolicy::class, 'verified_human_approval.content_security_policy');
+        $services->set('verified_human_approval.security_headers', SecurityHeadersSubscriber::class)
+            ->args([service('verified_human_approval.content_security_policy')])
+            ->tag('kernel.event_subscriber');
+        $services->set('verified_human_approval.twig.content_security_policy', ContentSecurityPolicyExtension::class)
+            ->args([service('verified_human_approval.content_security_policy'), service('request_stack')])
+            ->tag('twig.extension');
         // For access_control: the review pages open without a sign-in; their controller checks who is reviewing.
         $services->set('verified_human_approval.review_request_matcher', ReviewRequestMatcher::class);
     }
@@ -245,7 +343,7 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
      * The Doctrine storage on one DBAL connection: the approval transaction, the three stores, the signed audit log,
      * the anchored passkey repository, the install command and, with the ORM, the schema and protection listeners.
      *
-     * @param array{driver: string, connection: string, audit_public_key: ?string, protected_entities: array<class-string, list<string>|null>} $persistence
+     * @param array{driver: string, connection: string, protected_entities: array<class-string, list<string>|null>} $persistence
      *
      * @return string the approval store's service id
      */
@@ -269,9 +367,9 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
         $services->alias(DbalCredentialRepository::class, 'verified_human_approval.doctrine.credentials');
         $services->alias(RevocableCredentialRepository::class, 'verified_human_approval.doctrine.credentials');
 
+        // Signed with the receipt signer and checked against the trusted keys: its key and the ones it replaced.
         $services->set('verified_human_approval.audit_log', AuditLog::class)
-            ->factory([AuditLogFactory::class, 'create'])
-            ->args([service('verified_human_approval.doctrine.audit_store'), service($receiptSigner), service('verified_human_approval.clock'), $persistence['audit_public_key']]);
+            ->args([service('verified_human_approval.doctrine.audit_store'), service($receiptSigner), service('verified_human_approval.trusted_keys'), service('verified_human_approval.clock')]);
         $services->alias(AuditLog::class, 'verified_human_approval.audit_log');
         // Verification reads passkeys through the anchored wrapper, and the wrapper reads the raw rows.
         $services->set('verified_human_approval.anchored_credentials', AnchoredCredentialRepository::class)

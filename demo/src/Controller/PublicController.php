@@ -25,7 +25,9 @@ final readonly class PublicController
             return new Response($this->twig->render('public/not_published.html.twig'));
         }
 
-        return new Response($this->twig->render('public/alert.html.twig', ['title' => $row['published_title'], 'body' => $row['published_body']]));
+        return new Response($this->twig->render('public/alert.html.twig', [
+            'alert_id' => $row['id'], 'title' => $row['published_title'], 'body' => $row['published_body'], 'request_id' => $row['published_request_id'],
+        ]));
     }
 
     /** The council site's look, shared by the alerts page and the approval preview. It is part of the alert action's version. */

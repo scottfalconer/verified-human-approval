@@ -56,7 +56,7 @@ try {
             'core' => ['composer.json', 'README.md', 'LICENSE', 'src/ApprovalService.php'],
             'webauthn' => ['composer.json', 'README.md', 'LICENSE', 'src/WebAuthnVerifier.php', 'bin/verify-evidence.php'],
             'mcp' => ['composer.json', 'README.md', 'LICENSE', 'src/ApprovalCard.php', 'resources/approval-card.html'],
-            'symfony-bundle' => ['composer.json', 'README.md', 'LICENSE', 'src/VerifiedHumanApprovalBundle.php', 'config/routes.php', 'public/approval.js', 'templates/review.html.twig'],
+            'symfony-bundle' => ['composer.json', 'README.md', 'LICENSE', 'src/VerifiedHumanApprovalBundle.php', 'config/routes.php', 'public/approval.js', 'templates/review.html.twig', 'translations/VerifiedHumanApproval.en.xlf'],
             'doctrine' => ['composer.json', 'README.md', 'LICENSE', 'src/DbalTransaction.php', 'src/ApprovalSchema.php', 'src/Orm/EntityAction.php'],
             'store-contracts' => ['composer.json', 'README.md', 'LICENSE', 'src/ApprovalStoreContract.php', 'src/Fixture/FixtureSchema.php', 'bin/store-worker.php', 'bin/audit-worker.php', 'resources/audit-v1-chain.json'],
         ];

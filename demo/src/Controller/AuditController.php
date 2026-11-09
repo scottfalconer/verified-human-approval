@@ -26,6 +26,7 @@ use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
 use VerifiedHumanApproval\Core\Evidence\Receipt;
 use VerifiedHumanApproval\Core\Evidence\ReceiptVerifier;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 use VerifiedHumanApproval\Core\Storage\PdoApprovalStore;
 use VerifiedHumanApproval\Demo\Account\AgentConnections;
 use VerifiedHumanApproval\Demo\Account\PasskeyConfirmation;
@@ -41,8 +42,9 @@ use VerifiedHumanApproval\WebAuthn\WebAuthnVerifier;
 /**
  * The administrator's view of how every action in their organization happened: who asked, through
  * which agent, under which rule, and whether a person verified it with which passkey. Each completed
- * action is re-checked on every visit: its receipt against the signature made at commit, and the
- * person's passkey signature against the public key recorded, signed, when that passkey was enrolled.
+ * action is re-checked on every visit: its receipt against the signature made at commit, with whichever
+ * of the application's keys signed it then, and the person's passkey signature against the public key
+ * recorded, signed, when that passkey was enrolled.
  */
 #[AsController]
 final readonly class AuditController
@@ -53,6 +55,7 @@ final readonly class AuditController
         private PdoApprovalStore $store,
         private EvidenceExporter $exporter,
         private SodiumEvidenceSigner $signer,
+        private TrustedKeys $keys,
         private WebAuthnVerifier $webauthn,
         private PdoCredentialRepository $credentials,
         private AnchoredCredentialRepository $anchored,
@@ -87,7 +90,8 @@ final readonly class AuditController
             ];
         }
         $log = $this->audit->verify();
-        $entries = array_values(array_filter(array_reverse($log['entries']), static fn (array $item): bool => null === $item['entry'] || $item['entry']['tenantId'] === $admin->tenantId));
+        // This organization's entries, and those about the whole application, such as a key rotation.
+        $entries = array_values(array_filter(array_reverse($log['entries']), static fn (array $item): bool => null === $item['entry'] || \in_array($item['entry']['tenantId'], [$admin->tenantId, AuditLog::ALL_TENANTS], true)));
         $newLink = $request->getSession()->get('demo.new_link');
         $request->getSession()->remove('demo.new_link');
 
@@ -96,7 +100,8 @@ final readonly class AuditController
             'connections' => array_map(static fn (array $grant): array => ['scopes' => json_decode((string) $grant['scopes'], true)] + $grant, $this->database->grants($admin->tenantId)),
             'links' => $this->database->passkeyLinks($admin->tenantId), 'users' => $this->database->users($admin->tenantId),
             'log' => $entries, 'log_intact' => $log['intact'], 'log_newest' => $log['newest'],
-            'key_id' => $this->signer->keyId(), 'public_key' => $this->signer->publicKey(),
+            'log_head' => [] === $log['entries'] ? null : $log['entries'][array_key_last($log['entries'])]['hash'],
+            'key_id' => $this->signer->keyId(), 'keys' => $this->keys->toArray(),
             'confirmed' => null !== $this->confirmation->recent($request, $admin), 'new_link' => $newLink,
             'csrf' => $this->csrf->getToken('verified_human_approval.enrollment')->getValue(),
             'form_csrf' => $this->csrf->getToken('demo.audit')->getValue(),
@@ -179,7 +184,7 @@ final readonly class AuditController
         // The receipt signed as the action committed must be there, and still match the record. A missing one
         // is never replaced: it may have been deleted to hide an edit.
         try {
-            $verified = (new ReceiptVerifier())->verify($this->exporter->export($state), $this->signer->keyId(), $this->signer->publicKey());
+            $verified = (new ReceiptVerifier())->verify($this->exporter->export($state), $this->keys);
             $row['receipt'] = Receipt::COMMIT === $verified['receiptSignedAt']
                 ? ['valid' => true, 'problem' => null]
                 : ['valid' => false, 'problem' => 'it was not signed as the action committed'];

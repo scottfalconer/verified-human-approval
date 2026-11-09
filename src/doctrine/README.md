@@ -16,7 +16,6 @@ verified_human_approval:
     persistence:
         driver: doctrine
         connection: default            # the connection your protected writes and entity manager use
-        # audit_public_key: '%env(APPROVAL_RECEIPT_PUBLIC_KEY)%'   # defaults to the signer's own key
         # protected_entities: { App\Entity\Article: [publishedTitle, publishedBody] }
 ```
 

@@ -38,7 +38,10 @@ final readonly class DemoRuntimeSettings implements EnvVarLoaderInterface
             'DEMO_RUNTIME_TRUSTED_HOST' => '^'.preg_quote((string) $settings['rp_id'], '/').'$',
             'DEMO_RUNTIME_RECEIPT_KEY_ID' => (string) $settings['receipt_key_id'],
             'DEMO_RUNTIME_RECEIPT_SECRET_KEY' => (string) $settings['receipt_secret_key'],
-            'DEMO_RUNTIME_RECEIPT_PUBLIC_KEY' => (string) $settings['receipt_public_key'],
+            // When that key began signing (empty in a runtime set up before this was recorded), and the public
+            // keys it replaced, each with the window it signed in.
+            'DEMO_RUNTIME_RECEIPT_KEY_VALID_FROM' => (string) ($settings['receipt_key_valid_from'] ?? ''),
+            'DEMO_RUNTIME_RETIRED_RECEIPT_KEYS' => json_encode($settings['retired_receipt_keys'] ?? [], \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES),
             'DEMO_RUNTIME_APPROVAL_ATTEMPTS' => (string) ($settings['approval_attempts_per_minute'] ?? 30),
             'DEMO_RUNTIME_ENROLLMENT_ATTEMPTS' => (string) ($settings['enrollment_attempts_per_minute'] ?? 10),
             'DEMO_RUNTIME_REGISTRATION_ATTEMPTS' => (string) ($settings['registration_attempts_per_minute'] ?? 10),

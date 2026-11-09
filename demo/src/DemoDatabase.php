@@ -15,6 +15,12 @@ final readonly class DemoDatabase
     {
         $pdo = new \PDO('sqlite:'.$path, options: [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION, \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC]);
         $pdo->exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=10000');
+        // A runtime made before alerts linked to their approval gains that one column; nothing else changes.
+        $info = $pdo->query('PRAGMA table_info(demo_alerts)');
+        $columns = false === $info ? [] : $info->fetchAll(\PDO::FETCH_COLUMN, 1);
+        if ([] !== $columns && !\in_array('published_request_id', $columns, true)) {
+            $pdo->exec('ALTER TABLE demo_alerts ADD COLUMN published_request_id TEXT');
+        }
 
         return $pdo;
     }
@@ -44,7 +50,8 @@ CREATE TABLE IF NOT EXISTS demo_oauth_codes (
 );
 CREATE TABLE IF NOT EXISTS demo_alerts (
     id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, revision INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,
-    published_revision INTEGER, published_title TEXT, published_body TEXT, mutation_count INTEGER NOT NULL DEFAULT 0
+    published_revision INTEGER, published_title TEXT, published_body TEXT, mutation_count INTEGER NOT NULL DEFAULT 0,
+    published_request_id TEXT
 );
 CREATE TABLE IF NOT EXISTS demo_policies (
     action_id TEXT PRIMARY KEY, version INTEGER NOT NULL, statement TEXT NOT NULL, required INTEGER NOT NULL

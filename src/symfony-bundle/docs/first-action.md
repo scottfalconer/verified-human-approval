@@ -117,7 +117,7 @@ cat var/approval/key.env >> .env.local
 chmod 600 .env.local
 ```
 
-Use your deployment's secret store for production. Keep the private key outside the database and web root, back it up, and keep its public key and ID in a separately trusted record for later verification. The bundle also publishes that public key at `/approval/receipt-key.json`, so people can check the receipts they download. Do not generate keys during application boot or normal deployments. The reference audit log accepts one trusted signing key; plan key rotation and preservation of old trust records before changing it.
+Use your deployment's secret store for production. Keep the private key outside the database and web root, back it up, and keep its public key and ID in a separately trusted record for later verification: you need them again to retire the key. The bundle also publishes that public key, with any keys it later replaces, at `/approval/receipt-keys.json`, so people can check the receipts they download. Do not generate keys during application boot or normal deployments. To change the key later, [rotate it](https://github.com/scottfalconer/verified-human-approval/blob/main/docs/evidence.md#rotate-the-signing-key), so what the old key signed keeps verifying.
 
 Add these application settings, choosing the actual absolute database path:
 
@@ -162,11 +162,12 @@ services:
             $id: '%env(APPROVAL_RECEIPT_KEY_ID)%'
             $encodedSecret: '%env(APPROVAL_RECEIPT_SECRET_KEY)%'
 
+    # Entries are checked against the bundle's trusted keys: the signer's key, and any it replaced.
     VerifiedHumanApproval\Core\Audit\AuditLog:
         arguments:
             $store: '@VerifiedHumanApproval\Core\Storage\PdoAuditStore'
             $signer: '@VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner'
-            $trustedPublicKey: '%env(APPROVAL_RECEIPT_PUBLIC_KEY)%'
+            $trustedPublicKey: '@VerifiedHumanApproval\Core\Evidence\TrustedKeys'
             $clock: '@verified_human_approval.clock'
 
     # Verification reads passkeys through the anchored wrapper, and the wrapper reads the raw rows.
@@ -717,7 +718,8 @@ Use a real test account in your application, enroll its passkey through your tru
 | Revoke the initiating grant or publication permission before completing | Approval stops; nothing is published |
 | Call `PublishDocument::execute()` directly | `approval_required`; no business write |
 | Cause a postcondition or signing failure | The business write, credential update and receipt commit all roll back |
-| Download the receipt from the completed review page, then check it and an edited copy against `/approval/receipt-key.json` | The original verifies; the edited copy fails. See the evidence guide |
-| Open `/approval/receipt-key.json` while signed out | The public key, readable only if the bundle's access-control rule from the integration guide is in place |
+| Download the receipt from the completed review page, then check it and an edited copy against `/approval/receipt-keys.json` | The original verifies; the edited copy fails. See the evidence guide |
+| Open `/approval/receipt-keys.json` while signed out | The public keys, readable only if the bundle's access-control rule from the integration guide is in place |
+| Run `php bin/console verified-human-approval:audit-head` | The audit log's newest sequence and hash, and that every entry verifies |
 
-The [evidence guide](https://github.com/scottfalconer/verified-human-approval/blob/main/docs/evidence.md) explains how to download the original receipt and verify it against the application's published key, and against the trusted enrollment record to check the passkey signature too. Reading `approval_status` alone is not that verification step.
+The [evidence guide](https://github.com/scottfalconer/verified-human-approval/blob/main/docs/evidence.md) explains how to download the original receipt and verify it against the application's published keys, and against the trusted enrollment record to check the passkey signature too. Reading `approval_status` alone is not that verification step.

@@ -10,7 +10,7 @@ The demo is a council alerts site. An agent can request publication of an evacua
 
 ## Current scope
 
-This is a development preview. The packages are not on Packagist yet; the integration guide shows how to install them from this repository.
+This is a development preview. The packages are not on Packagist yet; the integration guide shows how to install them from this repository. [Versions and releases](docs/releasing.md) says what a version promises, and [the changelog](CHANGELOG.md) what is in the first one.
 
 - PHP 8.3+ and Symfony 7.4 or 8. Symfony 8 requires PHP 8.4+.
 - Storage: the PDO store supports **SQLite**; the Doctrine package supports **SQLite, PostgreSQL, MySQL 8.0.17+ and MariaDB** on your DBAL connection, with your entities in the same transaction. Either way, approval records, credentials, permission checks and the business change must use the same connection and transaction.
@@ -92,7 +92,7 @@ A completed approval has two checks:
 
 The verifier uses public keys trusted separately from the downloaded record. Changing a signed field afterward makes verification fail. Deleting the original receipt does not cause the exporter to create a replacement.
 
-The person keeps their own copy. Once the action runs, the review page offers **Download your receipt**: the exact request, their passkey's signature on it and what ran, signed by the site as it ran. The agent's result carries the same signed receipt, and the site publishes the key that checks it at `/approval/receipt-key.json`. If the site's record of that request were changed or deleted later, the person's copy would show it.
+The person keeps their own copy. Once the action runs, the review page offers **Download your receipt**: the exact request, their passkey's signature on it and what ran, signed by the site as it ran. The agent's result carries the same signed receipt, and the site publishes the keys that check it at `/approval/receipt-keys.json`, including any key it [rotated](docs/evidence.md#rotate-the-signing-key) away from. If the site's record of that request were changed or deleted later, the person's copy would show it.
 
 This checks the **historical approval and execution record**. It does not monitor later edits to the live content, prove what the person understood, or independently witness the database change. Follow the [receipt walkthrough](docs/evidence.md) to verify a real demo receipt and then see an edited copy fail.
 
@@ -134,6 +134,7 @@ The tests cover real WebAuthn signatures, Symfony and MCP integration, concurren
 - [Architecture and request lifecycle](docs/overview.md)
 - [Integration contracts](docs/integration-contract.md)
 - [Security model](docs/security-model.md)
+- [Reporting a vulnerability](SECURITY.md)
 - [Receipt verification](docs/evidence.md)
 
 MIT licensed. See [LICENSE](LICENSE).

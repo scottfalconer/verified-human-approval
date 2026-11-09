@@ -1,0 +1,5 @@
+/* The "Approved with a passkey" badge, for your own pages. */
+.vha-badge {display: inline-flex; align-items: center; gap: .45rem; padding: .3rem .8rem .3rem .35rem; border: 1px solid #bfdccf; border-radius: 999px; background: #e3f2ec; color: #14513f; font: 600 .85rem/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; text-decoration: none;}
+a.vha-badge:hover, a.vha-badge:focus-visible {text-decoration: underline;}
+.vha-badge-check {display: inline-grid; place-items: center; width: 1.25rem; height: 1.25rem; border-radius: 50%; background: #176452; color: #fff; font-size: .75rem;}
+.vha-badge-bar {display: flex; justify-content: center; padding: .45rem 1rem; background: #f4faf7; border-bottom: 1px solid #d5e8de;}

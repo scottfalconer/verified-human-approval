@@ -17,10 +17,17 @@ use Symfony\Component\HttpKernel\KernelEvents;
  *     passkeys:
  *         path: /account/passkeys
  *         defaults: { _verified_human_approval_headers: true }
+ *
+ * The policy is ContentSecurityPolicy's: the sources the bundle's content_security_policy configuration adds, and
+ * the response's nonce, which templates read with verified_human_approval_csp_nonce().
  */
 final class SecurityHeadersSubscriber implements EventSubscriberInterface
 {
     public const ROUTE_DEFAULT = '_verified_human_approval_headers';
+
+    public function __construct(private readonly ContentSecurityPolicy $policy = new ContentSecurityPolicy())
+    {
+    }
 
     public static function getSubscribedEvents(): array
     {
@@ -29,11 +36,13 @@ final class SecurityHeadersSubscriber implements EventSubscriberInterface
 
     public function onResponse(ResponseEvent $event): void
     {
-        if (!$event->isMainRequest() || !$event->getRequest()->attributes->getBoolean(self::ROUTE_DEFAULT)) {
+        $request = $event->getRequest();
+        if (!$event->isMainRequest() || !$request->attributes->getBoolean(self::ROUTE_DEFAULT)) {
             return;
         }
         $headers = $event->getResponse()->headers;
-        $headers->set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'; object-src 'none'");
+        // The nonce the page was rendered with, or a fresh one when nothing on the page asked for it.
+        $headers->set('Content-Security-Policy', $this->policy->header($request));
         $headers->set('X-Content-Type-Options', 'nosniff');
         $headers->set('Referrer-Policy', 'no-referrer');
         $headers->set('X-Frame-Options', 'DENY');

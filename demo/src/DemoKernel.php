@@ -22,6 +22,7 @@ use VerifiedHumanApproval\Bundle\VerifiedHumanApprovalBundle;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\Audit\AuditStore;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 use VerifiedHumanApproval\Core\Storage\PdoApprovalStore;
 use VerifiedHumanApproval\Core\Storage\PdoAuditStore;
 use VerifiedHumanApproval\Demo\Action\DemoAuthorizer;
@@ -202,8 +203,14 @@ final class DemoKernel extends Kernel
             // Names the agent connection on the review page, so an agent's request never looks like the person's own.
             'requester_label' => DemoRequesterLabel::class,
             // Each receipt is signed as the action commits, so a later edit to the record shows. The person can
-            // download theirs from the completed page, and /approval/receipt-key.json publishes the key that checks it.
+            // download theirs from the completed page, and /approval/receipt-keys.json publishes the keys that check it.
             'receipt_signer' => SodiumEvidenceSigner::class,
+            // When that key began signing, and the keys it replaced (demo:rotate-receipt-key), each with its window.
+            'receipt_keys' => ['valid_from' => '%env(DEMO_RUNTIME_RECEIPT_KEY_VALID_FROM)%', 'retired' => '%env(json:DEMO_RUNTIME_RETIRED_RECEIPT_KEYS)%'],
+            // The security log the audit-head and record-key-rotation commands read and append to.
+            'audit_log' => AuditLog::class,
+            // A live alert links to the public record of its approval.
+            'public_verification' => true,
             'relying_party_id' => '%env(DEMO_RUNTIME_RP_ID)%',
             'attempts_per_minute' => '%env(int:DEMO_RUNTIME_APPROVAL_ATTEMPTS)%',
             // The framework's lock, which a multi-host deployment would back with a shared store.
@@ -221,7 +228,8 @@ final class DemoKernel extends Kernel
         // Approvals accept only passkeys whose signed enrollment record vouches for them.
         $services->set(PdoAuditStore::class);
         $services->alias(AuditStore::class, PdoAuditStore::class);
-        $services->set(AuditLog::class)->args([service(AuditStore::class), service(SodiumEvidenceSigner::class), '%env(DEMO_RUNTIME_RECEIPT_PUBLIC_KEY)%', service('verified_human_approval.clock')]);
+        // Checked against the same trusted keys the bundle publishes: the current key, and every one it replaced within its window.
+        $services->set(AuditLog::class)->args([service(AuditStore::class), service(SodiumEvidenceSigner::class), service(TrustedKeys::class), service('verified_human_approval.clock')]);
         // Verification reads passkeys through the anchored wrapper; the wrapper reads the raw rows. Wired
         // explicitly, so the inner repository can never resolve back to the wrapper.
         $services->set(AnchoredCredentialRepository::class)->arg('$credentials', service(PdoCredentialRepository::class));

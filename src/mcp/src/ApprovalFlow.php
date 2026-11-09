@@ -41,7 +41,7 @@ final readonly class ApprovalFlow
             'message' => ['type' => 'string', 'description' => 'What to tell the person, and what to do next.'],
             'receipt' => [
                 'type' => 'object',
-                'description' => 'Once the action ran: the site’s receipt, signed as it ran. Keep it unchanged; it checks against the key at receipt_key_url, and a later change to the site’s record would no longer match it.',
+                'description' => 'Once the action ran: the site’s receipt, signed as it ran. Keep it unchanged; it checks against the keys at receipt_keys_url, even after the site changes its key, and a later change to the site’s record would no longer match it.',
                 'properties' => [
                     'manifest' => ['type' => 'string', 'description' => 'The exact signed text: digests of the proposal, the passkey proof and the execution record, and when it was signed.'],
                     'keyId' => ['type' => 'string'],
@@ -49,7 +49,8 @@ final readonly class ApprovalFlow
                 ],
                 'required' => ['manifest', 'keyId', 'signature'],
             ],
-            'receipt_key_url' => ['type' => 'string', 'description' => 'Where the site publishes the public key that checks its receipts.'],
+            'receipt_keys_url' => ['type' => 'string', 'description' => 'Where the site publishes every key it signs receipts with, and when each signed: what checks this receipt, before and after a key rotation.'],
+            'receipt_key_url' => ['type' => 'string', 'description' => 'Where the site publishes the key it signs with now. A receipt signed before a key rotation checks against receipt_keys_url instead.'],
             'approval' => [
                 'type' => 'object',
                 'description' => 'The approval card’s view, under fixed names.',

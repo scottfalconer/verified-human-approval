@@ -64,7 +64,7 @@ A second review of the code (at `e4d6e65`) reproduced four defects and three sma
 - **The demo read client metadata whole before checking its size**, with no time limit. The download now stops at the limit.
 - **Docs**: a mangled config path, links that broke outside the monorepo, a stale `PolicyProvider` signature, and a quickstart missing the first passkey's one-time link.
 
-The same review's release advice is the roadmap below: a CI job that installs the packages into a separate Symfony application in production mode, splitting the monorepo into four Packagist packages, install steps for our own betas, a database adapter beyond SQLite with schema upgrades, scoped styles and translations, a kept evidence file from each release, PHP 8.5 in CI, and a security policy.
+The same review's release advice is the roadmap below: a CI job that installs the packages into a separate Symfony application in production mode, splitting the monorepo into four Packagist packages, install steps for our own betas, a database adapter beyond SQLite with schema upgrades, scoped styles, a kept evidence file from each release, and PHP 8.5 in CI. Since then the review pages' wording has moved into a translation domain, and the repository has a security policy (`SECURITY.md`).
 
 ## Truthful outcomes and receipts the person keeps
 

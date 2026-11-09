@@ -1,3 +1,4 @@
 {% extends '@VerifiedHumanApproval/base.html.twig' %}
-{% block title %}Link expired{% endblock %}
-{% block body %}<section class="card approval-sheet"><h1>This code has already been used or has expired</h1><p>Each phone code works once, for two minutes. Show a new code in Claude and scan it again.</p></section>{% endblock %}
+{% trans_default_domain 'VerifiedHumanApproval' %}
+{% block title %}{{ 'Link expired'|trans }}{% endblock %}
+{% block body %}<section class="card approval-sheet"><h1>{{ 'This code has already been used or has expired'|trans }}</h1><p>{{ 'Each phone code works once, for two minutes. Show a new code in %agent% and scan it again.'|trans({'%agent%': agent_name}) }}</p></section>{% endblock %}
