@@ -27,7 +27,11 @@ abstract class AuditHarness
 
     abstract public function store(): AuditStore;
 
-    /** Begins the host's own transaction on the store's connection, as the host's code would, deferred where that is the default. */
+    /**
+     * Begins the host's own transaction on the store's connection, the way the host's code begins one: with the
+     * database API the host uses, in whatever mode that API begins it. PDO and Doctrine DBAL begin a SQLite
+     * transaction deferred; Drupal 11.4 begins one IMMEDIATE, reserving the writer at once.
+     */
     abstract public function begin(): void;
 
     abstract public function commit(): void;
@@ -51,7 +55,13 @@ abstract class AuditHarness
     /** Whether an error is a lock wait that ran out. */
     abstract public function isLockTimeout(\Throwable $error): bool;
 
-    /** Whether a reader's open transaction keeps another connection's append from committing (SQLite's rollback journal). */
+    /**
+     * Whether the host's open transaction, once it has read the log, keeps another connection's append from
+     * committing until it ends: on SQLite's rollback journal, where the read holds a shared lock, or wherever
+     * begin() reserves the writer, as an IMMEDIATE SQLite transaction does in either journal. The host can then
+     * never hold an older view of the log than the newest committed entry, and the test of an append from an older
+     * view is skipped.
+     */
     abstract public function readersBlockWriters(): bool;
 
     /**

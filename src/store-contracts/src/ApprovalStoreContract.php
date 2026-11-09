@@ -8,7 +8,6 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
-use VerifiedHumanApproval\Core\ApprovalHistory;
 use VerifiedHumanApproval\Core\ApprovalState;
 use VerifiedHumanApproval\Core\CanonicalJson;
 use VerifiedHumanApproval\Core\Ceremony;
@@ -19,7 +18,8 @@ use VerifiedHumanApproval\Core\Evidence\ReceiptVerifier;
 /**
  * The approval storage contract (the rules on ApprovalStore), run against one adapter through its harness.
  * Each check observes through a fresh connection. To run it for another adapter, write a StoreHarness for
- * it and a test class that extends this one and names that harness.
+ * it and a test class that extends this one and names that harness. If the store also keeps a history by resource
+ * (ApprovalHistory), add the ApprovalHistoryContract trait to that class.
  */
 abstract class ApprovalStoreContract extends TestCase
 {
@@ -441,24 +441,6 @@ abstract class ApprovalStoreContract extends TestCase
         self::assertSame(Receipt::COMMIT, (new ReceiptVerifier())->verify(self::export($stored), $harness->receiptKeyId(), $harness->receiptPublicKey())['receiptSignedAt']);
     }
 
-    public function testTheHistoryOfAResourceListsItsRequestsNewestFirst(): void
-    {
-        $harness = $this->connect();
-        $history = $harness->store();
-        if (!$history instanceof ApprovalHistory) {
-            self::markTestSkipped('This store keeps no history by resource.');
-        }
-        $first = $harness->service()->request($harness->actor(), 'article.publish', ['id' => 1], 'history-1');
-        $second = $harness->service()->request($harness->actor(), 'article.publish', ['id' => 1], 'history-2');
-        $other = $harness->service()->request($harness->actor(), 'article.publish', ['id' => 2]);
-        $ids = static fn (array $states): array => array_map(static fn (ApprovalState $state): string => $state->request->id, $states);
-        self::assertSame([$second->request->id, $first->request->id], $ids($history->forResource('tenant-a', '1')));
-        self::assertSame([$other->request->id], $ids($history->forResource('tenant-a', '2')));
-        self::assertSame([], $history->forResource('tenant-b', '1'), 'Another tenant has no history here.');
-        self::assertSame([], $history->forResource('Tenant-A', '1'), 'Tenants compare exactly.');
-        self::assertSame([$second->request->id], $ids($history->forResource('tenant-a', '1', 1)));
-    }
-
     public function testALockTimeoutLeavesNothingHalfDoneAndRunsNothingTwice(): void
     {
         $harness = $this->connect();
@@ -489,7 +471,7 @@ abstract class ApprovalStoreContract extends TestCase
         return $this->location ?? throw new \LogicException('The store was not prepared.');
     }
 
-    private function connect(): StoreHarness
+    protected function connect(): StoreHarness
     {
         return static::harness()::connect($this->location());
     }

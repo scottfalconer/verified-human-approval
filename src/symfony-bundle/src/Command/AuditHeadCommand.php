@@ -21,6 +21,9 @@ final class AuditHeadCommand extends Command
 {
     public const NAME = 'verified-human-approval:audit-head';
 
+    /** How many failing entries a report names before it only counts the rest. */
+    private const LISTED = 10;
+
     public function __construct(private readonly ?AuditLog $audit = null)
     {
         parent::__construct(self::NAME);
@@ -54,16 +57,35 @@ final class AuditHeadCommand extends Command
                 \sprintf('Newest entry: %d, hash %s, signed with key "%s"%s.', $head['seq'], $head['hash'], $head['keyId'], null === $head['at'] ? '' : ' at '.$head['at']),
                 $head['intact']
                     ? \sprintf('All %d entries verify in an unbroken chain. Keep this checkpoint where the application cannot write, and check it later with --check:', $head['seq'])
-                    : '<error>The chain does not verify, so this is no checkpoint to keep. Open the audit log to see which entries fail.</error>',
+                    : '<error>The chain does not verify, so this is no checkpoint to keep.</error>',
                 $head['seq'].':'.$head['hash'],
             ]);
+            if (!$head['intact']) {
+                $this->failures($this->audit, $output);
+            }
             // The usual reason after a key change: the rotation away from the old key is not recorded yet.
-            foreach ($this->audit->unvouchedKeys() as $keyId) {
+            $unvouched = $this->audit->unvouchedKeys();
+            foreach ($unvouched as $keyId) {
                 $output->writeln(\sprintf('<error>Key "%s" has closed, and nothing signed with a key in use vouches for its entries yet, so passkeys enrolled under it cannot approve. Record the rotation away from it: %s %s</error>', $keyId, RecordKeyRotationCommand::NAME, $keyId));
+            }
+            foreach (array_diff($this->audit->unrecordedRotations(), $unvouched) as $keyId) {
+                $output->writeln(\sprintf('<comment>Key "%s" has closed, and the log does not record the rotation away from it. Record it: %s %s</comment>', $keyId, RecordKeyRotationCommand::NAME, $keyId));
             }
         }
 
         return null === $head || $head['intact'] ? Command::SUCCESS : Command::FAILURE;
+    }
+
+    /** Names the entries that fail, the first few of them. */
+    private function failures(AuditLog $audit, OutputInterface $output): void
+    {
+        $failing = array_values(array_filter($audit->verify()['entries'], static fn (array $item): bool => !$item['valid']));
+        foreach (\array_slice($failing, 0, self::LISTED) as $item) {
+            $output->writeln(\sprintf('<error>Entry %d: %s.</error>', $item['seq'], $item['problem']));
+        }
+        if (\count($failing) > self::LISTED) {
+            $output->writeln(\sprintf('<error>And %d more.</error>', \count($failing) - self::LISTED));
+        }
     }
 
     private function check(AuditLog $audit, string $checkpoint, OutputInterface $output): int
@@ -78,6 +100,7 @@ final class AuditHeadCommand extends Command
         $problem = $audit->checkpoint($seq, $hash);
         if (null !== $problem) {
             $output->writeln('<error>'.$problem.'</error>');
+            $this->failures($audit, $output);
 
             return Command::FAILURE;
         }

@@ -237,6 +237,27 @@ final readonly class AuditLog
     }
 
     /**
+     * The retired keys whose window has closed while the log records no rotation away from them, by id, in the
+     * trusted keys' order. Record each with recordRotation(). This flags a rotation from the moment the old window
+     * closes, before any passkey stops approving: unvouchedKeys() names a key only while nothing in use vouches
+     * for what it signed, and the first entry the new key signs ends that, recorded rotation or not.
+     *
+     * @return list<string>
+     */
+    public function unrecordedRotations(): array
+    {
+        $now = $this->clock->now();
+        $keys = [];
+        foreach ($this->keys->all() as $key) {
+            if ($key->keyId !== $this->signer->keyId() && null !== $key->validUntil && $key->validUntil < $now && null === $this->rotatedAway($key->keyId)) {
+                $keys[] = $key->keyId;
+            }
+        }
+
+        return $keys;
+    }
+
+    /**
      * What is wrong with a checkpoint kept earlier, the sequence and hash head() gave, or null when it holds: the
      * entry at that sequence is unchanged and the whole chain still verifies.
      */
@@ -249,7 +270,7 @@ final readonly class AuditLog
             $report['newest'] < $seq => \sprintf('The log now ends at entry %d, before the kept entry %d: entries were cut off.', $report['newest'], $seq),
             null === $kept => \sprintf('Entry %d is missing from the log.', $seq),
             !hash_equals($hash, $kept['hash']) => \sprintf('Entry %d is no longer the entry kept: it, or the chain before it, was rewritten.', $seq),
-            !$report['intact'] => \sprintf('Entry %d is unchanged, but the chain does not verify. Open the audit log to see which entries fail.', $seq),
+            !$report['intact'] => \sprintf('Entry %d is unchanged, but the chain does not verify: some entry fails its signature, key window or chain check.', $seq),
             default => null,
         };
     }

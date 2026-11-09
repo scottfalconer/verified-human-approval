@@ -8,6 +8,8 @@ parameters:
         - src/doctrine/src
         - src/store-contracts/src
         - src/store-contracts/bin
+        # One store test class that uses ApprovalHistoryContract, so the trait is analysed in a class that uses it.
+        - tests/Contract/SqliteApprovalStoreContractTest.php
         - demo/src
         - src/webauthn/bin
         # The publishing example: its code, its configuration and its entry points. Not config/reference.php, which

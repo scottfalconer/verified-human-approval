@@ -70,6 +70,7 @@ final class ReceiptKeysConfigurationTest extends TestCase
             'The key id "application-2" is listed more than once.' => [['key_id' => 'application-2', 'public_key' => $this->retired, 'valid_until' => '2026-11-09T12:00:00Z']],
             '"9 November" is not an RFC 3339 time with an offset, such as 2026-11-09T12:00:00Z.' => [['key_id' => 'application-1', 'public_key' => $this->retired, 'valid_until' => '9 November']],
             'The trusted key "application-1" needs a base64url Ed25519 public key.' => [['key_id' => 'application-1', 'public_key' => 'not-a-key', 'valid_until' => '2026-11-09T12:00:00Z']],
+            'Retired key 1 is the current signing key. A rotation moves to a new key pair.' => [['key_id' => 'application-1', 'public_key' => $this->signer->publicKey(), 'valid_until' => '2026-11-09T12:00:00Z']],
         ] as $message => $retired) {
             try {
                 TrustedKeys::forSigner($this->signer, null, $retired);

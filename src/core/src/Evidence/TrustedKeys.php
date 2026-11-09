@@ -48,8 +48,9 @@ final readonly class TrustedKeys
 
     /**
      * An application's trusted keys from its settings: the signer's key, open from $validFrom, then every retired
-     * key, in the order given. A retired key is public material only, with the window it signed in. The Symfony
-     * bundle builds its keys from receipt_keys this way; any other host can read its own settings the same way.
+     * key, in the order given. A retired key is public material only, with the window it signed in, and never the
+     * signer's own key: a rotation moves to a new key pair. The Symfony bundle builds its keys from receipt_keys
+     * this way; any other host can read its own settings the same way.
      *
      * @param string|null $validFrom when the signer began signing, an RFC 3339 time, or null or empty when that was never recorded
      * @param mixed       $retired   a list of maps with key_id, public_key, valid_until and an optional valid_from
@@ -57,8 +58,14 @@ final readonly class TrustedKeys
     public static function forSigner(EvidenceSigner $signer, ?string $validFrom, mixed $retired = []): self
     {
         $current = new TrustedKey($signer->keyId(), $signer->publicKey(), null === $validFrom || '' === $validFrom ? null : TrustedKey::time($validFrom));
+        $keys = self::retired($retired);
+        foreach ($keys as $position => $key) {
+            if (hash_equals($current->publicKey, $key->publicKey)) {
+                throw new \InvalidArgumentException(\sprintf('Retired key %d is the current signing key. A rotation moves to a new key pair.', $position + 1));
+            }
+        }
 
-        return new self([$current, ...self::retired($retired)]);
+        return new self([$current, ...$keys]);
     }
 
     /**

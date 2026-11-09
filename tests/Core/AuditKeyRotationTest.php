@@ -89,12 +89,38 @@ final class AuditKeyRotationTest extends TestCase
         self::assertSame('it is signed with key "application-1", whose window has closed, and no later entry signed with a key in use vouches for it', $report['entries'][0]['problem']);
         self::assertTrue($report['entries'][0]['unvouched']);
         self::assertSame(['application-1'], $after->unvouchedKeys(), 'The log says which key waits for its rotation to be recorded.');
+        self::assertSame(['application-1'], $after->unrecordedRotations());
 
         // Recording the rotation is the new key's first entry, and it vouches for the chain before it.
         $after->recordRotation('application-1');
         self::assertSame('Laptop', $after->find('passkey.enrolled', 'cred-1')['data']->label);
         self::assertTrue($after->verify()['intact']);
         self::assertSame([], $after->unvouchedKeys());
+        self::assertSame([], $after->unrecordedRotations());
+    }
+
+    public function testARotationTheLogDoesNotRecordIsNamedFromTheMomentTheOldWindowCloses(): void
+    {
+        $this->before()->append('tenant-a', 'passkey.enrolled', 'cred-1', ['userId' => 'alice']);
+        // While the old key's window is still open, nothing is due.
+        $overlap = new TrustedKeys([
+            new TrustedKey('application-2', $this->new->publicKey(), TrustedKey::time(self::ROTATED)),
+            new TrustedKey('application-1', $this->old->publicKey(), TrustedKey::time(self::OPENED), TrustedKey::time('2026-11-09T13:00:00Z')),
+        ]);
+        $this->clock->modify('2026-11-09T12:30:00Z');
+        $log = new AuditLog($this->store, $this->new, $overlap, $this->clock);
+        self::assertSame([], $log->unrecordedRotations());
+
+        // Once it has closed, the rotation is due, and stays due after the new key's first entry vouches for the
+        // old key's, until it is recorded.
+        $this->clock->modify('2026-11-09T13:00:01Z');
+        self::assertSame(['application-1'], $log->unrecordedRotations());
+        $log->append('tenant-a', 'passkey.enrolled', 'cred-2', ['userId' => 'alice']);
+        self::assertSame([], $log->unvouchedKeys());
+        self::assertNotNull($log->find('passkey.enrolled', 'cred-1'));
+        self::assertSame(['application-1'], $log->unrecordedRotations());
+        $log->recordRotation('application-1');
+        self::assertSame([], $log->unrecordedRotations());
     }
 
     public function testACheckpointHoldsUntilTheChainIsCutOrRewritten(): void

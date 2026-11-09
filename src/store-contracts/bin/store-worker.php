@@ -7,9 +7,11 @@ use VerifiedHumanApproval\Core\ApprovalState;
 use VerifiedHumanApproval\StoreContracts\ProcessRace;
 use VerifiedHumanApproval\StoreContracts\StoreHarness;
 
-// The autoloader of the project that installed this package, of this repository, or of a checkout of the package.
-foreach ([dirname(__DIR__, 3).'/autoload.php', dirname(__DIR__, 3).'/vendor/autoload.php', dirname(__DIR__).'/vendor/autoload.php'] as $autoload) {
-    if (is_file($autoload)) {
+// The autoloader of the test process that started this worker, which it passes first; without one, that of the
+// project that installed this package, of this repository, or of a checkout of the package.
+$given = $_SERVER['argv'][1] ?? null;
+foreach ([is_string($given) ? $given : '', dirname(__DIR__, 3).'/autoload.php', dirname(__DIR__, 3).'/vendor/autoload.php', dirname(__DIR__).'/vendor/autoload.php'] as $autoload) {
+    if ('' !== $autoload && is_file($autoload)) {
         require $autoload;
         break;
     }

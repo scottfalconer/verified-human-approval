@@ -4,12 +4,17 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\StoreContracts;
 
+use Composer\Autoload\ClassLoader;
 use PHPUnit\Framework\Assert;
 
 /**
  * Real concurrency: independent PHP processes, each with its own database connection, wait at one barrier
  * and then start together. A worker reads its payload with payload(), connects, calls start(), and
  * writes one JSON line to standard output. Workers only connect: the test prepares the schema and data first.
+ *
+ * A worker loads classes as the test process does: it is given the Composer autoloader that loaded this class,
+ * which need not be the one beside a linked copy of this package, and the PSR-4 roots the test process added to it
+ * at run time, as Drupal's test bootstrap adds its modules' namespaces.
  */
 final class ProcessRace
 {
@@ -27,9 +32,9 @@ final class ProcessRace
             foreach ($payloads as $index => $payload) {
                 $ready = $barrier.'-ready-'.$index;
                 $pipes = [];
-                $process = proc_open([\PHP_BINARY, $script], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+                $process = proc_open(self::command($script), [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
                 Assert::assertIsResource($process);
-                fwrite($pipes[0], json_encode($payload + ['ready' => $ready, 'barrier' => $barrier], \JSON_THROW_ON_ERROR)."\n");
+                fwrite($pipes[0], json_encode($payload + ['ready' => $ready, 'barrier' => $barrier, 'psr4' => self::loader()['psr4']], \JSON_THROW_ON_ERROR)."\n");
                 fclose($pipes[0]);
                 $workers[] = ['process' => $process, 'stdout' => $pipes[1], 'stderr' => $pipes[2], 'ready' => $ready];
             }
@@ -101,9 +106,9 @@ final class ProcessRace
         $barrier = $directory.'/start-'.bin2hex(random_bytes(4));
         $ready = $barrier.'-ready-0';
         $pipes = [];
-        $process = proc_open([\PHP_BINARY, $script], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        $process = proc_open(self::command($script), [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
         Assert::assertIsResource($process);
-        fwrite($pipes[0], json_encode($payload + ['ready' => $ready, 'barrier' => $barrier], \JSON_THROW_ON_ERROR)."\n");
+        fwrite($pipes[0], json_encode($payload + ['ready' => $ready, 'barrier' => $barrier, 'psr4' => self::loader()['psr4']], \JSON_THROW_ON_ERROR)."\n");
         fclose($pipes[0]);
         $deadline = microtime(true) + 15;
         clearstatcache();
@@ -154,6 +159,17 @@ final class ProcessRace
         if (!\is_array($input) || !\is_string($input['ready'] ?? null) || !\is_string($input['barrier'] ?? null)) {
             throw new \RuntimeException('A worker needs its payload with ready and barrier paths.');
         }
+        // The namespaces the test process added at run time, so that the harness it names loads here too.
+        $loader = array_values(ClassLoader::getRegisteredLoaders())[0] ?? null;
+        if (null !== $loader && \is_array($input['psr4'] ?? null)) {
+            $known = $loader->getPrefixesPsr4();
+            foreach ($input['psr4'] as $prefix => $paths) {
+                $missing = \is_string($prefix) && \is_array($paths) ? array_values(array_diff(array_filter($paths, \is_string(...)), $known[$prefix] ?? [])) : [];
+                if ([] !== $missing) {
+                    $loader->addPsr4($prefix, $missing);
+                }
+            }
+        }
 
         return $input;
     }
@@ -174,5 +190,33 @@ final class ProcessRace
             usleep(5000);
             clearstatcache(true, (string) $input['barrier']);
         }
+    }
+
+    /**
+     * The worker's command line: PHP, the script, and the autoloader to load first.
+     *
+     * @return list<string>
+     */
+    private static function command(string $script): array
+    {
+        $autoload = self::loader()['autoload'];
+
+        return null === $autoload ? [\PHP_BINARY, $script] : [\PHP_BINARY, $script, $autoload];
+    }
+
+    /**
+     * The Composer autoloader that loaded this class, and the PSR-4 roots registered on it.
+     *
+     * @return array{autoload: ?string, psr4: array<string, list<string>>}
+     */
+    private static function loader(): array
+    {
+        foreach (ClassLoader::getRegisteredLoaders() as $vendor => $loader) {
+            if (false !== $loader->findFile(self::class)) {
+                return ['autoload' => $vendor.'/autoload.php', 'psr4' => $loader->getPrefixesPsr4()];
+            }
+        }
+
+        return ['autoload' => null, 'psr4' => []];
     }
 }
