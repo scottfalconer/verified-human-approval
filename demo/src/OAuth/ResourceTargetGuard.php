@@ -16,8 +16,11 @@ use Symfony\Component\HttpKernel\KernelEvents;
  * issuer parameter and token binding to a request that names that endpoint (or one of its scopes), and lets any
  * other through. So a request that names another resource is refused here, and one that names none, or names
  * this server's origin, is taken to name the MCP endpoint, the default RFC 8707 §2 allows.
+ *
+ * It runs after routing (32) and before the bundle's listener that resolves a client ID metadata document (16),
+ * which also acts only on a request it sees as one for MCP.
  */
-#[AsEventListener(event: KernelEvents::REQUEST, priority: 4)]
+#[AsEventListener(event: KernelEvents::REQUEST, priority: 20)]
 final readonly class ResourceTargetGuard
 {
     public function __construct(

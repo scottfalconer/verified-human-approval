@@ -96,7 +96,15 @@ final class OAuthTest extends TestCase
         self::assertSame('pending', $status->structuredContent['status']);
     }
 
-    public function testClaudeAiConnectsWithItsClientIdMetadataDocument(): void
+    /** @return iterable<string, array{?string}> */
+    public static function resourcesClaudeMayName(): iterable
+    {
+        yield 'the MCP endpoint' => [self::ORIGIN.'/mcp'];
+        yield 'no resource' => [null];
+    }
+
+    #[DataProvider('resourcesClaudeMayName')]
+    public function testClaudeAiConnectsWithItsClientIdMetadataDocument(?string $resource): void
     {
         // claude.ai names itself by this URL instead of registering. Its document is served here by a mock.
         $browser = $this->client();
@@ -104,14 +112,14 @@ final class OAuthTest extends TestCase
         $browser->getKernel()->boot();
         $fetched = new MockHttpClient(new MockResponse(json_encode(['client_id' => self::CLAUDE, 'client_name' => 'Claude', 'redirect_uris' => [self::CALLBACK]])));
         $browser->getContainer()->get('test.service_container')->set(ClientMetadataHttpClient::class, new ClientMetadataHttpClient($fetched));
-        [$code, $verifier] = $this->consentIn($this->signIn($browser, 'editor'), self::CLAUDE);
-        $tokens = $this->token($browser, ['grant_type' => 'authorization_code', 'code' => $code, 'redirect_uri' => self::CALLBACK, 'client_id' => self::CLAUDE, 'code_verifier' => $verifier, 'resource' => self::ORIGIN.'/mcp']);
+        [$code, $verifier] = $this->consentIn($this->signIn($browser, 'editor'), self::CLAUDE, $resource);
+        $tokens = $this->token($browser, ['grant_type' => 'authorization_code', 'code' => $code, 'redirect_uri' => self::CALLBACK, 'client_id' => self::CLAUDE, 'code_verifier' => $verifier] + (null === $resource ? [] : ['resource' => $resource]));
         self::assertSame('Bearer', $tokens['token_type'] ?? null, json_encode($tokens));
         self::assertGreaterThanOrEqual(1, $fetched->getRequestsCount(), 'The document was fetched from claude.ai’s URL.');
 
         $result = $this->mcp($tokens['access_token'])->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
         self::assertSame('pending', $result->structuredContent['status']);
-        $connection = (new DemoDatabase(DemoDatabase::connect($this->runtime.'/application.sqlite')))->pdo->query("SELECT client_name, active FROM demo_grants WHERE token_hash IS NULL")->fetch();
+        $connection = (new DemoDatabase(DemoDatabase::connect($this->runtime.'/application.sqlite')))->pdo->query('SELECT client_name, active FROM demo_grants WHERE token_hash IS NULL')->fetch();
         self::assertSame(['client_name' => 'Claude', 'active' => 1], $connection, 'The connection carries the name from claude.ai’s own document.');
     }
 
@@ -138,7 +146,7 @@ final class OAuthTest extends TestCase
         self::assertSame('pending', $result->structuredContent['status']);
     }
 
-    public function testRefusesAWrongVerifierAnUnregisteredRedirectAndUnknownClients(): void
+    public function testRefusesPlainPkceAWrongVerifierAnUnregisteredRedirectAndUnknownClients(): void
     {
         $api = $this->client();
         $registration = $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => [self::CALLBACK], 'client_name' => 'Claude']);
@@ -150,6 +158,11 @@ final class OAuthTest extends TestCase
         $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query(['response_type' => 'code', 'client_id' => $registration['client_id'], 'redirect_uri' => 'https://attacker.example/callback', 'code_challenge' => self::challenge(str_repeat('b', 43)), 'code_challenge_method' => 'S256', 'resource' => self::ORIGIN.'/mcp']));
         self::assertGreaterThanOrEqual(400, $browser->getResponse()->getStatusCode(), 'An unregistered redirect never leaves the site.');
         self::assertStringNotContainsString('attacker.example', (string) $browser->getResponse()->headers->get('Location'));
+        foreach (['plain' => ['code_challenge_method' => 'plain'], 'no method, which means plain' => []] as $case => $method) {
+            $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query(['response_type' => 'code', 'client_id' => $registration['client_id'], 'redirect_uri' => self::CALLBACK, 'code_challenge' => str_repeat('c', 43), 'resource' => self::ORIGIN.'/mcp'] + $method));
+            self::assertSame(400, $browser->getResponse()->getStatusCode(), $case.': PKCE must use S256.');
+            self::assertSame('invalid_request', json_decode((string) $browser->getResponse()->getContent(), true, 8)['error'] ?? null, $case);
+        }
 
         $unknown = $this->token($api, ['grant_type' => 'authorization_code', 'code' => 'x', 'redirect_uri' => self::CALLBACK, 'client_id' => 'client_unknown', 'code_verifier' => str_repeat('c', 43)]);
         self::assertSame('invalid_client', $unknown['error'] ?? null);
