@@ -1,4 +1,9 @@
 {
+  "record_status": "historical first build",
+  "recorded_date": "2026-11-08",
+  "commit": null,
+  "commit_note": "The original first-build commit was not recorded.",
+  "current_report": "verification.md",
   "php": "8.4.24",
   "suites": [
     {

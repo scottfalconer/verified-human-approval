@@ -1,94 +1,72 @@
-# Security and execution boundary
+# Security model
 
-## Guarantee
+Verified Human Approval protects a registered application action. The application freezes the proposed effect, obtains any required passkey approval, checks current authority and commits the effect with its execution record in one transaction.
 
-For a registered local action, one proposal can commit at most one protected business effect and one execution record, provided they share the same supported transaction. A configured required approval is an additional mandatory condition alongside current application authority.
+One proposal can commit the protected effect at most once **within that transaction boundary**. The host application must put every route to that effect through the guarded mutation service.
 
-The first persistence implementation is SQLite. `PdoApprovalStore` uses `BEGIN IMMEDIATE` and owns the outer transaction. Business state, current authorization rows, credentials, proposals and execution records must share the same PDO connection. Other adapters must preserve this contract and run the same contention and rollback tests.
+## What the host must trust
 
-## Trusted components
+The application code, action adapter, authorization provider, review page, credential enrollment process and evidence signing key are trusted components. The agent is an ordinary client with delegated access. Tool arguments do not select the authenticated user, add a passkey, change an approval rule or provide approval.
 
-The application, its action adapter, ordinary authorization provider, code deployment, review UI and its evidence signing key are trusted. The agent is an ordinary application client with a personal delegated credential. It cannot choose the authenticated actor in tool arguments, approve anything, add a passkey or change a rule.
+`ExecutionGuard` gives the protected mutation service a capability to run only the exact prepared action for the exact actor. Approval and ordinary authorization are both required checks. A generic entity update, CLI command or another route that bypasses this service bypasses the protection.
 
-The database is not fully trusted after the fact. Records that matter are signed with the application's evidence key, which is kept outside the database (`settings.json` in the demo), so database access alone cannot forge them:
-- each execution's receipt, signed inside the completing transaction;
-- each passkey enrollment, recorded with the enrolled public key in a signed, hash-chained audit log.
+This is an application boundary, not a sandbox for someone who can change application code or write directly to its database. If a demonstration is meant to show independence from a coding agent, the running application, database and secrets must be outside that agent's write access.
 
-Only a passkey whose signed enrollment record matches it can approve (`AnchoredCredentialRepository`). A credential row inserted or altered directly in the database approves nothing.
+## Transaction boundary
 
-The component does not sandbox an actor who can rewrite application code, replace the review UI, modify the database directly or control its trusted enrollment process. Run an actual demonstration outside a coding agent’s writable application/code/database environment if the claim involves independence from that coding agent.
+The current persistence implementation is SQLite. `PdoApprovalStore` owns the outer transaction and uses `BEGIN IMMEDIATE`. Business state, current authorization data, credentials, proposals and execution records must use the **same PDO connection**.
 
-## Guarding the mutation
+The initiating user and approving browser user must be the same account in the same tenant. Completion rechecks the original delegation's current permissions; the browser's broader privileges do not replace them. The adapter checks current resource versions before writing and checks the resulting business state before commit.
 
-`ExecutionGuard` holds a private execution capability established by the approval service. A mutation service checks the exact actor and prepared effect before writing. Every supported route to that action must use the guarded mutation service. A generic entity update, CLI path or direct database write added by a host can undermine the integration if it bypasses that boundary.
+Failures roll back the protected effect, credential updates, consumed approval and result together. The service retires a failed ceremony. If the commit outcome is uncertain, it checks persisted state before reporting success, failure or uncertainty. A caller should read the existing request's status rather than start a new action blindly.
 
-No approval voter is added to an affirmative authorization voting strategy. Ordinary authorization and the approval guard are separate mandatory checks.
+This transaction does not include remote HTTP or MCP calls, email, payments or nontransactional hooks. Only SQLite has the verified transaction implementation. Another database adapter must preserve the contract and pass the contention and rollback checks.
 
-## Authority and historical reads
+## What the passkey proves
 
-The initiating user and approving browser user must match account and tenant. Browser approval does not replace the initiating delegation with the browser’s broader privileges. `Authorizer` reloads current user status, permissions and delegation scope inside the execution transaction.
+The WebAuthn challenge binds a fresh 32-byte nonce to the digest of the frozen proposal, with a versioned domain separator. The evidence includes the nonce so a verifier can recompute that binding.
 
-Core history reads are owner-based. A host must also apply its explicit result-read authorization to delegated clients. The Symfony `ActorProvider::assertCanReadApproval()` seam and example `approval.read` scope provide this. A user may need to read an outcome after losing permission to perform the original action; write authority is not the right history-read check.
+`web-auth/webauthn-lib` validates the signature, challenge, configured origin, relying party, credential ownership and required user verification. Device verification can use a fingerprint, face, PIN or passcode through WebAuthn. No separate biometric mechanism is needed. Biometric data stays with the authenticator; the application receives the assertion.
 
-## Proof and exactness
+The browser review page displays the business proposal. The operating system's passkey prompt verifies access to the credential; it does not independently display or attest all business content. Approval establishes that the enrolled credential approved this proposal. It does not establish who wrote the content or whether a person understood it.
 
-The challenge is SHA-256 over a versioned domain separator, the proposal digest and a fresh 32-byte nonce. The nonce is included in exported evidence, allowing an independent verifier to recompute the binding.
+The demo uses registration without attestation. It therefore does not establish that the credential lives in particular hardware or prevent a deliberately enrolled software authenticator. User verification also does not establish which biometric or device unlock method was used.
 
-WebAuthn validation comes from `web-auth/webauthn-lib`. It enforces signature, challenge, exact configured origin, RP, credential/account association and required user verification. A native verification can be a biometric, PIN or passcode. Required UV does not prove fingerprint-only authentication or the person’s understanding of the statement.
+## What must be frozen
 
-The browser page supplies the business review. The operating system passkey sheet authenticates for the application; it is not an independent trusted display of arbitrary business content.
+The proposal is stored as canonical JSON, not rebuilt from later live values. It includes the actor, target, effect, preconditions, review content, policy version and approval statement.
 
-Canonical proposals are not reconstructed from live values. The implementation rejects nested object mutation around adapter callbacks and uses a fresh immutable baseline for final postconditions. Adapters must still declare every meaningful dependency and check actual final application effects. A mutable asset URL is insufficient if asset bytes affect the action.
+The core rejects mutation of the frozen data around adapter callbacks. The adapter must still declare every dependency that matters and verify the actual final effect. For example, if an image affects what is being approved, freeze its content or content digest; a URL whose bytes can change is not enough.
 
-## Failure and concurrency
+## Protection after storage
 
-All version checks and writes participate in the transaction. A write that has already committed cannot be undone by a subsequent authority change; transactions define that ordering.
+With a receipt signer configured, `ApprovalService` signs the proposal, passkey proof and execution report inside the completing transaction. If signing fails, that transaction rolls back. Keep the signing key outside the database. The [evidence guide](evidence.md) explains the two signatures and provides a verification walkthrough.
 
-Failed execution and postconditions roll back protected state, credential updates, consumed approval and result together. The service then retires the failed ceremony. If commit outcome is uncertain, it checks persisted state and returns an existing completion where available; otherwise it reports uncertainty or known failure. It never claims automatic rollback of remote effects.
+The demo also records passkey enrollment and revocation in a signed audit log. `AnchoredCredentialRepository` accepts a current credential only if its identity matches a valid signed enrollment and no signed revocation is found. Inserting a new credential row or replacing its public key in the database does not supply that enrollment proof. Hosts must wire this repository and record enrollment events to get this protection; a plain credential repository alone does not provide it.
 
-With a receipt signer configured (the bundle's `receipt_signer`), `ApprovalService` signs the receipt inside the completing transaction. If signing fails, nothing executes: there is no unrecorded action. With a signer, a completed action whose receipt is missing has no evidence: the exporter refuses it and the audit page flags it, because deleting the receipt is how someone with database access would hide an edit. Without a signer, an application opts in to signing at download time (`signAtExport`); that receipt says `export` inside what it signs, so it cannot pass for one signed at commit, and it cannot show edits made before the download. Exporting never re-executes anything.
+These signatures make later changes detectable when verification runs. They do not stop someone with database write access from changing or deleting bytes. The default exporter refuses a completed action whose original receipt is missing. It does not replace that receipt with a fresh signature.
 
-## Web and operational controls
+The demo's administrator page at `/admin/audit` rechecks completed actions against their receipts and the passkeys' signed enrollment records. It also verifies the audit chain. This checks the original historical records, not whether today's live content still matches an earlier approval.
 
-The Symfony flow requires an interactive session, ownership checks, CSRF, request-to-ceremony session pairing, bounded request bodies, rate limits, output escaping, restrictive content security policy, frame blocking and no-store responses. The demo separates stateless MCP bearer authentication from human sessions, credential enrollment and policy administration.
+Recorded times remain application claims, and an old assertion does not independently prove its historical revocation status. Deleting the newest audit entries cannot be detected without an independently retained checkpoint. A compromised application signing key can forge application reports or new enrollment records; it cannot recreate a passkey assertion under a separately trusted original user public key. Obtaining and retaining trusted verification keys is therefore part of the host's responsibility.
 
-A password is not enough to add an approval passkey, because whoever holds it (including an agent the person handed it to) could otherwise enroll a passkey of their own and approve without the person:
-- **The first passkey** needs a one-time link, from setup or from an administrator who has just confirmed with their own passkey. The link works once, only for its own account, and only in that account's signed-in session.
-- **Any further passkey** needs a fresh confirmation with an existing passkey.
+## Browser and account controls
 
-Revoking a passkey or disconnecting an agent takes effect at once, and both are recorded. Production hosts should map this onto their own identity, enrollment and recovery processes.
+The Symfony review flow uses an interactive session, ownership checks, CSRF protection, session-to-ceremony pairing, bounded request bodies, rate limits, escaped output, a restrictive content security policy, frame blocking and no-store responses. Delegated history reads also need an explicit result-read permission through `ActorProvider::assertCanReadApproval()`. Losing write permission need not remove permission to read an earlier result.
 
-**Changing who must verify is itself an approved action.** The administrator proposes the rule change, then approves that exact change with their own passkey. Its policy is fixed in code, so no rule change can switch off approval of rule changes. An agent cannot propose one.
+The demo keeps bearer-authenticated MCP access separate from human sessions, enrollment and administration. Its account controls illustrate responsibilities a production host must implement:
 
-**The phone code.** It opens one review, for one person, for two minutes, once, and its redemption is locked. Opening the link only shows a Continue button, so link previewers cannot use the code up. The scoped session can approve with the passkey but cannot cancel, which needs the signed-in person. The tool that mints codes checks the connection's read scope and has a budget. Its "app only" visibility is a convention hosts follow, not a server boundary.
+- A first approval passkey requires a one-time enrollment link and the owner's signed-in session. Setup issues initial links; an administrator needs fresh passkey confirmation to issue another.
+- Adding another passkey requires fresh confirmation with an existing passkey. A password alone cannot enroll an approval credential.
+- Passkey and agent-connection revocations are recorded and checked for subsequent use.
+- Changing who must approve is itself a passkey-approved action. Its approval rule is fixed in code, so an administrator cannot switch off approval of rule changes through that rule editor.
 
-**OAuth client metadata** (client ID metadata documents) is fetched through Symfony's `NoPrivateNetworkHttpClient`, so a client ID cannot make the server fetch from loopback, private or link-local addresses. The resolved address is pinned against DNS rebinding.
+The phone handoff code opens one request for one person, once, within two minutes. A Continue step avoids accidental redemption by link previewers. Redemption is locked; the scoped session can approve but cannot cancel. The tool that creates codes checks read scope and a rate budget. Its app-only visibility is a host convention, not authorization.
 
-Limiter/lock storage must be shared appropriately in a multi-host deployment. Runtime secrets and database files must not be exposed by the web document root. Do not log assertions, tokens or full approval content in normal request logs.
+The demo's OAuth metadata fetch uses `NoPrivateNetworkHttpClient`, with bounded responses and a timeout, to reject private-network destinations and pin resolved addresses. Its OAuth server and personal tokens are reference implementations. A production host must connect its own identity and recovery processes.
 
-## Tamper evidence and the administrator's view
+## Deployment responsibilities
 
-The demo's audit page (`/admin/audit`, administrators only) lists, for every action in the organization:
-- who asked, through which agent connection;
-- under which rule version;
-- whether a person verified it, with which passkey, and when.
+Share rate-limit and lock storage where a deployment runs on multiple hosts. Keep runtime settings, signing keys and database files outside the public document root. Keep assertions, tokens and complete approval content out of routine request logs.
 
-It re-checks each completed action on every visit. The receipt is checked against the signature made at commit. The person's passkey signature is checked against the public key in that passkey's signed enrollment record, using a challenge recomputed from the stored proposal. Editing what was approved, or when it happened, makes a check fail visibly.
-
-The same page lists passkeys, one-time links and agent connections, with revocation. It also shows the security log, verified as a chain: enrollments, revocations, links issued and alert take-downs.
-
-What this cannot show:
-- **Cut-off entries.** Truncating the newest log entries is not detectable without an external copy of the newest sequence number, so the page shows it.
-- **A full server compromise.** Whoever holds both the database and the signing key can forge anything.
-- **Which authenticator.** Without attestation, the authenticator type is what the authenticator reports.
-
-## Explicit limits
-
-- This is a tested initial implementation, not a third-party security audit or a claim of being bulletproof.
-- One local transaction does not cover remote MCP/HTTP calls, emails, payments or nontransactional hooks.
-- Only SQLite is verified. PostgreSQL/MySQL deployments need their own transaction-contract run.
-- The demo's OAuth server and personal tokens are reference implementations: a stand-in for an identity provider, kept minimal (PKCE S256 only, public clients, single-use codes, rotating refresh tokens ending after 30 days, tokens valid only for this server, cached client metadata documents, a budget on open registration). Production deployments connect their own identity provider; the MCP bundle's documentation recommends a dedicated OAuth server such as `omouren/mcp-oauth-bundle`.
-- Without attestation (the demo uses `none`, which iCloud Keychain and Google Password Manager require), the application cannot prove a passkey lives in hardware. A person who deliberately enrolls an automatable software authenticator can approve without being present. The audit view shows each passkey's reported authenticator and how it was enrolled. Deployments that must prevent this can require attestation, at the cost of synced passkeys.
-- User verification does not attest an exact biometric modality.
-- Independent evidence establishes credential approval and an application-signed report, not independent observation of the database or UI.
-- Recorded end-to-end runs so far: Claude Code's native prompt, a Claude Desktop chat with Touch ID, and claude.ai through a public tunnel with an iPhone approving the phone code. See `verification.md`.
+This is a tested initial implementation, not an independent security audit. See [verification](verification.md) for automated checks, recorded real-device runs and remaining coverage limits. Integration and release work is described in the [Symfony guide](../src/symfony-bundle/docs/index.md).
