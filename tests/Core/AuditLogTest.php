@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Symfony\Component\Clock\MockClock;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\Storage\PdoAuditStore;
 
 /** The security log: signed entries, each naming the one before, so edits and deletions show. */
 final class AuditLogTest extends TestCase
@@ -20,8 +21,9 @@ final class AuditLogTest extends TestCase
     {
         $this->pdo = new \PDO('sqlite::memory:', options: [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
         $this->signer = new SodiumEvidenceSigner('app-key', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
-        $this->log = new AuditLog($this->pdo, $this->signer, $this->signer->publicKey(), new MockClock('2026-11-08 12:00:00'));
-        $this->log->initialize();
+        $store = new PdoAuditStore($this->pdo);
+        $store->initialize();
+        $this->log = new AuditLog($store, $this->signer, $this->signer->publicKey(), new MockClock('2026-11-08 12:00:00'));
         foreach (['one', 'two', 'three'] as $subject) {
             $this->log->append('tenant-a', 'passkey.enrolled', $subject, ['userId' => 'alice', 'label' => $subject]);
         }

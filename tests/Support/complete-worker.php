@@ -4,21 +4,14 @@ declare(strict_types=1);
 
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Tests\Support\CoreFixture;
+use VerifiedHumanApproval\Tests\Support\ProcessRace;
 
 require dirname(__DIR__, 2).'/vendor/autoload.php';
 
 try {
-    $input = json_decode((string) fgets(\STDIN), true, 32, \JSON_THROW_ON_ERROR);
+    $input = ProcessRace::payload();
     $fixture = new CoreFixture($input['database']);
-    file_put_contents($input['ready'], 'ready', \LOCK_EX);
-    $deadline = microtime(true) + 15;
-    while (!is_file($input['barrier'])) {
-        if (microtime(true) >= $deadline) {
-            throw new RuntimeException('The concurrency test barrier was not released.');
-        }
-        usleep(5000);
-        clearstatcache(true, $input['barrier']);
-    }
+    ProcessRace::start($input);
     if ('request' === $input['operation']) {
         $state = $fixture->service->request($fixture->actor, 'article.publish', ['id' => 1], $input['idempotencyKey']);
     } else {

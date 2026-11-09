@@ -20,8 +20,10 @@ use VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool;
 use VerifiedHumanApproval\Bundle\SecurityHeadersSubscriber;
 use VerifiedHumanApproval\Bundle\VerifiedHumanApprovalBundle;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
+use VerifiedHumanApproval\Core\Audit\AuditStore;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
 use VerifiedHumanApproval\Core\Storage\PdoApprovalStore;
+use VerifiedHumanApproval\Core\Storage\PdoAuditStore;
 use VerifiedHumanApproval\Demo\Action\DemoAuthorizer;
 use VerifiedHumanApproval\Demo\Action\DemoPolicyProvider;
 use VerifiedHumanApproval\Demo\Action\PublishAlert;
@@ -217,7 +219,9 @@ final class DemoKernel extends Kernel
         $services->set(PdoApprovalStore::class);
         $services->set(PdoCredentialRepository::class);
         // Approvals accept only passkeys whose signed enrollment record vouches for them.
-        $services->set(AuditLog::class)->args([service(\PDO::class), service(SodiumEvidenceSigner::class), '%env(DEMO_RUNTIME_RECEIPT_PUBLIC_KEY)%', service('verified_human_approval.clock')]);
+        $services->set(PdoAuditStore::class);
+        $services->alias(AuditStore::class, PdoAuditStore::class);
+        $services->set(AuditLog::class)->args([service(AuditStore::class), service(SodiumEvidenceSigner::class), '%env(DEMO_RUNTIME_RECEIPT_PUBLIC_KEY)%', service('verified_human_approval.clock')]);
         $services->set(AnchoredCredentialRepository::class);
         $services->alias(CredentialRepository::class, AnchoredCredentialRepository::class);
         $services->set(Configuration::class)->args(['%env(DEMO_RUNTIME_RP_ID)%', $origin]);
