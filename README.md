@@ -171,6 +171,7 @@ sequenceDiagram
 - **The person sees the real result.** The review page renders your own template from the frozen proposal, not from the current draft.
 - **The application acts, not the client.** Completing the passkey ceremony runs the stored proposal in one database transaction, together with consuming the approval and recording a receipt signed with the application's key.
 - **Every record can be checked.** Receipts are signed as the action commits, with a key kept outside the database. An audit page can re-check each one, and re-check the person's passkey signature against the key they enrolled. Evidence bundles verify offline with `verify-evidence.php`.
+- **The person keeps a receipt.** Once the action runs, the review page offers the person their receipt: the exact request, their passkey's signature on it and what ran, signed by the site as it ran. The agent's result carries the same signed receipt, and the site publishes the key that checks it at `/approval/receipt-key.json`. If the site's record were changed or deleted later, the person's copy would show it.
 - **Each client gets the way it can show.** An MCP App card (`io.modelcontextprotocol/ui`) for hosts that render apps, a URL-mode elicitation for clients you opt in, and a plain link for every client.
 - **Remote clients sign in with MCP OAuth.** The bundle leaves the authorization server to you or to a dedicated bundle; it needs a firewall that identifies the person behind each token. An agent's token can ask for an action. It can never approve one.
 
@@ -193,6 +194,7 @@ sequenceDiagram
 | A record is edited and its receipt deleted to hide it | The audit page flags it, and no evidence is signed for that record |
 | A passkey is revoked just after it confirmed adding another | The confirmation ends with it: no new passkey or passkey link |
 | An approval's record is edited in the database afterwards | The audit page's checks fail: the receipt was signed at commit, and the passkey signed the original |
+| The site's record changes after the person kept their receipt | Their copy no longer matches it, checked with only the site's published key |
 | An administrator's password alone tries to switch verification off | Pending: the rule change waits for the administrator's passkey |
 | Another account, or a read-only agent token | No access to the request, and no rights from a passkey |
 

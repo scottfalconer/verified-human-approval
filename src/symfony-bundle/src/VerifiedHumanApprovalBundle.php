@@ -19,6 +19,7 @@ use VerifiedHumanApproval\Bundle\Security\ReviewRequestMatcher;
 use VerifiedHumanApproval\Core\ActionAdapter;
 use VerifiedHumanApproval\Core\ActionRegistry;
 use VerifiedHumanApproval\Core\ApprovalService;
+use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
 use VerifiedHumanApproval\Core\ExecutionGuard;
 use VerifiedHumanApproval\Mcp\ApprovalFlow;
 use VerifiedHumanApproval\Mcp\ResultPresenter;
@@ -58,9 +59,11 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             ->scalarNode('lock_factory')->defaultValue('verified_human_approval.lock_factory')
                 ->info('Service id of a Symfony\\Component\\Lock\\LockFactory that makes each phone code single-use. The default locks files on this host; use "lock.factory" with a shared store when several hosts serve the application.')->end()
             ->scalarNode('receipt_signer')
-                ->info('Service id of a VerifiedHumanApproval\\Core\\Evidence\\EvidenceSigner. When set, each execution\'s receipt is signed inside the completing transaction, so later edits to the record show.')
+                ->info('Service id of a VerifiedHumanApproval\\Core\\Evidence\\EvidenceSigner. When set, each execution\'s receipt is signed inside the completing transaction, so later edits to the record show; the person can download their receipt, and the signer\'s public key is published to check it.')
                 ->defaultNull()
             ->end()
+            ->scalarNode('relying_party_id')->defaultNull()
+                ->info('The passkey relying party id published with the receipt key, so a receipt\'s passkey signature can be checked offline. Defaults to the public origin\'s host.')->end()
             ->arrayNode('url_elicitation')
                 ->info('Native URL-mode elicitation for pending approvals, on MCP 2026-07-28 or later. Off by default: the card and link always work, and some clients declare URL mode and then decline or drop it.')
                 ->addDefaultsIfNotSet()
@@ -139,6 +142,15 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
         ]);
         $services->alias(ApprovalFlow::class, 'verified_human_approval.flow');
 
+        // With a receipt signer, the person can download their receipt, and the key that checks it is published.
+        if (null !== $config['receipt_signer']) {
+            $services->set('verified_human_approval.evidence_exporter', EvidenceExporter::class)->args([service($config['receipt_signer'])]);
+            $services->alias(EvidenceExporter::class, 'verified_human_approval.evidence_exporter');
+            $services->set('verified_human_approval.receipt_key', ReceiptKey::class)
+                ->args([service($config['receipt_signer']), $config['public_origin'], $config['relying_party_id']]);
+            $services->alias(ReceiptKey::class, 'verified_human_approval.receipt_key');
+        }
+
         // The review pages. Public, because routes name it by service id.
         $services->set('verified_human_approval.approval_controller', ApprovalController::class)->public()->args([
             service('verified_human_approval.approval_service'),
@@ -150,6 +162,8 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             service('verified_human_approval.handoff'),
             service('router'),
             null === $config['requester_label'] ? service(RequesterLabel::class)->nullOnInvalid() : service($config['requester_label']),
+            null === $config['receipt_signer'] ? null : service('verified_human_approval.evidence_exporter'),
+            null === $config['receipt_signer'] ? null : service('verified_human_approval.receipt_key'),
         ]);
 
         // MCP elements, tagged here because the MCP bundle's attribute autoconfiguration does not reach a

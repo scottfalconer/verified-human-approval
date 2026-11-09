@@ -56,7 +56,7 @@ verified_human_approval:
     receipt_signer: VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner
 ```
 
-With `receipt_signer` set, a later edit to an approval's record no longer matches its receipt, and if signing fails nothing executes. To show who made a request on the approval sheet, implement `VerifiedHumanApproval\Bundle\RequesterLabel` and set `requester_label` to its service id (a service aliased to the interface is used when the key is unset). For example, it can name the agent connection, such as "Claude (claude.ai), an agent you connected to your account". `clock` defaults to the framework's `clock` service, so a clock you swap in for tests reaches the approvals too.
+With `receipt_signer` set, a later edit to an approval's record no longer matches its receipt, and if signing fails nothing executes. The person can then download their receipt from the completed review page, and the signer's public key is published for anyone to check it (see [Receipts](#receipts-the-person-keeps)); set `relying_party_id` when your passkeys use a parent domain rather than the public origin's host. To show who made a request on the approval sheet, implement `VerifiedHumanApproval\Bundle\RequesterLabel` and set `requester_label` to its service id (a service aliased to the interface is used when the key is unset). For example, it can name the agent connection, such as "Claude (claude.ai), an agent you connected to your account". `clock` defaults to the framework's `clock` service, so a clock you swap in for tests reaches the approvals too.
 
 Import the review routes:
 
@@ -218,7 +218,7 @@ The demo administrator form uses Symfony Form and Validator. For each role it se
 
 Saving does not change anything by itself. It proposes a `policy.change` action, which the administrator approves with their own passkey like any other, and its policy is fixed in code. Approving it increments the policy version. A role set to issue directly lets **new** authorized requests from that role execute without proof. It cannot make an older pending proposal eligible under its previous policy. Your own `PolicyProvider` receives the requesting `Actor`, so the rule can depend on whatever your application knows about the person.
 
-The review templates live in the bundle's `templates/` directory, and its browser script, published by `assets:install`, uses `navigator.credentials.create()` / `navigator.credentials.get()`. Override them the usual way, in `templates/bundles/VerifiedHumanApprovalBundle/`, keeping the full frozen action and the required statement: `base.html.twig` has `header`, `site_name` and `footer` blocks for your layout, and `review.html.twig` has `preview`, to show the effect as its audience will see it, and `return`, the way back to the agent. The page reads two keys of the action's `display`: `title` for its heading and `consequence`, shown next to the button while the request waits, for what happens the moment it is approved. A refusal on the JSON routes, such as a stale CSRF token or a ceremony from another page, is a JSON answer with a `reason` the page shows; a refusal about a request also carries its `request_status`, and when that is no longer `pending` the page reloads to show the request as finished or stopped. When the connection drops after the passkey response is sent, the page says it cannot confirm the outcome and asks the person to reload; it never guesses.
+The review templates live in the bundle's `templates/` directory, and its browser script, published by `assets:install`, uses `navigator.credentials.create()` / `navigator.credentials.get()`. Override them the usual way, in `templates/bundles/VerifiedHumanApprovalBundle/`, keeping the full frozen action and the required statement: `base.html.twig` has `header`, `site_name` and `footer` blocks for your layout, and `review.html.twig` has `preview`, to show the effect as its audience will see it, `return`, the way back to the agent, and `receipt`, the person's receipt download. The page reads two keys of the action's `display`: `title` for its heading and `consequence`, shown next to the button while the request waits, for what happens the moment it is approved. A refusal on the JSON routes, such as a stale CSRF token or a ceremony from another page, is a JSON answer with a `reason` the page shows; a refusal about a request also carries its `request_status`, and when that is no longer `pending` the page reloads to show the request as finished or stopped. When the connection drops after the passkey response is sent, the page says it cannot confirm the outcome and asks the person to reload; it never guesses.
 
 The browser approval budget is an ordinary framework rate limiter named `verified_human_approval`: 30 attempts per person per minute across all requests, set by `attempts_per_minute`. It uses the framework's `cache.rate_limiter` pool and, when `framework.lock` is on, its lock. Override any of it in your own configuration, per environment too:
 
@@ -230,9 +230,23 @@ framework:
 
 Or point `rate_limiter` at a `RateLimiterFactoryInterface` service of your own. The phone code's single redemption takes a lock from `lock_factory`: by default a file lock on this host; set it to `lock.factory` with a shared store when several hosts serve the application, and give them a shared `cache.app` for the codes.
 
-## Evidence and validation
+## Receipts the person keeps
 
-The demo provides an owner-checked evidence download at `/approval/{requestId}/evidence`. It signs the already committed execution record with a generated application key. Signing failure cannot execute the action again. The separate verifier requires independently trusted credential and application keys; keys embedded in a downloaded bundle are not automatically trusted.
+With a `receipt_signer`, every completed request has a receipt signed inside the transaction that ran it. The bundle gives the person a copy, so a later change to the site's own record would show:
+
+- **On the completed review page**, "Download your receipt" (route `verified_human_approval_evidence`, `GET /approval/{id}/evidence`) returns the evidence bundle (`verified-human-approval/evidence/v2`) as `receipt-<id>.json`: the frozen proposal, the person's passkey signature on it, the execution record and the receipt. Only the signed-in owner gets it, not a phone session opened by a one-time code. Nothing is signed at download: a request that has not run, or whose receipt is missing, is refused (`not_completed`, `receipt_missing`), and the page says when no receipt is recorded.
+- **In the agent's result**, a completed request carries `receipt` (the signed manifest, `keyId` and `signature`) and `receipt_key_url`, so a copy also lands in the conversation.
+- **The key that checks them** is public at `GET /approval/receipt-key.json` (route `verified_human_approval_receipt_key`): `keyId`, `publicKey`, `rpId` and `origin`. Anyone can save it once and check later receipts against that copy.
+
+To check a receipt without trusting the site's records:
+
+```bash
+vendor/bin/verify-evidence.php receipt-apr_….json receipt-key.json
+```
+
+Add the approving passkey's trusted registration record as a third file to check the passkey signature as well; without it, the output says that signature was not checked. Keys inside a downloaded file are never trusted. See [evidence verification](https://github.com/scottfalconer/verified-human-approval/blob/main/docs/evidence.md).
+
+## Validation
 
 Run the integration tests from the repository root:
 

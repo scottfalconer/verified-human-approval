@@ -27,7 +27,7 @@ final readonly class ApprovalStatusTool
     #[McpTool(
         name: self::NAME,
         title: 'Approval status',
-        description: 'Get the authoritative result of one action approval request belonging to the current user. This never executes or approves an action. Call it after a pending result, or when a retried call was refused.',
+        description: 'Get the authoritative result of one action approval request belonging to the current user. This never executes or approves an action. Call it after a pending result, or when a retried call was refused. Once the action ran, the result carries the site’s signed receipt.',
         annotations: new ToolAnnotations(readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false),
         outputSchema: ApprovalFlow::OUTPUT_SCHEMA,
     )]

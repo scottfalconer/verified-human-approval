@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Bundle\Controller;
 
+use Symfony\Component\HttpFoundation\HeaderUtils;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -18,10 +19,12 @@ use Twig\Environment;
 use VerifiedHumanApproval\Bundle\ActorProvider;
 use VerifiedHumanApproval\Bundle\ApprovalPresenter;
 use VerifiedHumanApproval\Bundle\Handoff\ApprovalHandoff;
+use VerifiedHumanApproval\Bundle\ReceiptKey;
 use VerifiedHumanApproval\Bundle\RequesterLabel;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalService;
+use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
 
 /**
  * The review page and its JSON actions. A stranger is sent to sign in; once someone is reviewing,
@@ -39,6 +42,8 @@ final readonly class ApprovalController
         private ?ApprovalHandoff $handoff = null,
         private ?UrlGeneratorInterface $urls = null,
         private ?RequesterLabel $requesters = null,
+        private ?EvidenceExporter $receipts = null,
+        private ?ReceiptKey $receiptKey = null,
     ) {
     }
 
@@ -58,7 +63,52 @@ final readonly class ApprovalController
             // Who asked: an agent's request should not look like the person's own.
             'requested_by' => $this->requesters?->describe($state->request->actor()),
             'scoped' => null !== $this->handoff?->personFor($request, $id),
+            // Whether this site signs receipts, so a completed request offers the person their copy.
+            'receipts' => null !== $this->receipts,
         ]));
+    }
+
+    /**
+     * The person's receipt for a completed request, to keep: the exact proposal, their passkey's signature on
+     * it, what ran, and this site's receipt signed as it ran. It checks offline against the published key.
+     * Only for the signed-in person: a phone code opens one review to approve, not the record behind it.
+     */
+    public function evidence(string $id): Response
+    {
+        if (null === $this->receipts) {
+            throw new NotFoundHttpException('This site does not sign receipts.');
+        }
+        try {
+            $state = $this->approvals->get($this->actors->interactive(), $id);
+        } catch (ApprovalException) {
+            throw new NotFoundHttpException('This request is unavailable for your account.');
+        }
+        try {
+            $receipt = $this->receipts->export($state);
+        } catch (ApprovalException $error) {
+            // Not run yet, or its receipt is gone: nothing is signed now to stand in for one.
+            return self::refusal($error->reason, $error->getMessage(), 409);
+        }
+        // A file for a person to keep and open, so readable JSON. Layout does not matter: checking recomputes the canonical form.
+        $response = new JsonResponse($receipt);
+        $response->setEncodingOptions(\JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE);
+        $response->headers->set('Content-Disposition', HeaderUtils::makeDisposition(HeaderUtils::DISPOSITION_ATTACHMENT, 'receipt-'.$id.'.json'));
+
+        return $response;
+    }
+
+    /** The public key that checks this site's receipts, for anyone: the site-key file for vendor/bin/verify-evidence.php. */
+    public function receiptKey(): JsonResponse
+    {
+        if (null === $this->receiptKey) {
+            throw new NotFoundHttpException('This site does not sign receipts.');
+        }
+        $response = new JsonResponse($this->receiptKey->document());
+        $response->setEncodingOptions(\JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES);
+        $response->setPublic();
+        $response->setMaxAge(300);
+
+        return $response;
     }
 
     public function status(Request $request, string $id): JsonResponse

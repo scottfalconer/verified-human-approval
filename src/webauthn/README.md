@@ -63,7 +63,7 @@ No authenticator attachment restriction is imposed, allowing platform passkeys a
 
 `verifyEvidenceAssertion()` is read-only and accepts a **separately trusted credential registration**. It checks the assertion signature, challenge, RP, origin, user handle and required verification. It deliberately does not compare an old assertion against today's increasing counter, or claim to prove historical revocation state. It does not persist a counter or authorize an action.
 
-`vendor/bin/verify-evidence.php`, shipped with this package, combines that check with the application's signed execution report, and says whether that report was signed as the action committed. A public key included in an untrusted evidence file is not a trust source. Supply the trusted application key and credential registration separately.
+`vendor/bin/verify-evidence.php`, shipped with this package, combines that check with the application's signed execution report, and says whether that report was signed as the action committed. A public key included in an untrusted evidence file is not a trust source. Supply the trusted application key, and optionally the credential registration, separately: without the registration it checks the application's report and says the passkey signature was not checked.
 
 ## Verification
 

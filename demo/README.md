@@ -33,7 +33,7 @@ The administrator's rule starts like this:
    - **Claude Code:** run the printed `claude mcp add --transport http …` command.
 3. **Ask Claude:** "Issue the Riverside Road evacuation alert."
 4. **Approve.** Claude Desktop shows an approval card, and Claude Code shows an "Open link" prompt. Either one opens the review page, which shows the exact alerts page residents will see. Approve with your passkey, and the card updates to show it's done.
-5. **Check the result** at http://localhost:8080/alerts. It said "No active alerts" until you approved. Now it shows the alert you approved.
+5. **Check the result** at http://localhost:8080/alerts. It said "No active alerts" until you approved. Now it shows the alert you approved. The review page now offers **Download your receipt**. To check it, save the site's key from http://localhost:8080/approval/receipt-key.json and run `vendor/bin/verify-evidence.php` with the two files.
 
 Sign in as `manager`, add the manager's passkey with its link, and open **Administrator settings** to change the rule. You can let staff issue directly, or stop them issuing at all. Changing the rule is itself high-stakes, so proposing a change takes you to a review page, and nothing changes until you approve it with your passkey. Then any request still waiting under the old rule can no longer be approved.
 

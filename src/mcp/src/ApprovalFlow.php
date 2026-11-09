@@ -39,6 +39,17 @@ final readonly class ApprovalFlow
             'result' => ['type' => ['object', 'array', 'null'], 'description' => 'What the action recorded when it ran.'],
             'review_url' => ['type' => 'string', 'description' => 'Where the person reviews and approves, while the request is pending.'],
             'message' => ['type' => 'string', 'description' => 'What to tell the person, and what to do next.'],
+            'receipt' => [
+                'type' => 'object',
+                'description' => 'Once the action ran: the site’s receipt, signed as it ran. Keep it unchanged; it checks against the key at receipt_key_url, and a later change to the site’s record would no longer match it.',
+                'properties' => [
+                    'manifest' => ['type' => 'string', 'description' => 'The exact signed text: digests of the proposal, the passkey proof and the execution record, and when it was signed.'],
+                    'keyId' => ['type' => 'string'],
+                    'signature' => ['type' => 'string', 'description' => 'Base64url Ed25519 signature over the manifest.'],
+                ],
+                'required' => ['manifest', 'keyId', 'signature'],
+            ],
+            'receipt_key_url' => ['type' => 'string', 'description' => 'Where the site publishes the public key that checks its receipts.'],
             'approval' => [
                 'type' => 'object',
                 'description' => 'The approval card’s view, under fixed names.',

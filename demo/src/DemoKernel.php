@@ -20,7 +20,6 @@ use VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool;
 use VerifiedHumanApproval\Bundle\SecurityHeadersSubscriber;
 use VerifiedHumanApproval\Bundle\VerifiedHumanApprovalBundle;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
-use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
 use VerifiedHumanApproval\Core\Storage\PdoApprovalStore;
 use VerifiedHumanApproval\Demo\Action\DemoAuthorizer;
@@ -29,7 +28,6 @@ use VerifiedHumanApproval\Demo\Action\PublishAlert;
 use VerifiedHumanApproval\Demo\Controller\AccountController;
 use VerifiedHumanApproval\Demo\Controller\AuditController;
 use VerifiedHumanApproval\Demo\Controller\DemoController;
-use VerifiedHumanApproval\Demo\Controller\EvidenceController;
 use VerifiedHumanApproval\Demo\Controller\OAuthController;
 use VerifiedHumanApproval\Demo\Controller\PublicController;
 use VerifiedHumanApproval\Demo\Mcp\DemoTools;
@@ -201,8 +199,10 @@ final class DemoKernel extends Kernel
             'store' => PdoApprovalStore::class, 'verifier' => WebAuthnVerifier::class,
             // Names the agent connection on the review page, so an agent's request never looks like the person's own.
             'requester_label' => DemoRequesterLabel::class,
-            // Each receipt is signed as the action commits, so a later edit to the record shows.
+            // Each receipt is signed as the action commits, so a later edit to the record shows. The person can
+            // download theirs from the completed page, and /approval/receipt-key.json publishes the key that checks it.
             'receipt_signer' => SodiumEvidenceSigner::class,
+            'relying_party_id' => '%env(DEMO_RUNTIME_RP_ID)%',
             'attempts_per_minute' => '%env(int:DEMO_RUNTIME_APPROVAL_ATTEMPTS)%',
             // The framework's lock, which a multi-host deployment would back with a shared store.
             'lock_factory' => 'lock.factory',
@@ -223,7 +223,6 @@ final class DemoKernel extends Kernel
         $services->set(Configuration::class)->args(['%env(DEMO_RUNTIME_RP_ID)%', $origin]);
         $services->set(WebAuthnVerifier::class);
         $services->set(SodiumEvidenceSigner::class, SodiumEvidenceSigner::class)->factory([SodiumEvidenceSigner::class, 'fromEncoded'])->args(['%env(DEMO_RUNTIME_RECEIPT_KEY_ID)%', '%env(DEMO_RUNTIME_RECEIPT_SECRET_KEY)%']);
-        $services->set(EvidenceExporter::class)->args([service(SodiumEvidenceSigner::class)]);
         // One description of the protected resource (RFC 9728): served at /.well-known and named in every 401.
         $services->set(ProtectedResourceMetadata::class)->args([$origin.'/mcp', [$origin], OAuthServer::SCOPES, 'Riverside Council public alerts']);
         $services->get(PublishAlert::class)->arg('$layoutFiles', '%env(json:DEMO_RUNTIME_LAYOUT_FILES)%');
@@ -264,6 +263,5 @@ final class DemoKernel extends Kernel
         $routes->add('oauth_token', '/oauth/token')->controller([OAuthController::class, 'token'])->methods(['POST']);
         $routes->add('riverside_alerts', '/alerts')->controller([PublicController::class, 'alerts'])->methods(['GET']);
         $routes->add('riverside_styles', '/site/riverside.css')->controller([PublicController::class, 'styles'])->methods(['GET']);
-        $routes->add('demo_evidence', '/approval/{id}/evidence')->controller([EvidenceController::class, 'export'])->methods(['GET'])->defaults($private);
     }
 }

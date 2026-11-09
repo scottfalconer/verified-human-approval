@@ -13,7 +13,10 @@ use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Component\Filesystem\Filesystem;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\CanonicalJson;
 use VerifiedHumanApproval\Core\ChallengeBinding;
+use VerifiedHumanApproval\Core\Evidence\Receipt;
+use VerifiedHumanApproval\Core\Evidence\ReceiptVerifier;
 use VerifiedHumanApproval\Core\ExecutionGuard;
 use VerifiedHumanApproval\Demo\Action\AlertPublisher;
 use VerifiedHumanApproval\Demo\Action\PublishAlert;
@@ -101,13 +104,65 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame('completed', $retry->structuredContent['status']);
         self::assertSame(1, $this->mutationCount());
 
-        $browser->request('GET', self::ORIGIN.'/approval/'.$id.'/evidence');
+        // The completed page offers the person their receipt to keep.
+        $page = $browser->request('GET', self::ORIGIN.'/approval/'.$id);
+        $download = $page->filter('.approval-sheet .receipt a.button');
+        self::assertSame('Download your receipt', $download->text());
+        self::assertStringContainsString('your passkey’s signature on it', $page->filter('.approval-sheet .receipt')->text());
+        $browser->request('GET', self::ORIGIN.(string) $download->attr('href'));
         self::assertSame(200, $browser->getResponse()->getStatusCode());
-        $evidence = json_decode((string) $browser->getResponse()->getContent(), true, 64, \JSON_THROW_ON_ERROR);
+        self::assertMatchesRegularExpression('/^attachment; filename="?receipt-'.preg_quote($id, '/').'\.json"?$/', (string) $browser->getResponse()->headers->get('Content-Disposition'));
+        $content = (string) $browser->getResponse()->getContent();
+        $evidence = json_decode($content, true, 64, \JSON_THROW_ON_ERROR);
         self::assertSame('verified-human-approval/evidence/v2', $evidence['format']);
         self::assertStringContainsString('I approve issuing the public alert', $evidence['proposal']);
         self::assertNotEmpty($evidence['receipt']['signature']);
         self::assertSame(1, $this->mutationCount());
+
+        // The agent's result carries the same signed receipt, so a copy lands in the person's chat too.
+        self::assertSame($evidence['receipt']['manifest'], $status->structuredContent['receipt']['manifest']);
+        self::assertSame($evidence['receipt']['signature'], $status->structuredContent['receipt']['signature']);
+        self::assertSame(self::ORIGIN.'/approval/receipt-key.json', $status->structuredContent['receipt_key_url']);
+
+        // Anyone, signed in or not, can fetch the key that checks it, and the downloaded file checks against it.
+        $anyone = new KernelBrowser(new DemoKernel($this->runtime, 'test'), ['HTTP_HOST' => 'localhost:8080']);
+        $this->browsers[] = $anyone;
+        $anyone->request('GET', self::ORIGIN.'/approval/receipt-key.json');
+        self::assertSame(200, $anyone->getResponse()->getStatusCode());
+        $key = json_decode((string) $anyone->getResponse()->getContent(), true, 8, \JSON_THROW_ON_ERROR);
+        self::assertSame(['format' => 'verified-human-approval/receipt-key/v1', 'keyId' => $evidence['receipt']['keyId'], 'publicKey' => $key['publicKey'], 'rpId' => 'localhost', 'origin' => self::ORIGIN], $key);
+        $verified = (new ReceiptVerifier())->verify(CanonicalJson::map(CanonicalJson::decode($content)), $key['keyId'], $key['publicKey']);
+        self::assertSame(Receipt::COMMIT, $verified['receiptSignedAt'], 'Signed as it ran, not when downloaded.');
+    }
+
+    public function testOnlyTheSignedInPersonGetsTheirReceiptAndOnlyOnceItRan(): void
+    {
+        $id = $this->requestAction();
+        $editor = $this->browser('editor');
+        $editor->request('GET', self::ORIGIN.'/approval/'.$id.'/evidence');
+        self::assertSame(409, $editor->getResponse()->getStatusCode(), 'Nothing has run, so there is no receipt.');
+        self::assertSame('not_completed', json_decode((string) $editor->getResponse()->getContent(), true)['reason']);
+
+        self::assertSame('completed', $this->approveWith($editor, $id, $this->enroll($editor))['status']);
+        $editor->request('GET', self::ORIGIN.'/approval/'.$id.'/evidence');
+        self::assertSame(200, $editor->getResponse()->getStatusCode());
+        $manager = $this->browser('manager');
+        $manager->request('GET', self::ORIGIN.'/approval/'.$id.'/evidence');
+        self::assertSame(404, $manager->getResponse()->getStatusCode(), 'Someone else’s receipt is not yours to download.');
+        $stranger = new KernelBrowser(new DemoKernel($this->runtime, 'test'), ['HTTP_HOST' => 'localhost:8080']);
+        $this->browsers[] = $stranger;
+        $stranger->request('GET', self::ORIGIN.'/approval/'.$id.'/evidence');
+        self::assertSame(302, $stranger->getResponse()->getStatusCode(), 'A stranger is sent to sign in.');
+
+        // A receipt deleted afterwards is not replaced: the page says there is none, and nothing is signed now.
+        $this->database->pdo->prepare('DELETE FROM verified_human_approval_receipts WHERE request_id = ?')->execute([$id]);
+        $page = $editor->request('GET', self::ORIGIN.'/approval/'.$id);
+        self::assertCount(0, $page->filter('.receipt a.button'));
+        self::assertSame('This site has no receipt recorded for this request.', $page->filter('.approval-sheet .receipt')->text());
+        $editor->request('GET', self::ORIGIN.'/approval/'.$id.'/evidence');
+        self::assertSame(409, $editor->getResponse()->getStatusCode());
+        self::assertSame('receipt_missing', json_decode((string) $editor->getResponse()->getContent(), true)['reason']);
+        self::assertSame(0, (int) $this->database->pdo->query('SELECT COUNT(*) FROM verified_human_approval_receipts')->fetchColumn());
     }
 
     public function testOneCharacterDraftChangeAfterReviewInvalidatesTheRealWebAuthnApproval(): void
@@ -447,6 +502,10 @@ final class SymfonyApprovalTest extends TestCase
         $sheet = $this->browser('manager')->request('GET', self::ORIGIN.'/approval/'.$issued->structuredContent['requestId'])->filter('.approval-sheet')->text();
         self::assertStringNotContainsString('Approved with your passkey', $sheet);
         self::assertStringContainsString('Completed without a passkey', $sheet);
+        // The receipt is signed all the same, and its description claims no passkey signature.
+        self::assertNotEmpty($issued->structuredContent['receipt']['signature']);
+        self::assertStringContainsString('Your copy of this exact request and what ran', $sheet);
+        self::assertStringNotContainsString('passkey’s signature', $sheet);
     }
 
     public function testTheApprovalPageShowsTheFinalPublicPageWhichGoesLiveUnchanged(): void
