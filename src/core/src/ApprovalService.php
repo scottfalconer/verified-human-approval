@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace VerifiedHumanApproval\Core;
 
 use Psr\Clock\ClockInterface;
+use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
 use VerifiedHumanApproval\Core\Evidence\EvidenceSigner;
 use VerifiedHumanApproval\Core\Evidence\Receipt;
+use VerifiedHumanApproval\Core\Evidence\ReceiptVerifier;
 
 /** Request -> frozen review -> user verification -> one local atomic execution. */
 final class ApprovalService
@@ -49,7 +51,7 @@ final class ApprovalService
                 if (!hash_equals($existing['fingerprint'], $fingerprint)) {
                     throw new ApprovalException('idempotency_conflict', 'This request key already belongs to different arguments. Use a new key for a new action.');
                 }
-                $this->assertOwner($actor, $existing['state']);
+                $this->assertOwnedRecord($actor, $existing['state']);
                 $this->assertSameContent($existing['state'], $actor, $actionId, $input);
 
                 return $this->expire($existing['state']);
@@ -57,7 +59,7 @@ final class ApprovalService
             // A retry without a key (a client re-sending the call, or MCP re-entering the handler
             // after an elicitation) gets the same pending proposal instead of a second review URL.
             if (null === $idempotencyKey && ($pending = $this->store->findPending($actor, $fingerprint)) !== null) {
-                $this->assertOwner($actor, $pending);
+                $this->assertOwnedRecord($actor, $pending);
                 $pending = $this->eligible($pending);
                 if ('pending' === $pending->status) {
                     return $pending;
@@ -303,15 +305,28 @@ final class ApprovalService
     private function owned(Actor $actor, string $requestId): ApprovalState
     {
         $state = $this->store->get($requestId) ?? throw new ApprovalException('not_found', 'The approval request was not found.');
-        $this->assertOwner($actor, $state);
+        $this->assertOwnedRecord($actor, $state);
 
         return $state;
     }
 
-    private function assertOwner(Actor $actor, ApprovalState $state): void
+    private function assertOwnedRecord(Actor $actor, ApprovalState $state): void
     {
         if (!$state->request->actor()->samePerson($actor)) {
             throw new ApprovalException('not_found', 'The approval request was not found.');
+        }
+        // A forged pending/cancelled flag must not hide a completed execution,
+        // and an unsigned result projection must agree with that execution.
+        $state->assertConsistent();
+        if ('completed' === $state->status && null !== $this->receipts) {
+            try {
+                $verified = (new ReceiptVerifier())->verify((new EvidenceExporter())->export($state), $this->receipts->keyId(), $this->receipts->publicKey());
+                if (Receipt::COMMIT !== $verified['receiptSignedAt']) {
+                    throw new \UnexpectedValueException('The stored receipt was not signed as the action committed.');
+                }
+            } catch (\Throwable $error) {
+                throw new ApprovalException('record_integrity_error', 'The stored approval evidence does not verify with the trusted application key. Its outcome cannot be trusted.', $error);
+            }
         }
     }
 

@@ -1,0 +1,10 @@
+{% extends '@VerifiedHumanApproval/base.html.twig' %}
+{% block title %}Approval record needs investigation{% endblock %}
+{% block body %}
+<section class="card" data-status="integrity_error">
+    <h1>We cannot confirm this approval’s outcome</h1>
+    <p class="notice error">The stored record did not pass its integrity checks. It may have been changed or damaged after the action ran.</p>
+    <p>Ask the site administrator to investigate before requesting the action again. Keep any receipt you already downloaded.</p>
+    <p class="muted small">Request: <code>{{ id }}</code>. Reason: <code>record_integrity_error</code>.</p>
+</section>
+{% endblock %}

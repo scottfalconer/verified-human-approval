@@ -39,6 +39,10 @@ final readonly class DemoRuntimeSettings implements EnvVarLoaderInterface
             'DEMO_RUNTIME_RECEIPT_KEY_ID' => (string) $settings['receipt_key_id'],
             'DEMO_RUNTIME_RECEIPT_SECRET_KEY' => (string) $settings['receipt_secret_key'],
             'DEMO_RUNTIME_RECEIPT_PUBLIC_KEY' => (string) $settings['receipt_public_key'],
+            // The OAuth server's token signing key pair and its code encryption key.
+            'DEMO_RUNTIME_OAUTH_PRIVATE_KEY' => (string) $settings['oauth_private_key'],
+            'DEMO_RUNTIME_OAUTH_PUBLIC_KEY' => (string) $settings['oauth_public_key'],
+            'DEMO_RUNTIME_OAUTH_ENCRYPTION_KEY' => (string) $settings['oauth_encryption_key'],
             'DEMO_RUNTIME_APPROVAL_ATTEMPTS' => (string) ($settings['approval_attempts_per_minute'] ?? 30),
             'DEMO_RUNTIME_ENROLLMENT_ATTEMPTS' => (string) ($settings['enrollment_attempts_per_minute'] ?? 10),
             'DEMO_RUNTIME_REGISTRATION_ATTEMPTS' => (string) ($settings['registration_attempts_per_minute'] ?? 10),

@@ -26,7 +26,10 @@ jobs:
           php-version: '${{ matrix.php }}'
           extensions: pdo_sqlite, openssl, sodium, mbstring, dom, pcntl
           coverage: none
-      - run: composer validate --strict --no-check-publish
+      # The root requires symfony/mcp-bundle through an inline alias (1.0.0-BETA1 as 0.13.99) because
+      # omouren/mcp-oauth-bundle still declares ^0.13. Validate warns that an alias is an exact constraint, so the
+      # root skips the constraint warnings (--no-check-all); the packages below are validated in full.
+      - run: composer validate --strict --no-check-publish --no-check-all
       - run: for manifest in src/*/composer.json; do composer validate --strict --no-check-publish --no-check-lock "$manifest"; done
       - name: Install the locked dependencies
         if: matrix.dependencies == 'locked'
@@ -53,6 +56,13 @@ jobs:
         if: matrix.dependencies == 'locked'
       - run: composer cs
         if: matrix.dependencies == 'locked' && matrix.php == '8.3'
+      - uses: actions/setup-node@v4
+        if: matrix.dependencies == 'locked' && matrix.php == '8.3'
+        with:
+          node-version: '22'
+      - name: Check delayed MCP card responses
+        if: matrix.dependencies == 'locked' && matrix.php == '8.3'
+        run: node --test tests/card_lifecycle.mjs
       - run: PHP_BIN=php python3 tests/http_smoke.py
   consumer:
     # Core, WebAuthn and MCP installed into a separate project, the way a Drupal module or any other host

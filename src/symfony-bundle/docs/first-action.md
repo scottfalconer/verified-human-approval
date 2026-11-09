@@ -264,10 +264,11 @@ Your existing authentication layer supplies these values from validated server-s
 | --- | --- |
 | Trusted browser login | Stable user and tenant IDs; `approvalDelegationId()` returns `null`; `hasInteractiveSession()` returns `true` |
 | Personal MCP bearer | Same account/tenant; the stored grant ID; `hasInteractiveSession()` returns `false` |
+| OAuth access token for a remote client | Same account/tenant; the ID of the agent connection the person allowed on the consent page; `hasInteractiveSession()` returns `false` |
 
 `hasInteractiveSession()` describes how this request was authenticated. It is not a role the client can choose. The MCP authenticator validates the bearer, current account, grant and expiry on each request, then sets a validated `AccessToken` at the request attribute `AccessToken::class`. This example expects its `sub` claim to equal the principal's user ID and `grant_id` to equal its delegation ID. The SDK exposes that same token through `RequestContext::getAccessToken()`.
 
-Use the application's existing authentication code for that step. The demo's [personal token authenticator](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/src/Security/PersonalTokenAuthenticator.php) illustrates the SDK handoff; its token issuance and account model are demo-specific.
+Use the application's existing authentication code for that step, and an existing OAuth implementation for remote clients rather than your own. The demo's [agent token authenticator](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/src/Security/AgentTokenAuthenticator.php) illustrates the SDK handoff for both its personal tokens and the access tokens issued by league/oauth2-server; its personal tokens and account model are demo-specific.
 
 The authorizer below reads current authority from the same database as the write. Its separate read check allows a person to read a denied result after publication permission is removed.
 

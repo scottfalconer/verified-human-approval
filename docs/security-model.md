@@ -46,9 +46,13 @@ The demo also records passkey enrollment and revocation in a signed audit log. `
 
 These signatures make later changes detectable when verification runs. They do not stop someone with database write access from changing or deleting bytes. The default exporter refuses a completed action whose original receipt is missing. It does not replace that receipt with a fresh signature.
 
+Normal service reads, retries and approval attempts also check that stored status and result fields agree with the execution record. With a receipt signer configured, a completed record must have a valid commit-time receipt under that signer's trusted public key. A contradiction, missing receipt or invalid signature raises `record_integrity_error`; it must not be presented as a known refusal or as evidence that nothing happened. This read check verifies the application's receipt, not the original WebAuthn signature independently. The audit page and offline verifier can perform that additional check with a trusted credential record.
+
+Without a receipt signer, completed reads still check structural consistency but cannot authenticate an unsigned execution record. Enabling signing for an application with unsigned history, or changing the trusted signing key, requires an explicit policy for reading that history; the service does not silently treat it as verified.
+
 The person's downloaded receipt, and the copy in the agent's result, sit outside the application's database. Checked against the application's published key, they show a later change to, or deletion of, the stored record. They cover only that person's own requests, and they depend on the person keeping them.
 
-The demo's administrator page at `/admin/audit` rechecks completed actions against their receipts and the passkeys' signed enrollment records. It also verifies the audit chain. This checks the original historical records, not whether today's live content still matches an earlier approval.
+The demo's administrator page at `/admin/audit` keeps contradictory rows visible and reports an integrity warning. A mutable non-completed status cannot hide retained execution evidence from its receipt and passkey checks. It also verifies the audit chain. This checks the original historical records, not whether today's live content still matches an earlier approval.
 
 Recorded times remain application claims, and an old assertion does not independently prove its historical revocation status. Deleting the newest audit entries cannot be detected without an independently retained checkpoint. A compromised application signing key can forge application reports or new enrollment records; it cannot recreate a passkey assertion under a separately trusted original user public key. Obtaining and retaining trusted verification keys is therefore part of the host's responsibility.
 
@@ -65,7 +69,11 @@ The demo keeps bearer-authenticated MCP access separate from human sessions, enr
 
 The phone handoff code opens one request for one person, once, within two minutes. A Continue step avoids accidental redemption by link previewers. Redemption is locked; the scoped session can approve but cannot cancel or download the receipt. The tool that creates codes checks read scope and a rate budget. Its app-only visibility is a host convention, not authorization.
 
-The demo's OAuth metadata fetch uses `NoPrivateNetworkHttpClient`, with bounded responses and a timeout, to reject private-network destinations and pin resolved addresses. Its OAuth server and personal tokens are reference implementations. A production host must connect its own identity and recovery processes.
+Remote clients connect through an existing OAuth server, league/oauth2-server with omouren/mcp-oauth-bundle: the authorization code flow with PKCE S256 only, single-use codes, rotating refresh tokens, the issuer on authorization responses (RFC 9207) and access tokens bound to the MCP endpoint (RFC 8707). The demo adds what approvals depend on. Each consent opens an agent connection whose ID is the delegation an approval records; a token works only while that connection is open and within the scopes both allow; revoking the connection ends its codes and tokens; and a connection ends after 30 days however often its client refreshes. Fetching a client ID metadata document uses `NoPrivateNetworkHttpClient`, with bounded responses and a timeout, to reject private-network destinations and pin resolved addresses. Open registration has a budget per address, a token request for another resource is refused, and the consent page cannot be framed. The personal tokens are a reference implementation. A production host must connect its own identity and recovery processes.
+
+Each OAuth credential stores the exact grant that issued it. Reconnecting retires the old credentials and persists the new connection and code atomically. Token exchanges reserve the SQLite writer before checking validity, so overlapping requests cannot both consume one code or refresh token. The approval authorizer also checks connection expiry at completion, even when the person opened the review before that expiry.
+
+For MCP, the demo checks missing token scopes at the HTTP boundary after authentication and returns HTTP 403 with the operation's required scopes and resource metadata. It derives tool identity from the parsed request and leaves malformed or inconsistent protocol headers to the SDK. Ownership and action-policy checks still run inside the application; they are not scope-upgrade requests.
 
 ## Deployment responsibilities
 

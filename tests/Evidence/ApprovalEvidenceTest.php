@@ -297,10 +297,13 @@ final class ApprovalEvidenceTest extends TestCase
         $record = CanonicalJson::map(CanonicalJson::decode((string) $this->fixture->pdo->query("SELECT record FROM verified_human_approval_executions WHERE request_id = '$id'")->fetchColumn()));
         $record['result']->result_revision = 999;
         $this->fixture->pdo->prepare('UPDATE verified_human_approval_executions SET record = ? WHERE request_id = ?')->execute([CanonicalJson::encode((object) $record), $id]);
+        // Keep the duplicate result coherent: this case specifically checks a
+        // deleted signature, not the separate state-consistency protection.
+        $this->fixture->pdo->prepare('UPDATE verified_human_approval_requests SET result = ? WHERE id = ?')->execute([CanonicalJson::encode($record['result']), $id]);
         $this->fixture->pdo->prepare('DELETE FROM verified_human_approval_receipts WHERE request_id = ?')->execute([$id]);
 
         try {
-            (new EvidenceExporter($this->signer))->export($service->get($actor, $id));
+            (new EvidenceExporter($this->signer))->export($this->fixture->store->get($id));
             self::fail('A new signature vouched for the edited record.');
         } catch (ApprovalException $error) {
             self::assertSame('receipt_missing', $error->reason);
@@ -346,12 +349,12 @@ final class ApprovalEvidenceTest extends TestCase
 
         $this->fixture->pdo->prepare('DELETE FROM verified_human_approval_receipts WHERE request_id = ?')->execute([$id]);
         try {
-            (new EvidenceExporter())->export($service->get($actor, $id));
+            (new EvidenceExporter())->export($this->fixture->store->get($id));
             self::fail('A missing receipt was replaced.');
         } catch (ApprovalException $error) {
             self::assertSame('receipt_missing', $error->reason);
         }
-        $signedNow = (new EvidenceExporter($this->signer, signAtExport: true))->export($service->get($actor, $id));
+        $signedNow = (new EvidenceExporter($this->signer, signAtExport: true))->export($this->fixture->store->get($id));
         self::assertSame(Receipt::EXPORT, (new ReceiptVerifier())->verify($signedNow, $this->signer->keyId(), $this->signer->publicKey())['receiptSignedAt'], 'Only the explicit export mode signs, and its receipt says so.');
     }
 

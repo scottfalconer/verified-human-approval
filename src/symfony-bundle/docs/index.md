@@ -16,7 +16,7 @@ For a runnable application, start with the [demo guide](https://github.com/scott
 | Your account process | Trusted passkey enrollment and recovery; an agent token cannot use it |
 | This bundle | Review routes and templates, CSRF checks, rate limiting, action discovery, MCP status/card/handoff services, the person's receipt download and the public receipt key |
 | Core and WebAuthn packages | Proposal binding, WebAuthn verification, transactional execution and signed receipts |
-| Demo only | Its accounts, OAuth server, administrator forms and audit pages |
+| Demo only | Its accounts, OAuth wiring (league/oauth2-server with omouren/mcp-oauth-bundle), administrator forms and audit pages |
 
 The bundle does not add an approval check to existing writes by itself. Every supported route, command and job that performs the protected mutation must use the same guarded application boundary.
 
@@ -116,7 +116,9 @@ Action adapters are discovered when their services are autoconfigured. If you co
 
 ## 3. Connect existing authentication
 
-Keep the review routes on your application's normal session firewall. Keep `/mcp` on a separate stateless firewall that authenticates a personal bearer token on every request. Your MCP authenticator must pass its **validated** `Mcp\Server\Authorization\AccessToken` to the SDK as the request attribute named `AccessToken::class`.
+Keep the review routes on your application's normal session firewall. Keep `/mcp` on a separate stateless firewall that authenticates a bearer token on every request: a personal token, or an access token from your OAuth server. Your MCP authenticator must pass its **validated** `Mcp\Server\Authorization\AccessToken` to the SDK as the request attribute named `AccessToken::class`.
+
+For remote clients such as claude.ai, use an existing OAuth implementation rather than writing one, and keep it in your application: the bundle only reads the validated token's person, tenant, scopes and delegation ID. The demo uses league/oauth2-server-bundle with omouren/mcp-oauth-bundle, which adds MCP's discovery metadata, client ID metadata documents, registration and consent, and binds each token to the MCP endpoint. Each consent opens an agent connection whose ID is the delegation an approval records, so revoking the connection stops its tokens and any request it made. Its [kernel](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/src/DemoKernel.php) and [authenticator](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/src/Security/AgentTokenAuthenticator.php) show the wiring. omouren/mcp-oauth-bundle 1.2 declares `symfony/mcp-bundle ^0.13`, so the demo installs it beside 1.0.0-BETA1 with a Composer inline alias; the [conformance review](https://github.com/scottfalconer/verified-human-approval/blob/main/docs/conformance-review.md#an-existing-oauth-server) explains why that is safe.
 
 The [example identity adapter](first-action.md#3-map-the-authenticated-person) specifies the principal fields and token claims it expects. It never accepts a user ID or tenant ID from tool arguments.
 
@@ -170,6 +172,8 @@ Set `allowed_hosts` to your application's host. Keep the MCP route import (`reso
 
 The [tool example](first-action.md#6-expose-the-action-through-mcp) checks the validated token's `approval.read` scope **before** calling `ApprovalFlow::respond()`. This matters because a retry may return a stored result without executing the action again. The tool also declares `ApprovalFlow::OUTPUT_SCHEMA`, uses `ApprovalCard::TOOL_META` and returns structured errors.
 
+An HTTP MCP host should also check required token scopes before dispatch and return HTTP 403 with an `insufficient_scope` Bearer challenge, the operation's full required scope set, and resource metadata. The demo's [McpScopeGuard](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/src/Security/McpScopeGuard.php) shows this using the SDK's parser and scope policy after Symfony authentication. Configure the scope map for your own tool names. Keep ownership and business-policy refusals in the tools; they do not mean the client needs a broader token.
+
 A pending response is a normal tool outcome. It contains a `requestId`, `review_url`, status and instructions. The agent must not say the action is completed while it is pending. Reuse a `request_key` for a retry; call `approval_status` to read the outcome. Status reads never perform the business mutation.
 
 URL-mode elicitation is optional and off by default. Enable it only for clients you have tested. The card and review link do not depend on it. See [MCP presentation](https://github.com/scottfalconer/verified-human-approval/blob/main/src/mcp/README.md) for client and protocol details.
@@ -186,12 +190,14 @@ Give every action a clear `display.title`: what will change. Add `display.conseq
 
 ## Stored receipts and later verification
 
-The signed receipt protects the historical proposal, proof and execution report against later alteration. It does not claim that today's live document still equals the document published then. A normal `approval_status` read does not perform full cryptographic verification.
+The signed receipt protects the historical proposal, proof and execution report against later alteration. It does not claim that today's live document still equals the document published then. A normal `approval_status` read checks stored-state consistency and, with `receipt_signer` configured, verifies the original commit receipt using that signer's public key. It does not independently repeat the WebAuthn signature check; use the audit or offline verification flow with a trusted credential record for that.
+
+Handle `record_integrity_error` as an untrusted outcome, not as a refusal that proves nothing happened. A completed record without its original valid receipt is an integrity error when signing is configured. Applications with unsigned history, or a replacement signing key, need an explicit historical-read policy before changing this configuration. Export never creates a new commit receipt to make old or damaged records appear verified.
 
 With a `receipt_signer`, the bundle gives the person their own copy, so a later change to the stored record would show:
 
 - **On the completed review page**, "Download your receipt" (route `verified_human_approval_evidence`, `GET /approval/{id}/evidence`) returns the evidence bundle (`verified-human-approval/evidence/v2`) as `receipt-<id>.json`: the frozen proposal, the person's passkey signature on it, the execution record and the original receipt. Only the signed-in owner gets it; a phone session opened by a one-time code is pointed back to the signed-in browser.
-- **Nothing is signed at download.** A request that has not run is refused (`not_completed`), and so is one whose original receipt is missing (`receipt_missing`); the page says when no receipt is recorded. Do not create a fresh signature over a record at download time to claim it was unchanged since approval.
+- **Nothing is signed at download.** A request that has not run is refused (`not_completed`). With signing configured, the service reports `record_integrity_error` if a completed record has lost its original receipt; calling the exporter directly reports `receipt_missing`. Do not create a fresh signature over a record at download time to claim it was unchanged since approval.
 - **In the agent's result**, a completed request carries `receipt` (the signed manifest, `keyId` and `signature`) and `receipt_key_url`, so a copy also lands in the conversation.
 - **The key that checks them** is public at `GET /approval/receipt-key.json` (route `verified_human_approval_receipt_key`), with `format`, `keyId`, `publicKey`, `rpId` and `origin`. It needs the access-control rule above to be reachable without signing in. Anyone can save it once and check later receipts against that copy.
 

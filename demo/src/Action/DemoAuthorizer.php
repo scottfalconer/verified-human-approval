@@ -9,6 +9,7 @@ use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\Authorizer;
 use VerifiedHumanApproval\Core\PreparedAction;
 use VerifiedHumanApproval\Demo\DemoDatabase;
+use VerifiedHumanApproval\Demo\OAuth\OAuthConnections;
 
 final readonly class DemoAuthorizer implements Authorizer
 {
@@ -36,6 +37,7 @@ final readonly class DemoAuthorizer implements Authorizer
         if (null !== $actor->delegationId) {
             $grant = $this->database->grant($actor->delegationId);
             if (null === $grant || !(bool) $grant['active'] || $grant['user_id'] !== $actor->userId || $grant['tenant_id'] !== $actor->tenantId
+                || (null === $grant['token_hash'] && null !== $grant['client_id'] && !OAuthConnections::isLive($grant))
                 || !\in_array('alert.publish', json_decode($grant['scopes'], true, 8, \JSON_THROW_ON_ERROR), true)
                 || !\in_array('approval.read', json_decode($grant['scopes'], true, 8, \JSON_THROW_ON_ERROR), true)) {
                 throw new ApprovalException('delegation_denied', 'The initiating agent’s personal authorization is no longer valid for this action.');

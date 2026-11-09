@@ -37,6 +37,7 @@ final readonly class EvidenceExporter
      */
     public function export(ApprovalState $state): array
     {
+        $state->assertConsistent();
         if ('completed' !== $state->status || null === $state->execution) {
             throw new ApprovalException('not_completed', 'Only a committed action has execution evidence.');
         }

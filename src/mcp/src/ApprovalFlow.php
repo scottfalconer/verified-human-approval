@@ -24,7 +24,8 @@ final readonly class ApprovalFlow
     /**
      * JSON Schema of the structured result a protected tool and the status tool return: the
      * presenter's data. Declare it as the tool's `outputSchema`, so clients know what to expect and
-     * can validate it. A refusal is an error result carrying `status: rejected`, `reason` and `message`.
+     * can validate it. A refusal carries `status: rejected`; an inconsistent stored record carries
+     * `status: integrity_error`, which does not establish whether the action ran.
      */
     public const OUTPUT_SCHEMA = [
         'type' => 'object',
@@ -32,8 +33,8 @@ final readonly class ApprovalFlow
             'requestId' => ['type' => 'string', 'description' => 'The approval request. Read its outcome with the status tool.'],
             'status' => [
                 'type' => 'string',
-                'enum' => ['pending', 'completed', 'cancelled', 'expired', 'invalidated', 'denied', 'rejected'],
-                'description' => 'What the application recorded. Only "completed" means the action ran; "pending" means a person still has to approve it on the site.',
+                'enum' => ['pending', 'completed', 'cancelled', 'expired', 'invalidated', 'denied', 'rejected', 'integrity_error'],
+                'description' => 'What the application recorded. "completed" confirms the action ran; "pending" waits for approval; "integrity_error" means the stored outcome cannot be trusted.',
             ],
             'reason' => ['type' => ['string', 'null'], 'description' => 'Why the request stopped, when it did.'],
             'result' => ['type' => ['object', 'array', 'null'], 'description' => 'What the action recorded when it ran.'],

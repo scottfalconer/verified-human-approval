@@ -29,7 +29,37 @@ final readonly class ApprovalState
     /** @return array{requestId: string, status: string, reason: ?string, result: ?array<string, mixed>} */
     public function toArray(): array
     {
+        $this->assertConsistent();
+
         return ['requestId' => $this->request->id, 'status' => $this->status, 'reason' => $this->reason, 'result' => $this->result];
+    }
+
+    /**
+     * Checks the stored projections before they can be presented or used again.
+     * Construction stays permissive so an audit can inspect a damaged row. This
+     * checks consistency, not a signature; receipt verification needs a trust key.
+     */
+    public function assertConsistent(): void
+    {
+        if ('completed' !== $this->status) {
+            if (null !== $this->result || null !== $this->execution || null !== $this->proof || null !== $this->receipt) {
+                throw new ApprovalException('record_integrity_error', 'The stored approval outcome contradicts its execution evidence. Its outcome cannot be trusted.');
+            }
+
+            return;
+        }
+        try {
+            $executionResult = $this->execution['result'] ?? null;
+            if (null === $this->result || null === $this->execution || null !== $this->reason
+                || ($this->execution['requestId'] ?? null) !== $this->request->id
+                || ($this->execution['proposalDigest'] ?? null) !== $this->request->digest
+                || (!\is_array($executionResult) && !$executionResult instanceof \stdClass)
+                || CanonicalJson::encode((object) $this->result) !== CanonicalJson::encode((object) $executionResult)) {
+                throw new \UnexpectedValueException('The stored result does not match its execution record.');
+            }
+        } catch (\Throwable $error) {
+            throw new ApprovalException('record_integrity_error', 'The stored approval result does not match its execution evidence. Its outcome cannot be trusted.', $error);
+        }
     }
 
     public function stopped(string $status, string $reason): self

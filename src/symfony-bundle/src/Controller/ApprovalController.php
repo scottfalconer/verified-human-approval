@@ -51,7 +51,10 @@ final readonly class ApprovalController
     {
         try {
             $state = $this->approvals->get($this->reviewer($request, $id), $id);
-        } catch (ApprovalException) {
+        } catch (ApprovalException $error) {
+            if ('record_integrity_error' === $error->reason) {
+                return new Response($this->twig->render('@VerifiedHumanApproval/integrity_error.html.twig', ['id' => $id]), 409);
+            }
             throw new NotFoundHttpException('This request is unavailable for your account.');
         }
 
@@ -80,7 +83,10 @@ final readonly class ApprovalController
         }
         try {
             $state = $this->approvals->get($this->actors->interactive(), $id);
-        } catch (ApprovalException) {
+        } catch (ApprovalException $error) {
+            if ('record_integrity_error' === $error->reason) {
+                return new JsonResponse(['status' => 'integrity_error', 'reason' => $error->reason, 'message' => $error->getMessage()], 409);
+            }
             throw new NotFoundHttpException('This request is unavailable for your account.');
         }
         try {
@@ -252,7 +258,8 @@ final readonly class ApprovalController
         try {
             return new JsonResponse($operation());
         } catch (ApprovalException $error) {
-            $refusal = ['status' => 'rejected', 'reason' => $error->reason, 'message' => $error->getMessage()];
+            // Corrupt historical state is not evidence that nothing happened.
+            $refusal = ['status' => 'record_integrity_error' === $error->reason ? 'integrity_error' : 'rejected', 'reason' => $error->reason, 'message' => $error->getMessage()];
             if (null !== $reviewer && null !== $id && null !== ($current = $this->currentStatus($reviewer, $id))) {
                 $refusal['request_status'] = $current;
             }

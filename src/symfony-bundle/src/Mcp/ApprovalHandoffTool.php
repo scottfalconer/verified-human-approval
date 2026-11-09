@@ -81,6 +81,12 @@ final readonly class ApprovalHandoffTool
 
             return new CallToolResult([new TextContent('Scan this code with your phone to approve there. It works once and expires in two minutes.')], structuredContent: $data);
         } catch (ApprovalException $error) {
+            if ('record_integrity_error' === $error->reason) {
+                $data = ['requestId' => $request_id, 'status' => 'integrity_error', 'reason' => $error->reason, 'message' => $error->getMessage()];
+
+                return new CallToolResult([new TextContent($error->getMessage())], isError: true, structuredContent: $data);
+            }
+
             return CallToolResult::error([new TextContent($error->getMessage())]);
         } catch (AccessDeniedException) {
             return CallToolResult::error([new TextContent('This connection is not allowed to read this approval.')]);

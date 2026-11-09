@@ -4,9 +4,9 @@ This page separates checks on the current code baseline from earlier device demo
 
 ## Current automated baseline
 
-Checked on 2026-11-09 against commit [`4ea04eb1`](https://github.com/scottfalconer/verified-human-approval/commit/4ea04eb1487cc59a77687f8a4753dcc690957f48), which added the person's receipt. Later documentation-only commits do not change the code it describes.
+The latest recorded main-branch baseline was checked on 2026-11-09 at commit [`846bdbd4`](https://github.com/scottfalconer/verified-human-approval/commit/846bdbd457b6e295baf525e5b9c90ae98370740f), including the wider review layout. This is the baseline before the OAuth integration and the follow-up integrity, concurrency, scope-response and card-lifecycle fixes. For those changes, use the checks attached to the exact pull-request or commit SHA you plan to run.
 
-The [GitHub Actions run for that commit](https://github.com/scottfalconer/verified-human-approval/actions/runs/42541296445) completed successfully, with all four jobs passing. The [workflow](../.github/workflows/tests.yml) runs these jobs:
+The [GitHub Actions run for that commit](https://github.com/scottfalconer/verified-human-approval/actions/runs/42648471313) completed successfully, with all six jobs passing. The [workflow](../.github/workflows/tests.yml) runs these jobs:
 
 | Dependency set | PHP | Checks |
 | --- | --- | --- |
@@ -14,6 +14,8 @@ The [GitHub Actions run for that commit](https://github.com/scottfalconer/verifi
 | Locked dependencies | 8.4 | Composer validation, PHPUnit, PHPStan and real HTTP smoke test. |
 | Lowest allowed dependencies | 8.3 | Composer validation, PHPUnit and real HTTP smoke test. The job raises the test-only `symfony/error-handler` floor as explained in the workflow. |
 | Symfony 8 | 8.4 | Composer validation, PHPUnit and real HTTP smoke test. |
+| Separate consumer | 8.3 | Install the library packages in a separate Composer project; verify evidence, load the MCP card and inspect package archives. |
+| Separate consumer | 8.4 | The same independent installation and archive checks on PHP 8.4. |
 
 This is a dated baseline, not a claim that every later commit has passed. Use the checks on the commit or pull request you plan to install. A successful suite is also not a production security certification.
 
@@ -26,7 +28,11 @@ This is a dated baseline, not a claim that every later commit has passed. Use th
 | Signed audit log and passkey storage | [`AuditStoreTest.php`](../tests/Core/AuditStoreTest.php) runs the log over a store with no PDO and checks a chain written before the store was extracted, every signed or bound field, a damaged head, the host's transaction and the write reservation in both journals, and processes appending at once. [`PortableCredentialStorageTest.php`](../tests/WebAuthn/PortableCredentialStorageTest.php) runs signed enrollment and revocation over storage with no PDO; [`PasskeyRevocationTest.php`](../tests/Bundle/PasskeyRevocationTest.php) shows a revocation rolls back when its entry cannot be signed or stored. |
 | Passkeys | Real synthetic ES256 signatures and registration data pass through the upstream WebAuthn validator in [`tests/WebAuthn`](../tests/WebAuthn). Rejection cases cover identity, origin, relying party, challenge, verification flags, counters and revocation. |
 | Symfony and MCP | The actual kernel, security, sessions, CSRF, SDK transport, scope checks and browser endpoints in [`tests/Bundle`](../tests/Bundle). |
+| HTTP scope challenges | [`ScopeAuthorizationTest.php`](../tests/Bundle/ScopeAuthorizationTest.php) checks HTTP 403, complete operation scopes, resource metadata, header/body mismatch, a scope-upgrade retry, and unchanged ownership/business denials. |
+| OAuth connection and token races | [`OAuthTest.php`](../tests/Bundle/OAuthTest.php) checks original-grant binding, reconnect without disconnect, independent processes exchanging the same code or refresh token, rollback after partial persistence, and connection expiry before approval completion. |
 | Historical evidence | Real approval and receipt signatures, later record edits, missing receipts, wrong trust keys and the separately installed verifier in [`ApprovalEvidenceTest.php`](../tests/Evidence/ApprovalEvidenceTest.php). |
+| Stored outcome consistency | [`StoredApprovalIntegrityTest.php`](../tests/Evidence/StoredApprovalIntegrityTest.php) and [`StoredApprovalAuditTest.php`](../tests/Bundle/StoredApprovalAuditTest.php) edit duplicate result/status fields, verify normal service/HTTP/MCP reads fail explicitly, retain the original receipt and one committed effect, and keep audit diagnostics visible. |
+| MCP card lifecycle | [`card_lifecycle.mjs`](../tests/card_lifecycle.mjs) runs the real card script in a Node host/DOM fixture. Delayed success/error replies, host interruption, request replacement, teardown, timeouts, optional capabilities and integrity errors are covered. CI runs this in the locked PHP 8.3 job. It does not test browser layout or a real hosted client. |
 | Separate consumer | [`check-consumer.php`](../tests/Package/check-consumer.php), a CI job on PHP 8.3 and 8.4, installs core and WebAuthn, then core, WebAuthn and MCP, into a separate Composer project from `src/` (copied, matching `dev-main`, stable defaults), and checks them with only that project's autoloader: no framework bundle installed, WebAuthn options built, the MCP card loaded, and the installed `verify-evidence.php` verifying the [synthetic commit receipt](../tests/fixtures/evidence/commit-v2). It also checks what each package archive ships. A path install is not a published-package installation. |
 | HTTP and Symfony AI | [`http_smoke.py`](../tests/http_smoke.py) starts the application and calls it over TCP using the real SDK. It also runs Symfony AI's real `Agent` and `McpToolbox` with scripted model responses. |
 
@@ -40,9 +46,10 @@ These results have different scopes and dates. They do not all describe the late
 | --- | --- | --- |
 | Chromium: stopped requests and lost responses | Passed on `0c3bb115`, as its [commit message](https://github.com/scottfalconer/verified-human-approval/commit/0c3bb115341e9ba36d876d3f76da38e947b15db4) records. | Node Playwright: stopped request, dropped options call, lost approval response, lost cancellation response and stopped card call. |
 | Chromium: the person's receipt | Passed on `4ea04eb1`, as its [commit message](https://github.com/scottfalconer/verified-human-approval/commit/4ea04eb1487cc59a77687f8a4753dcc690957f48) records. | Node Playwright: approve, download the receipt, fetch `/approval/receipt-key.json` while signed out, check the file offline with only that key, see an edited copy fail, and find the same signature in the agent's result. |
-| Python browser checks | `tests/card_smoke.py`, `tests/browser_smoke.py` and `tests/phone_smoke.py` passed on `0c3bb115` and again on `4ea04eb1`. | Python Playwright 1.63 with Chrome for Testing (build 1234) and virtual authenticators, run locally. |
+| Chromium: remote OAuth connection | Passed on `7968edf3`, on the branch that adopted league/oauth2-server and omouren/mcp-oauth-bundle, run locally. | Node Playwright with Chrome for Testing (build 1228): registration, sign-in, consent (no framing, no CSP violation), the redirect back with `state` and `iss`, code exchange, a pending alert request over MCP, refresh, and disconnecting on the account page, which ends the access and refresh tokens. |
+| Python browser checks | `tests/card_smoke.py`, `tests/browser_smoke.py` and `tests/phone_smoke.py` passed on `0c3bb115`, on `4ea04eb1` and on `7968edf3`. | Python Playwright 1.63 with Chrome for Testing (build 1234) and virtual authenticators, run locally. |
 | Browser flow, card and phone handoff with virtual authenticators | Successful local runs are recorded on November 8, 2026. | Earlier code; see [history](verification-history.md). These are separate from the PHP CI matrix. |
-| claude.ai, OAuth and physical iPhone | Successful approval recorded on November 8, 2026, at 17:46 UTC. | Earlier alert demo, run by Scott. The phone used the scoped review session and an enrolled passkey. |
+| claude.ai, OAuth and physical iPhone | Successful approval recorded on November 8, 2026, at 17:46 UTC. | Earlier alert demo, run by Scott, with the demo's earlier hand-written OAuth server; not yet repeated with league/oauth2-server and omouren/mcp-oauth-bundle. The phone used the scoped review session and an enrolled passkey. |
 | Claude Desktop and physical Touch ID | Successful approval recorded on November 8, 2026, at 16:21 UTC. | Earlier announcement version of the demo, before the alert naming and later enrollment changes. |
 | Claude Code URL prompt | Successful run recorded on November 8, 2026. | Earlier code. The history records the client version and model used. |
 | Symfony AI with a live model | Not established by the scripted integration check. | The [live example](../examples/README.md#live-model) requires a separate model call. |
@@ -58,9 +65,10 @@ composer test
 composer analyse
 composer cs
 PHP_BIN=php python3 tests/http_smoke.py
+node --test tests/card_lifecycle.mjs
 ```
 
-The Python HTTP check uses the standard library. The optional browser checks need Python Playwright and Chromium. The card check also needs PHP's `gd` extension to decode its QR code. Install the Python dependencies in a virtual environment:
+The Python HTTP check uses the standard library. The Node.js check runs the actual MCP card script with a small host/DOM fixture and tests delayed responses, terminal states and timeouts; it needs Node.js 22 or later, with no npm install. It does not replace a browser check. The optional browser checks need Python Playwright and Chromium. The browser card check also needs PHP's `gd` extension to decode its QR code. Install the Python dependencies in a virtual environment:
 
 ```bash
 python3 -m venv var/browser-checks

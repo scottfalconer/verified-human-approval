@@ -67,7 +67,7 @@ final readonly class DemoTools
                 fn (): ApprovalState => $this->approvals->request($actor, 'alert.publish', ['alert_id' => $alert_id], $request_key),
             );
         } catch (ApprovalException $error) {
-            $data = ['status' => 'rejected', 'reason' => $error->reason, 'message' => $error->getMessage()];
+            $data = ['status' => 'record_integrity_error' === $error->reason ? 'integrity_error' : 'rejected', 'reason' => $error->reason, 'message' => $error->getMessage()];
 
             return new CallToolResult([new TextContent(json_encode($data, \JSON_THROW_ON_ERROR))], isError: true, structuredContent: $data);
         }

@@ -9,6 +9,8 @@ An action approved with a passkey and signed at commit has two signatures with d
 
 With a receipt signer configured, the application signs inside the transaction that commits the action. Changing a signed field afterwards makes verification fail. For example, someone cannot change a recorded result from `yes` to `no` and keep a valid receipt.
 
+The service also checks the unsigned status and result fields against the execution record before returning a stored outcome or retrying an action. When a receipt signer is configured, completed reads verify the original commit receipt with its trusted public key. Inconsistent fields, a missing receipt or a failed signature check return `record_integrity_error`, so changing a status to `cancelled` cannot hide evidence that the action ran. The administrator's audit page keeps such rows visible for inspection. These checks do not repair or re-sign damaged records.
+
 This checks the original approval and execution record. A later, legitimate edit to the live resource does not change that historical record. Verification does not compare the receipt with today's content, prove who wrote the content, or independently observe the database effect.
 
 The Symfony bundle hands this record to the person as their receipt, from the completed review page, and publishes the application's public key at `/approval/receipt-key.json`. The agent's result carries the same signed receipt. A person who keeps their copy can check it later without trusting the application's stored records.

@@ -49,17 +49,37 @@
     invalidated: 'The content changed after this request, so it can no longer be approved. Nothing changed.',
     denied: 'This account can no longer do this. Nothing changed.',
     rejected: 'The site refused this request. Nothing changed.',
+    integrity_error: 'The stored approval record is inconsistent, so this card cannot confirm what happened. Ask the site administrator to check the signed evidence before trying again.',
     // The host stopped the tool call: the site may have received it, so this card cannot know the outcome.
     interrupted: 'This request was stopped before the site’s answer arrived, so this card can’t tell whether anything changed. Check the site before trying again.',
   };
   const POLL_LIMIT_MS = 15 * 60 * 1000;
-  let nextId = 1, view = null, timer = null, since = 0, host = {}, codeTimer = null, ended = false;
+  const REQUEST_TIMEOUT_MS = 15000;
+  let nextId = 1, view = null, timer = null, since = 0, host = {}, capabilities = {}, codeTimer = null, ended = false, generation = 0, polling = false;
   const waiting = new Map();
 
-  function request(method, params) {
+  function request(method, params, bound = true) {
     const id = nextId++;
-    parent.postMessage({ jsonrpc: '2.0', id, method, params }, '*');
-    return new Promise((resolve, reject) => waiting.set(id, { resolve, reject }));
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => { waiting.delete(id); reject(new Error('The host did not answer.')); }, REQUEST_TIMEOUT_MS);
+      waiting.set(id, { resolve, reject, timeout, bound });
+      parent.postMessage({ jsonrpc: '2.0', id, method, params }, '*');
+    });
+  }
+  function current(run) { return run === generation && !ended && view && view.status === 'pending'; }
+  // Retire both timers and already-sent requests. Their replies cannot revive a finished or replaced view.
+  function retire() {
+    generation++;
+    stopPolling();
+    polling = false;
+    hideCode();
+    phoneShow.disabled = false;
+    for (const [id, reply] of waiting) {
+      if (!reply.bound) continue;
+      waiting.delete(id);
+      clearTimeout(reply.timeout);
+      reply.reject(new Error('The approval view changed.'));
+    }
   }
   function notify(method, params) { parent.postMessage({ jsonrpc: '2.0', method, params }, '*'); }
   function resize() { notify('ui/notifications/size-changed', { height: document.documentElement.scrollHeight }); }
@@ -91,14 +111,14 @@
     return found.requestId && found.status ? found : null;
   }
   function render() {
-    if (!view) { site.textContent = 'Approval'; open.hidden = true; status.textContent = 'No approval is waiting.'; resize(); return; }
+    if (!view) { site.textContent = 'Approval'; open.hidden = true; phoneShow.hidden = true; statement.hidden = true; status.textContent = 'No approval is waiting.'; resize(); return; }
     const url = reviewUrl(view.reviewUrl);
     const pending = view.status === 'pending';
     site.textContent = pending ? 'Approval needed on ' + (url ? url.host : 'the site') : (url ? url.host : 'Approval');
     if (view.statement) { statement.textContent = '“' + view.statement + '”'; statement.hidden = false; }
-    open.hidden = !(pending && url);
+    open.hidden = !(pending && url && capabilities.openLinks);
     // A phone needs the site on HTTPS, and a host that is already a phone doesn't need a code.
-    phoneShow.hidden = !(pending && url && url.protocol === 'https:' && view.handoffTool && returnTarget() !== 'claude-mobile');
+    phoneShow.hidden = !(pending && url && url.protocol === 'https:' && view.handoffTool && capabilities.serverTools && returnTarget() !== 'claude-mobile');
     if (!pending) hideCode();
     document.body.dataset.status = view.status;
     // Only the site's record of a passkey proof makes a completed request one a person approved.
@@ -117,17 +137,26 @@
   function stopPolling() { if (timer) { clearTimeout(timer); timer = null; } }
   function schedulePoll() {
     stopPolling();
-    if (ended || !view || view.status !== 'pending' || !view.statusTool || Date.now() - since > POLL_LIMIT_MS) return;
+    if (ended || polling || !view || view.status !== 'pending' || !view.statusTool || !capabilities.serverTools || Date.now() - since > POLL_LIMIT_MS) return;
     timer = setTimeout(poll, pollDelay());
   }
   async function poll() {
     timer = null;
+    const run = generation;
+    if (!current(run) || polling) return;
     if (document.hidden) { schedulePoll(); return; }
+    polling = true;
     const result = await request('tools/call', { name: view.statusTool, arguments: { request_id: view.requestId } }).catch(() => null);
-    const next = result && !result.isError ? read(result) : null;
-    if (next && next.requestId === view.requestId && next.status !== view.status) {
+    if (!current(run)) return;
+    polling = false;
+    const next = result && (!result.isError || result.structuredContent?.status === 'integrity_error') ? read(result) : null;
+    if (next && next.requestId === view.requestId) {
+      if (next.status !== 'pending') retire();
       view = { ...view, status: next.status, reason: next.reason, approvedWithPasskey: next.approvedWithPasskey };
       render();
+    } else {
+      status.textContent = 'This card can’t confirm the current status. Check the site before trying again.';
+      resize();
     }
     schedulePoll();
   }
@@ -138,20 +167,21 @@
     return platform === 'desktop' || platform === 'mobile' ? 'claude-' + platform : 'claude-web';
   }
   function show(result) {
+    if (ended) return;
+    retire();
     view = read(result);
     since = Date.now();
-    ended = false;
     render();
+    if (!view && result?.structuredContent?.status === 'integrity_error') { status.textContent = TEXT.integrity_error; resize(); }
     schedulePoll();
   }
   // The host ends this card: the tool call was cancelled, or the view is being torn down.
   function end(text) {
     ended = true;
-    stopPolling();
-    hideCode();
+    retire();
     open.hidden = true;
     phoneShow.hidden = true;
-    if (text) { status.textContent = text; resize(); }
+    if (text && (!view || view.status === 'pending')) { status.textContent = text; resize(); }
   }
 
   addEventListener('message', (event) => {
@@ -161,9 +191,11 @@
     if (message.id !== undefined && waiting.has(message.id) && ('result' in message || 'error' in message)) {
       const reply = waiting.get(message.id);
       waiting.delete(message.id);
+      clearTimeout(reply.timeout);
       'error' in message ? reply.reject(message.error) : reply.resolve(message.result);
       return;
     }
+    if (message.method === 'ui/notifications/tool-input' && !ended) { retire(); view = null; render(); status.textContent = 'Waiting for the request…'; }
     if (message.method === 'ui/notifications/tool-result') show(message.params);
     if (message.method === 'ui/notifications/host-context-changed') applyTheme(message.params);
     if (message.method === 'ui/notifications/tool-cancelled') {
@@ -176,10 +208,12 @@
     }
   });
   open.addEventListener('click', async () => {
+    const run = generation;
     const url = view && reviewUrl(view.reviewUrl);
-    if (!url) return;
+    if (!current(run) || !url || !capabilities.openLinks) return;
     url.hash = 'return=' + returnTarget();
     const opened = await request('ui/open-link', { url: url.href }).catch(() => ({ isError: true }));
+    if (!current(run)) return;
     status.textContent = opened && opened.isError
       ? 'The page did not open. Use the review link in the reply.'
       : 'Approve on the site with your passkey. This card updates when the site records the result.';
@@ -221,8 +255,17 @@
     qr.replaceChildren();
   }
   phoneShow.addEventListener('click', async () => {
+    const run = generation;
+    if (!current(run) || phoneShow.disabled || !view.handoffTool || !capabilities.serverTools) return;
     phoneShow.disabled = true;
     const result = await request('tools/call', { name: view.handoffTool, arguments: { request_id: view.requestId } }).catch(() => null);
+    if (!current(run)) return;
+    if (result?.structuredContent?.status === 'integrity_error') {
+      retire();
+      view = { ...view, status: 'integrity_error' };
+      render();
+      return;
+    }
     const data = result && !result.isError && result.structuredContent;
     const code = data && data.requestId === view.requestId ? drawCode(data.modules) : null;
     if (!code) {
@@ -235,6 +278,7 @@
       status.textContent = 'Waiting for your approval on your phone. Nothing has changed yet.';
       const seconds = Number(data.expiresIn) > 0 ? Math.min(Number(data.expiresIn), 600) : 120;
       codeTimer = setTimeout(() => {
+        if (!current(run)) return;
         hideCode();
         if (view && view.status === 'pending') status.textContent = 'That code expired. Show a new code to try again.';
         resize();
@@ -243,9 +287,9 @@
     phoneShow.disabled = false;
     resize();
   });
-  request('ui/initialize', { protocolVersion: '2026-01-26', appInfo: { name: 'verified-human-approval-card', version: '0.1.0' }, appCapabilities: {} })
-    .then((result) => { applyTheme(result && result.hostContext); notify('ui/notifications/initialized', {}); resize(); })
-    .catch(() => { status.textContent = 'This app did not start the card. Use the review link in the reply.'; resize(); });
+  request('ui/initialize', { protocolVersion: '2026-01-26', appInfo: { name: 'verified-human-approval-card', version: '0.1.0' }, appCapabilities: {} }, false)
+    .then((result) => { if (ended) return; capabilities = result?.hostCapabilities || {}; applyTheme(result?.hostContext); notify('ui/notifications/initialized', {}); resize(); })
+    .catch(() => { if (ended || view) return; status.textContent = 'This app did not start the card. Use the review link in the reply.'; resize(); });
 </script>
 </body>
 </html>

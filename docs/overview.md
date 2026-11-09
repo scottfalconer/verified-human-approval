@@ -14,7 +14,7 @@ For a runnable walkthrough, start with the [demo](../demo/README.md). For a new 
 | MCP presentation | Return a review link, show an approval card where supported, and handle optional URL prompts and their retries. |
 | Symfony bundle | Wire the services, serve review routes, check CSRF, limit attempts and provide status and phone-handoff tools. |
 
-The demo adds its own account administration, OAuth server, alerts site and audit page. Those are reference implementations, not services that the bundle installs into another application.
+The demo adds its own account administration, alerts site and audit page, and connects remote clients through an existing OAuth server, league/oauth2-server with omouren/mcp-oauth-bundle. Those are reference implementations and choices, not services that the bundle installs into another application.
 
 ## 1. Request the action
 

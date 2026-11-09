@@ -39,8 +39,15 @@ final readonly class ApprovalStatusTool
             $this->actors->assertCanReadApproval($state);
 
             return $this->presenter->toolResult($state);
-        } catch (ApprovalException|AccessDeniedException) {
-            return CallToolResult::error([new TextContent('This approval result is unavailable for the current account or personal connection.')]);
+        } catch (ApprovalException $error) {
+            if ('record_integrity_error' === $error->reason) {
+                $data = ['requestId' => $request_id, 'status' => 'integrity_error', 'reason' => $error->reason, 'message' => $error->getMessage()];
+
+                return new CallToolResult([new TextContent($error->getMessage())], isError: true, structuredContent: $data);
+            }
+        } catch (AccessDeniedException) {
         }
+
+        return CallToolResult::error([new TextContent('This approval result is unavailable for the current account or personal connection.')]);
     }
 }
