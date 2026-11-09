@@ -231,22 +231,24 @@ abstract class DbalTransactionTestCase extends TestCase
         self::assertSame(['FOR UPDATE', $mysql ? 'LOCK IN SHARE MODE' : 'FOR SHARE'], [$this->transaction->forUpdate(), $this->transaction->forShare()]);
         // A session default of REPEATABLE READ does not reach the approval transaction, and is kept for the rest.
         $this->connection->executeStatement($mysql ? 'SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ' : 'SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL REPEATABLE READ');
-        $level = function (int $note) use ($mysql): string {
-            if (!$mysql) {
-                return (string) $this->connection->fetchOne('SHOW transaction_isolation');
-            }
-            // InnoDB lists a transaction once it has touched a table; a write makes sure it has.
-            $this->note($note);
+        // The behaviour itself, not a level the server reports (MySQL's InnoDB tables answer from a cache that can
+        // still list the previous transaction): whether a second read sees what another connection committed after
+        // the first. Under READ COMMITTED it does; under REPEATABLE READ the transaction keeps its first snapshot.
+        $this->note(11);
+        $this->note(12);
+        $seesLaterCommits = function (int $note) use ($other): bool {
+            $first = $this->connection->fetchOne('SELECT note FROM notes WHERE id = ?', [$note]);
+            $other->update('notes', ['note' => 'changed by another connection'], ['id' => $note]);
 
-            return (string) $this->connection->fetchOne('SELECT trx_isolation_level FROM information_schema.innodb_trx WHERE trx_mysql_thread_id = CONNECTION_ID()');
+            return $first !== $this->connection->fetchOne('SELECT note FROM notes WHERE id = ?', [$note]);
         };
-        self::assertSame($mysql ? 'READ COMMITTED' : 'read committed', $this->transaction->run(static fn (): string => $level(11)));
+        self::assertTrue($this->transaction->run(static fn (): bool => $seesLaterCommits(11)), 'The approval transaction reads what committed before each statement.');
         $this->connection->beginTransaction();
-        self::assertSame($mysql ? 'REPEATABLE READ' : 'repeatable read', $level(12));
+        self::assertFalse($seesLaterCommits(12), 'The application\'s own transaction keeps the session\'s REPEATABLE READ.');
         $this->connection->rollBack();
         // And no lock is taken that a writer of other rows would wait for.
         $this->transaction->run(static fn () => $other->insert('notes', ['id' => 9, 'note' => 'another writer']));
-        self::assertSame($mysql ? [9, 11] : [9], $this->notes());
+        self::assertSame([9, 11, 12], $this->notes());
     }
 
     public function testAConnectionOutsideAutoCommitIsRefused(): void
