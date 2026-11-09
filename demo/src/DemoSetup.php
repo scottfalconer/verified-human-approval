@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace VerifiedHumanApproval\Demo;
 
 use Symfony\Component\Clock\NativeClock;
+use VerifiedHumanApproval\Core\ApprovalRequest;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\ChallengeBinding;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\Evidence\TrustedKey;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 use VerifiedHumanApproval\Core\Storage\PdoApprovalStore;
 use VerifiedHumanApproval\Core\Storage\PdoAuditStore;
 use VerifiedHumanApproval\Demo\Account\PasskeyLinks;
@@ -45,12 +48,15 @@ final class DemoSetup
         (new PdoApprovalStore($database->pdo))->initialize();
         (new PdoCredentialRepository($database->pdo))->initialize();
         // The application's evidence key signs receipts and the security log. It lives in settings.json,
-        // outside the database, so database access alone cannot forge either.
+        // outside the database, so database access alone cannot forge either. It is trusted from now on;
+        // demo:rotate-receipt-key replaces it, keeping only its public key, to check what it signed.
         $keypair = sodium_crypto_sign_keypair();
         $signer = new SodiumEvidenceSigner('demo-application-1', sodium_crypto_sign_secretkey($keypair));
+        $clock = new NativeClock();
+        $validFrom = ApprovalRequest::timestamp($clock->now());
         $auditStore = new PdoAuditStore($database->pdo);
         $auditStore->initialize();
-        $audit = new AuditLog($auditStore, $signer, $signer->publicKey(), new NativeClock());
+        $audit = new AuditLog($auditStore, $signer, new TrustedKeys([new TrustedKey($signer->keyId(), $signer->publicKey(), TrustedKey::time($validFrom))]), $clock);
         $links = new PasskeyLinks($database, $audit);
         $credentials = [];
         $users = [
@@ -84,6 +90,9 @@ final class DemoSetup
             'receipt_key_id' => 'demo-application-1',
             'receipt_secret_key' => ChallengeBinding::encode(sodium_crypto_sign_secretkey($keypair)),
             'receipt_public_key' => ChallengeBinding::encode(sodium_crypto_sign_publickey($keypair)),
+            // When that key began signing, and the public keys it replaced, each with the window it signed in.
+            'receipt_key_valid_from' => $validFrom,
+            'retired_receipt_keys' => [],
         ];
         file_put_contents($directory.'/settings.json', json_encode($settings, \JSON_THROW_ON_ERROR | \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES)."\n", \LOCK_EX);
         chmod($directory.'/settings.json', 0600);

@@ -108,13 +108,34 @@ final readonly class ApprovalController
         return $response;
     }
 
-    /** The public key that checks this site's receipts, for anyone: the site-key file for vendor/bin/verify-evidence.php. */
+    /** The current key that checks this site's receipts, for anyone: the one-key file for vendor/bin/verify-evidence.php. */
     public function receiptKey(): JsonResponse
     {
         if (null === $this->receiptKey) {
             throw new NotFoundHttpException('This site does not sign receipts.');
         }
-        $response = new JsonResponse($this->receiptKey->document());
+
+        return self::publicKeys($this->receiptKey->document());
+    }
+
+    /**
+     * Every key that checks this site's receipts and its signed audit log, each with the window it signed in,
+     * for anyone: the key-set file for vendor/bin/verify-evidence.php, which also checks receipts signed before
+     * a key rotation.
+     */
+    public function receiptKeys(): JsonResponse
+    {
+        if (null === $this->receiptKey) {
+            throw new NotFoundHttpException('This site does not sign receipts.');
+        }
+
+        return self::publicKeys($this->receiptKey->keySet());
+    }
+
+    /** @param array<string, mixed> $document */
+    private static function publicKeys(array $document): JsonResponse
+    {
+        $response = new JsonResponse($document);
         $response->setEncodingOptions(\JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES);
         $response->setPublic();
         $response->setMaxAge(300);

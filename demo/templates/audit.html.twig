@@ -84,13 +84,27 @@
 <section class="card">
 <h2>Security log</h2>
 <p class="{{ log_intact ? 'ok' : 'error' }}">{{ log_intact ? '✓ All ' ~ log_newest ~ ' entries are signed and in an unbroken chain.' : '✗ The log has been altered: see the entries marked below.' }}</p>
-<p class="muted small">Entries for other organizations are counted but not shown. Each entry is signed with the application key <code>{{ key_id }}</code> and names the entry before it. The newest entry is number {{ log_newest }}: note it, because only entries after the newest one you have seen could be cut off unnoticed.</p>
+<p class="muted small">Entries for other organizations are counted but not shown. Each entry names the entry before it and is signed with one of the application keys below, inside the window that key signed in; new entries are signed with <code>{{ key_id }}</code>. The newest entry is number {{ log_newest }}{% if log_head %}, hash <code>{{ log_head }}</code>{% endif %}: keep both somewhere this site cannot write, because only entries after the newest one you have kept could be cut off or rewritten unnoticed.</p>
 <ul class="plain small">
 {% for item in log %}
-  {% if item.entry %}<li class="{{ item.valid ? '' : 'error' }}">#{{ item.seq }} · {{ item.entry.at|date('j M, H:i:s T') }} · {{ item.entry.type }} · {{ item.entry.subject }}{% if item.entry.data.by is defined %} · by {{ item.entry.data.by }}{% elseif item.entry.data.issuedBy is defined %} · by {{ item.entry.data.issuedBy }}{% endif %}{% if item.entry.data.method is defined %} · {{ item.entry.data.method }}{% endif %}{% if not item.valid %} · ✗ {{ item.problem }}{% endif %}</li>
+  {% if item.entry %}<li class="{{ item.valid ? '' : 'error' }}">#{{ item.seq }} · {{ item.entry.at|date('j M, H:i:s T') }} · {{ item.entry.type }} · {{ item.entry.subject }}{% if item.entry.data.by is defined %} · by {{ item.entry.data.by }}{% elseif item.entry.data.issuedBy is defined %} · by {{ item.entry.data.issuedBy }}{% endif %}{% if item.entry.data.method is defined %} · {{ item.entry.data.method }}{% endif %}{% if item.entry.type == 'signing_key.rotated' and item.entry.data.to is defined %} → {{ item.entry.data.to }}{% if item.entry.data.reason is defined %} · {{ item.entry.data.reason }}{% endif %}{% endif %}{% if not item.valid %} · ✗ {{ item.problem }}{% endif %}</li>
   {% else %}<li class="error">#{{ item.seq }} · ✗ {{ item.problem }}</li>{% endif %}
 {% endfor %}
 </ul>
-<p class="muted small">Public key for checking signatures and evidence outside this site: <code>{{ public_key }}</code></p>
+<h3>Application keys</h3>
+<p class="muted small">The public keys for checking receipts and these entries outside this site, also published at <a href="{{ path('verified_human_approval_receipt_keys') }}">/approval/receipt-keys.json</a>. Each one checks only what claims a time inside its window, so a retired key cannot vouch for anything newer.</p>
+<table class="audit">
+  <thead><tr><th>Key</th><th>Signs from</th><th>Signs until</th><th>Public key</th></tr></thead>
+  <tbody>
+  {% for key in keys %}
+    <tr>
+      <td>{{ key.keyId }}{% if key.keyId == key_id %} <span class="ok small">signing now</span>{% endif %}</td>
+      <td>{{ key.validFrom ? key.validFrom|date('j M Y, H:i:s T') : 'not recorded' }}</td>
+      <td>{{ key.validUntil ? key.validUntil|date('j M Y, H:i:s T') : '–' }}</td>
+      <td><code class="small">{{ key.publicKey }}</code></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
 </section>
 {% endblock %}

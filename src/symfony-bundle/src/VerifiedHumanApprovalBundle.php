@@ -5,11 +5,14 @@ declare(strict_types=1);
 namespace VerifiedHumanApproval\Bundle;
 
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
+use Symfony\Component\Console\Command\Command;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
 use Symfony\Component\Lock\LockFactory;
 use Symfony\Component\Lock\Store\FlockStore;
+use VerifiedHumanApproval\Bundle\Command\AuditHeadCommand;
+use VerifiedHumanApproval\Bundle\Command\RecordKeyRotationCommand;
 use VerifiedHumanApproval\Bundle\Controller\ApprovalController;
 use VerifiedHumanApproval\Bundle\Handoff\ApprovalHandoff;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp;
@@ -20,7 +23,9 @@ use VerifiedHumanApproval\Core\ActionAdapter;
 use VerifiedHumanApproval\Core\ActionRegistry;
 use VerifiedHumanApproval\Core\ApprovalObserver;
 use VerifiedHumanApproval\Core\ApprovalService;
+use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 use VerifiedHumanApproval\Core\ExecutionGuard;
 use VerifiedHumanApproval\Mcp\ApprovalFlow;
 use VerifiedHumanApproval\Mcp\ResultPresenter;
@@ -63,6 +68,23 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
                 ->info('Service id of a VerifiedHumanApproval\\Core\\Evidence\\EvidenceSigner. When set, each execution\'s receipt is signed inside the completing transaction, so later edits to the record show; the person can download their receipt, and the signer\'s public key is published to check it.')
                 ->defaultNull()
             ->end()
+            ->arrayNode('receipt_keys')
+                ->info('The receipt_signer\'s key and the keys it replaced, which check receipts and the signed audit log, each only within the window it signed in. The bundle publishes them at /approval/receipt-keys.json, and serves them as the service VerifiedHumanApproval\\Core\\Evidence\\TrustedKeys for your AuditLog. See the key rotation procedure in docs/evidence.md.')
+                ->addDefaultsIfNotSet()
+                ->children()
+                    ->scalarNode('valid_from')->defaultNull()
+                        ->info('When the receipt_signer began signing: an RFC 3339 time with its offset, such as 2026-11-09T12:00:00Z. A record it signed that claims an earlier time does not verify. Unset or empty: no earlier limit, as for a key whose start was never recorded.')->end()
+                    ->variableNode('retired')->defaultValue([])
+                        ->info('Keys that signed before the receipt_signer, by public key only: a list of maps with key_id, public_key, valid_until and, optionally, valid_from. What each signed keeps verifying while its claimed time falls inside its window. An environment variable read with the json: processor works too.')
+                        ->validate()
+                            ->ifTrue(static fn (mixed $keys): bool => !\is_string($keys) && !self::retiredShape($keys))
+                            ->thenInvalid('receipt_keys.retired must be a list of keys, each naming only key_id, public_key, valid_from and valid_until: %s')
+                        ->end()
+                    ->end()
+                ->end()
+            ->end()
+            ->scalarNode('audit_log')->defaultNull()
+                ->info('Service id of the VerifiedHumanApproval\\Core\\Audit\\AuditLog that the console commands verified-human-approval:audit-head and verified-human-approval:record-key-rotation read and append to. Unset, a service named after that class is used if there is one.')->end()
             ->scalarNode('relying_party_id')->defaultNull()
                 ->info('The passkey relying party id published with the receipt key, so a receipt\'s passkey signature can be checked offline. Defaults to the public origin\'s host.')->end()
             ->arrayNode('url_elicitation')
@@ -76,7 +98,26 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
                     ->end()
                 ->end()
             ->end()
+        ->end()
+        ->validate()
+            ->ifTrue(static fn (array $config): bool => null === $config['receipt_signer'] && (null !== $config['receipt_keys']['valid_from'] || [] !== $config['receipt_keys']['retired']))
+            ->thenInvalid('receipt_keys describes the receipt_signer\'s keys: configure receipt_signer too.')
         ->end();
+    }
+
+    /** Whether $keys has the shape of receipt_keys.retired; the values are checked as the container builds the keys. */
+    private static function retiredShape(mixed $keys): bool
+    {
+        if (!\is_array($keys) || !array_is_list($keys)) {
+            return false;
+        }
+        foreach ($keys as $key) {
+            if (!\is_array($key) || [] !== array_diff(array_keys($key), TrustedKeysFactory::RETIRED_FIELDS)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -151,14 +192,28 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
         ]);
         $services->alias(ApprovalFlow::class, 'verified_human_approval.flow');
 
-        // With a receipt signer, the person can download their receipt, and the key that checks it is published.
+        // With a receipt signer, the person can download their receipt, and the keys that check it are published.
         // The download serves the original receipts only, so the exporter gets no access to the private key.
         if (null !== $config['receipt_signer']) {
+            // The signer's key and every key it replaced, each with its window: what receipts and the audit log are checked against.
+            $services->set('verified_human_approval.trusted_keys', TrustedKeys::class)
+                ->factory([TrustedKeysFactory::class, 'fromConfiguration'])
+                ->args([service($config['receipt_signer']), $config['receipt_keys']['valid_from'], $config['receipt_keys']['retired']]);
+            $services->alias(TrustedKeys::class, 'verified_human_approval.trusted_keys');
             $services->set('verified_human_approval.evidence_exporter', EvidenceExporter::class);
             $services->alias(EvidenceExporter::class, 'verified_human_approval.evidence_exporter');
             $services->set('verified_human_approval.receipt_key', ReceiptKey::class)
-                ->args([service($config['receipt_signer']), $config['public_origin'], $config['relying_party_id']]);
+                ->args([service($config['receipt_signer']), $config['public_origin'], $config['relying_party_id'], service('verified_human_approval.trusted_keys')]);
             $services->alias(ReceiptKey::class, 'verified_human_approval.receipt_key');
+        }
+
+        // The signed audit log's console commands: print its head to keep as a checkpoint, and record a key rotation.
+        if (class_exists(Command::class)) {
+            $audit = null === $config['audit_log'] ? service(AuditLog::class)->nullOnInvalid() : service($config['audit_log']);
+            $services->set('verified_human_approval.audit_head_command', AuditHeadCommand::class)->args([$audit])
+                ->tag('console.command', ['command' => AuditHeadCommand::NAME, 'description' => 'Print the signed audit log\'s newest entry (sequence and hash) to keep outside the application, or check a kept one.']);
+            $services->set('verified_human_approval.record_key_rotation_command', RecordKeyRotationCommand::class)->args([$audit])
+                ->tag('console.command', ['command' => RecordKeyRotationCommand::NAME, 'description' => 'Record in the signed audit log that the signing key moved from an old key to the current receipt signer.']);
         }
 
         // The review pages. Public, because routes name it by service id.
