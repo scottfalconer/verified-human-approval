@@ -10,7 +10,7 @@ use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 /**
  * What anyone needs to check this site's receipts without trusting its records: the public keys that sign
  * them, and the passkey relying party and origin that a receipt's passkey signature was made for. The bundle
- * publishes both files vendor/bin/verify-evidence.php takes, at fixed addresses: the key set, every key the
+ * publishes, at fixed addresses, both files vendor/bin/verify-evidence.php takes: the key set, every key the
  * site has signed with and the window each signed in, and the earlier one-key file, which names the current
  * key only. Someone who saves the key set can tell later if the site's keys, or a receipt signed with one of
  * them, changed.

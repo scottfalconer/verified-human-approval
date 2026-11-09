@@ -92,7 +92,7 @@ A completed approval has two checks:
 
 The verifier uses public keys trusted separately from the downloaded record. Changing a signed field afterward makes verification fail. Deleting the original receipt does not cause the exporter to create a replacement.
 
-The person keeps their own copy. Once the action runs, the review page offers **Download your receipt**: the exact request, their passkey's signature on it and what ran, signed by the site as it ran. The agent's result carries the same signed receipt, and the site publishes the key that checks it at `/approval/receipt-key.json`. If the site's record of that request were changed or deleted later, the person's copy would show it.
+The person keeps their own copy. Once the action runs, the review page offers **Download your receipt**: the exact request, their passkey's signature on it and what ran, signed by the site as it ran. The agent's result carries the same signed receipt, and the site publishes the keys that check it at `/approval/receipt-keys.json`, including any key it [rotated](docs/evidence.md#rotate-the-signing-key) away from. If the site's record of that request were changed or deleted later, the person's copy would show it.
 
 This checks the **historical approval and execution record**. It does not monitor later edits to the live content, prove what the person understood, or independently witness the database change. Follow the [receipt walkthrough](docs/evidence.md) to verify a real demo receipt and then see an edited copy fail.
 

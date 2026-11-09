@@ -14,7 +14,7 @@ For a runnable application, start with the [demo guide](https://github.com/scott
 | Your action adapter | Exact proposed change, stale-data checks, guarded mutation and postconditions |
 | Your policy provider | Whether approval is required, the statement and its version |
 | Your account process | Trusted passkey enrollment and recovery; an agent token cannot use it |
-| This bundle | Review routes and templates, CSRF checks, rate limiting, action discovery, MCP status/card/handoff services, the person's receipt download and the public receipt key |
+| This bundle | Review routes and templates, CSRF checks, rate limiting, action discovery, MCP status/card/handoff services, the person's receipt download, the public receipt keys and the audit-log console commands |
 | Core and WebAuthn packages | Proposal binding, WebAuthn verification, transactional execution and signed receipts |
 | Demo only | Its accounts, OAuth server, administrator forms and audit pages |
 
@@ -93,9 +93,11 @@ verified_human_approval:
     attempts_per_minute: 30
 ```
 
-`receipt_signer` is required for the stored-record tamper evidence described in this guide. It signs the receipt before commit. A signing failure rolls the action back. Store the private signing key outside the database, and retain a trusted copy of its public key separately from exported evidence. With a signer configured, the completed review page offers the person their receipt, and the bundle publishes the public key; see [Stored receipts](#stored-receipts-and-later-verification).
+`receipt_signer` is required for the stored-record tamper evidence described in this guide. It signs the receipt before commit. A signing failure rolls the action back. Store the private signing key outside the database, and retain a trusted copy of its public key separately from exported evidence. With a signer configured, the completed review page offers the person their receipt, and the bundle publishes the public keys; see [Stored receipts](#stored-receipts-and-later-verification).
 
-`public_origin` is a fixed, trusted setting such as `https://app.example.com`. Use it for the WebAuthn configuration too. `relying_party_id` is optional: it is published with the receipt key so a receipt's passkey signature can be checked offline, and defaults to the public origin's host. Do not derive it from a request's Host header. Choose the origin and RP ID before enrolling passkeys. HTTP `localhost` is allowed for local development.
+The optional `receipt_keys` describes the signer's key and the keys it replaced. `valid_from` is when the signer's key began signing, an RFC 3339 time such as `2026-11-09T12:00:00Z`: a record it signed that claims an earlier time does not verify. Unset or empty, there is no earlier limit. `retired` lists earlier keys, by public key only, each with `key_id`, `public_key`, `valid_until` and optionally `valid_from`; what each signed keeps verifying inside its window. The bundle serves these keys as `VerifiedHumanApproval\Core\Evidence\TrustedKeys`, which your `AuditLog` checks entries against, and publishes them. To change keys, follow [Rotate the signing key](https://github.com/scottfalconer/verified-human-approval/blob/main/docs/evidence.md#rotate-the-signing-key).
+
+`public_origin` is a fixed, trusted setting such as `https://app.example.com`. Use it for the WebAuthn configuration too. `relying_party_id` is optional: it is published with the receipt keys so a receipt's passkey signature can be checked offline, and defaults to the public origin's host. Do not derive it from a request's Host header. Choose the origin and RP ID before enrolling passkeys. HTTP `localhost` is allowed for local development.
 
 Import the routes:
 
@@ -112,7 +114,9 @@ php bin/console cache:clear
 php bin/console assets:install
 ```
 
-Action adapters are discovered when their services are autoconfigured. If you configure services manually, tag each adapter `verified_human_approval.action`. The bundle provides autowiring aliases for `ApprovalService`, `ExecutionGuard`, `ActorProvider`, `ApprovalPresenter` and `ApprovalFlow`, and, with a receipt signer, for `EvidenceExporter` and `ReceiptKey`. Its default clock is Symfony's `clock` service; `verified_human_approval.clock` points to that same clock.
+Action adapters are discovered when their services are autoconfigured. If you configure services manually, tag each adapter `verified_human_approval.action`. The bundle provides autowiring aliases for `ApprovalService`, `ExecutionGuard`, `ActorProvider`, `ApprovalPresenter` and `ApprovalFlow`, and, with a receipt signer, for `EvidenceExporter`, `ReceiptKey` and `TrustedKeys`. Its default clock is Symfony's `clock` service; `verified_human_approval.clock` points to that same clock.
+
+Two console commands work with your signed audit log: `verified-human-approval:audit-head` prints its newest entry's sequence and hash, a checkpoint to keep where the application cannot write, and checks a kept one with `--check`; `verified-human-approval:record-key-rotation` records a key rotation. They use the `AuditLog` service your configuration names in `audit_log`, or, unset, the service named `VerifiedHumanApproval\Core\Audit\AuditLog`.
 
 ## 3. Connect existing authentication
 
@@ -128,7 +132,7 @@ The [example identity adapter](first-action.md#3-map-the-authenticated-person) s
 
 Execution authority is separate. `Authorizer::assertAllowed()` reloads current account and delegation permissions inside the final transaction. A person may lose permission to publish while retaining permission to read the reason a request stopped.
 
-Add this rule **before broader access-control rules**, keeping your existing rules and firewalls. The phone handoff needs it to open a review, and it makes the receipt key public:
+Add this rule **before broader access-control rules**, keeping your existing rules and firewalls. The phone handoff needs it to open a review, and it makes the receipt keys public:
 
 ```yaml
 # Merge into config/packages/security.yaml
@@ -138,7 +142,7 @@ security:
         # Keep the application's existing rules after this entry.
 ```
 
-The matcher covers only the bundle's own routes: review, handoff, the person's receipt download and the public receipt key. The controller still requires the signed-in owner or a session scoped to one request, and the receipt download requires the signed-in owner; approval still requires that person's passkey. It does not make your own enrollment or administration routes public.
+The matcher covers only the bundle's own routes: review, handoff, the person's receipt download and the public receipt keys. The controller still requires the signed-in owner or a session scoped to one request, and the receipt download requires the signed-in owner; approval still requires that person's passkey. It does not make your own enrollment or administration routes public.
 
 ## 4. Register the MCP tools and card
 
@@ -204,19 +208,19 @@ With a `receipt_signer`, the bundle gives the person their own copy, so a later 
 - **On the completed review page**, "Download your receipt" (route `verified_human_approval_evidence`, `GET /approval/{id}/evidence`) returns the evidence bundle (`verified-human-approval/evidence/v2`) as `receipt-<id>.json`: the frozen proposal, the person's passkey signature on it, the execution record and the original receipt. Only the signed-in owner gets it; a phone session opened by a one-time code is pointed back to the signed-in browser.
 - **Nothing is signed at download.** A request that has not run is refused (`not_completed`), and so is one whose original receipt is missing (`receipt_missing`); the page says when no receipt is recorded. Do not create a fresh signature over a record at download time to claim it was unchanged since approval.
 - **In the agent's result**, a completed request carries `receipt` (the signed manifest, `keyId` and `signature`) and `receipt_key_url`, so a copy also lands in the conversation.
-- **The key that checks them** is public at `GET /approval/receipt-key.json` (route `verified_human_approval_receipt_key`), with `format`, `keyId`, `publicKey`, `rpId` and `origin`. It needs the access-control rule above to be reachable without signing in. Anyone can save it once and check later receipts against that copy.
+- **The keys that check them** are public at `GET /approval/receipt-keys.json` (route `verified_human_approval_receipt_keys`): the key set (`verified-human-approval/receipt-keys/v2`), with `currentKeyId`, `keys`, each with its `keyId`, `publicKey`, `validFrom` and `validUntil`, then `rpId` and `origin`. It lists the keys a rotation retired, so a receipt signed before one still checks. The review page links it. The earlier one-key file stays at `GET /approval/receipt-key.json` (route `verified_human_approval_receipt_key`, `verified-human-approval/receipt-key/v1`, the current key only), which the agent's `receipt_key_url` names. Both need the access-control rule above to be reachable without signing in. Anyone can save them and check later receipts against that copy.
 
 An administrator's export of other people's records is your application's to build, with its own owner and read checks; the demo's audit page shows one. Follow the [evidence guide](https://github.com/scottfalconer/verified-human-approval/blob/main/docs/evidence.md) to check a receipt offline:
 
 ```bash
-vendor/bin/verify-evidence.php receipt-REQUEST_ID.json receipt-key.json
+vendor/bin/verify-evidence.php receipt-REQUEST_ID.json receipt-keys.json
 ```
 
 Add the approving passkey's trusted registration record as a third file to check the passkey signature as well; without it, the output says that signature was not checked.
 
 ## Before deployment
 
-Keep the application database and signing keys persistent across deploys. Restore and back up them deliberately; generating a replacement key on every boot breaks trust in earlier records. Protect your signing key separately from database write access.
+Keep the application database and signing keys persistent across deploys. Restore and back up them deliberately; generating a replacement key on every boot breaks trust in earlier records. Protect your signing key separately from database write access. To replace the key on purpose, [rotate it](https://github.com/scottfalconer/verified-human-approval/blob/main/docs/evidence.md#rotate-the-signing-key): the old public key stays trusted for what it signed. Keep a checkpoint of the audit log's head outside the application on a schedule, with `verified-human-approval:audit-head`.
 
 The browser rate limiter defaults to 30 attempts per person per minute. Override the `verified_human_approval` framework limiter or point `rate_limiter` to your own `RateLimiterFactoryInterface` service. The phone handoff uses `cache.app` and a lock; multiple web servers need a shared cache and a shared lock store configured through `lock_factory`. Its default file lock is local to one host.
 

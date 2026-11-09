@@ -46,11 +46,23 @@ The demo also records passkey enrollment and revocation in a signed audit log. `
 
 These signatures make later changes detectable when verification runs. They do not stop someone with database write access from changing or deleting bytes. The default exporter refuses a completed action whose original receipt is missing. It does not replace that receipt with a fresh signature.
 
-The person's downloaded receipt, and the copy in the agent's result, sit outside the application's database. Checked against the application's published key, they show a later change to, or deletion of, the stored record. They cover only that person's own requests, and they depend on the person keeping them.
+The person's downloaded receipt, and the copy in the agent's result, sit outside the application's database. Checked against the application's published keys, they show a later change to, or deletion of, the stored record. They cover only that person's own requests, and they depend on the person keeping them.
 
 The demo's administrator page at `/admin/audit` rechecks completed actions against their receipts and the passkeys' signed enrollment records. It also verifies the audit chain. This checks the original historical records, not whether today's live content still matches an earlier approval.
 
 Recorded times remain application claims, and an old assertion does not independently prove its historical revocation status. Deleting the newest audit entries cannot be detected without an independently retained checkpoint. A compromised application signing key can forge application reports or new enrollment records; it cannot recreate a passkey assertion under a separately trusted original user public key. Obtaining and retaining trusted verification keys is therefore part of the host's responsibility.
+
+## Signing keys and rotation
+
+Receipts and audit entries are checked against the application's trusted keys: every public key it has signed with, each with the window it signed in. A record names its key. A key the verifier was not given verifies nothing, and a record whose own time falls outside its key's window fails: a receipt's `recordedAt`, which it signs, or an entry's `at`. One current key signs new records. Rotating it adds the new key, closes the old key's window, and appends a `signing_key.rotated` entry, signed with the new key, so the chain records where trust moved. After that entry, the audit log refuses anything the old key signs, whatever time it claims. The bundle publishes the keys at `/approval/receipt-keys.json`; the [evidence guide](evidence.md#rotate-the-signing-key) gives the procedure.
+
+Rotation limits future exposure. It cannot stop someone who stole a key from backdating records into that key's window, because the times a record carries are the application's own claims:
+
+- **Receipts** are not in the chain, so a backdated receipt signed with a stolen key verifies. Only the key's window bounds it.
+- **Audit entries** must also fit the chain. Once a rotation is recorded, the old key cannot add an entry at its end. A backdated entry has to replace one from before the rotation, which breaks the chain at the next entry; `AuditLog::verify()`, which the audit page runs, reports it. `AuditLog::find()`, which passkey anchoring uses, checks each entry on its own and against recorded rotations, not the whole chain, so verify the chain after a suspected compromise.
+- **Cutting the chain back** to before the rotation and rewriting it from there is shown only by a checkpoint kept outside the application.
+
+So keep independent checkpoints of the audit head: its newest sequence and hash, where the application cannot write, on a schedule and after every rotation. `verified-human-approval:audit-head` prints one and checks a kept one; `AuditLog::head()` returns it without the bundle. If a key may have been exposed, follow the [compromise procedure](evidence.md#if-the-signing-key-is-compromised).
 
 ## Browser and account controls
 

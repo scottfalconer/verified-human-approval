@@ -78,7 +78,7 @@ php examples/mcp.php status REQUEST_ID
 
 Expect `status: completed`. The result also carries the site's signed `receipt`. Refresh [the public alerts page](http://localhost:8080/alerts) to see the approved alert.
 
-Back on the review page, **Download your receipt** saves your own copy: the exact request, your passkey's signature on it, what ran, and the site's receipt signed as it ran. The site publishes the key that checks it at [/approval/receipt-key.json](http://localhost:8080/approval/receipt-key.json). [Verify a receipt](../docs/evidence.md#try-it-with-the-demo) checks your copy against that key, then shows an edited copy failing.
+Back on the review page, **Download your receipt** saves your own copy: the exact request, your passkey's signature on it, what ran, and the site's receipt signed as it ran. The site publishes the keys that check it at [/approval/receipt-keys.json](http://localhost:8080/approval/receipt-keys.json). [Verify a receipt](../docs/evidence.md#try-it-with-the-demo) checks your copy against those keys, then shows an edited copy failing.
 
 To try a retry, repeat the original command with the same request key:
 
@@ -93,6 +93,8 @@ For this unchanged proposal, the command returns the existing request and result
 Sign out, sign in as `manager`, and open **Audit log**. Find the completed action. The page shows the requester, rule, outcome, receipt check, and passkey check. It rechecks completed records when you open it. The **Evidence** link downloads the record for independent verification.
 
 The application signs the receipt when the action commits. This lets a later verifier detect changes to the stored approval or execution record. See [Evidence and verification](../docs/evidence.md) for the trust keys, verification commands, and limits.
+
+To change the site's signing key, run `php demo/bin/console demo:rotate-receipt-key` while nobody is approving. The old key stays trusted for what it signed, so your downloaded receipt still checks against a freshly saved `/approval/receipt-keys.json`, and the audit log records the rotation. `php demo/bin/console verified-human-approval:audit-head` prints the log's newest entry, a checkpoint to keep elsewhere. See [Rotate the signing key](../docs/evidence.md#rotate-the-signing-key).
 
 These are the initial account rules:
 

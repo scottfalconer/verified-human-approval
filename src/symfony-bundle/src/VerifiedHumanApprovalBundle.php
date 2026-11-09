@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace VerifiedHumanApproval\Bundle;
 
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
-use Symfony\Component\Console\Command\Command;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
@@ -208,13 +207,11 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
         }
 
         // The signed audit log's console commands: print its head to keep as a checkpoint, and record a key rotation.
-        if (class_exists(Command::class)) {
-            $audit = null === $config['audit_log'] ? service(AuditLog::class)->nullOnInvalid() : service($config['audit_log']);
-            $services->set('verified_human_approval.audit_head_command', AuditHeadCommand::class)->args([$audit])
-                ->tag('console.command', ['command' => AuditHeadCommand::NAME, 'description' => 'Print the signed audit log\'s newest entry (sequence and hash) to keep outside the application, or check a kept one.']);
-            $services->set('verified_human_approval.record_key_rotation_command', RecordKeyRotationCommand::class)->args([$audit])
-                ->tag('console.command', ['command' => RecordKeyRotationCommand::NAME, 'description' => 'Record in the signed audit log that the signing key moved from an old key to the current receipt signer.']);
-        }
+        $audit = null === $config['audit_log'] ? service(AuditLog::class)->nullOnInvalid() : service($config['audit_log']);
+        $services->set('verified_human_approval.audit_head_command', AuditHeadCommand::class)->args([$audit])
+            ->tag('console.command', ['command' => AuditHeadCommand::NAME, 'description' => 'Print the signed audit log\'s newest entry (sequence and hash) to keep outside the application, or check a kept one.']);
+        $services->set('verified_human_approval.record_key_rotation_command', RecordKeyRotationCommand::class)->args([$audit])
+            ->tag('console.command', ['command' => RecordKeyRotationCommand::NAME, 'description' => 'Record in the signed audit log that the signing key moved from an old key to the current receipt signer.']);
 
         // The review pages. Public, because routes name it by service id.
         $services->set('verified_human_approval.approval_controller', ApprovalController::class)->public()->args([
