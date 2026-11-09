@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ title }} · Riverside Council emergency alerts</title>
     <link rel="stylesheet" href="{{ path('riverside_styles') }}">
+    <link rel="stylesheet" href="{{ asset('bundles/verifiedhumanapproval/badge.css') }}">
 </head>
-<body class="riverside">{% include 'public/_page.html.twig' with {title: title, body: body} only %}</body>
+<body class="riverside">
+{# Outside _page.html.twig, which is the approved layout itself: shown only while this page shows exactly what was approved. #}
+{% set verified = verified_human_approval_badge(request_id, alert_id, {title: title, body: body}) %}
+{% if verified %}<div class="vha-badge-bar">{{ verified }}</div>{% endif %}
+{% include 'public/_page.html.twig' with {title: title, body: body} only %}
+</body>
 </html>

@@ -204,6 +204,8 @@ final class DemoKernel extends Kernel
             // Each receipt is signed as the action commits, so a later edit to the record shows. The person can
             // download theirs from the completed page, and /approval/receipt-key.json publishes the key that checks it.
             'receipt_signer' => SodiumEvidenceSigner::class,
+            // A live alert links to the public record of its approval.
+            'public_verification' => true,
             'relying_party_id' => '%env(DEMO_RUNTIME_RP_ID)%',
             'attempts_per_minute' => '%env(int:DEMO_RUNTIME_APPROVAL_ATTEMPTS)%',
             // The framework's lock, which a multi-host deployment would back with a shared store.

@@ -22,11 +22,12 @@ final readonly class AlertPublisher
         $this->guard->assertExecuting($actor, $action);
         $query = $this->database->pdo->prepare(<<<'SQL'
 UPDATE demo_alerts
-SET published_revision = revision, published_title = ?, published_body = ?, mutation_count = mutation_count + 1
+SET published_revision = revision, published_title = ?, published_body = ?, mutation_count = mutation_count + 1, published_request_id = ?
 WHERE id = ? AND tenant_id = ? AND revision = ? AND title = ? AND body = ? AND published_revision IS ?
 SQL);
+        // The live alert names the approval it was issued under, so its page can show that, and link to the evidence.
         $query->execute([
-            $action->effect['title'], $action->effect['body'], $action->target['resource'], $actor->tenantId,
+            $action->effect['title'], $action->effect['body'], $this->guard->current()?->requestId, $action->target['resource'], $actor->tenantId,
             $action->preconditions['revision'], $action->effect['title'], $action->effect['body'], $action->preconditions['published_revision'],
         ]);
         if (1 !== $query->rowCount()) {

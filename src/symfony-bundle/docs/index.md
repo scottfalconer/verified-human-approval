@@ -193,6 +193,24 @@ Two hooks let the rest of your application follow an approved change:
 - **Link the change to its approval.** While your adapter's `execute()` runs, `ExecutionGuard::current()` returns the executing approval: its `requestId`, and whether a person approved it with a passkey (`userVerified()`) or a rule let it run. Write the request id onto the revision or record you create, in the same transaction, so a page can later show that this exact revision was approved, and link to the evidence.
 - **Work that must wait for the commit.** After the transaction commits, the bundle dispatches `VerifiedHumanApproval\Bundle\Event\ApprovalCompleted` with the completed state. Use it to purge caches, reindex or notify. Delivery is at least once, so make a listener tolerate a repeat. A listener that throws is logged and does not change the result the person sees. Services implementing `VerifiedHumanApproval\Core\ApprovalObserver` are registered automatically too.
 
+### Show that a change was approved
+
+To show readers that what a page shows was approved with a passkey, store the request id with the change your adapter makes (from `ExecutionGuard::current()`), then render the badge where the content appears:
+
+```twig
+<link rel="stylesheet" href="{{ asset('bundles/verifiedhumanapproval/badge.css') }}">
+{{ verified_human_approval_badge(article.approvalRequestId, article.id, {title: article.title, body: article.body}) }}
+```
+
+It renders "Approved with a passkey · date" only when all of these hold, and nothing otherwise:
+
+- the request completed and a person approved it with their passkey (a rule letting it run does not count);
+- it targets the resource you name;
+- each value you pass equals the approved value of the same name in the frozen effect, so content changed later by any other path loses the badge;
+- the receipt this site signed as the change committed still verifies against the published key, so a record edited afterwards loses it too.
+
+It needs `receipt_signer`. `verified_human_approval(...)` returns the same check's result, or null, if you draw your own badge. With `public_verification: true`, the badge links to `/approval/{id}/verified`, a page anyone with the link can open: what was approved, when, and the signed receipt (digests only). It names no account, tenant, agent connection or passkey, and an unknown request looks the same as one that doesn't verify.
+
 For history views, `PdoApprovalStore` also implements `VerifiedHumanApproval\Core\ApprovalHistory`: `forResource($tenantId, $resource)` lists the requests made about one target `resource`, newest first, including ones whose resource was later deleted. Decide who may see which history yourself.
 
 ## Stored receipts and later verification

@@ -369,6 +369,55 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame([[$id, 'user_verified', 1]], $heard, 'Heard once, after the alert was published.');
     }
 
+    public function testALiveAlertApprovedWithAPasskeySaysSoAndAnyoneCanCheckIt(): void
+    {
+        $id = $this->requestAction();
+        $browser = $this->browser('editor');
+        self::assertSame('completed', $this->approveWith($browser, $id, $this->enroll($browser))['status']);
+        $public = new KernelBrowser(new DemoKernel($this->runtime, 'test'), ['HTTP_HOST' => 'localhost:8080']);
+        $this->browsers[] = $public;
+
+        $badge = $public->request('GET', self::ORIGIN.'/alerts')->filter('.vha-badge');
+        self::assertCount(1, $badge, 'The live alert says it was approved with a passkey.');
+        self::assertStringStartsWith('Approved with a passkey · ', $badge->filter('span')->last()->text());
+        self::assertSame('/approval/'.$id.'/verified', $badge->attr('href'));
+
+        $page = $public->request('GET', self::ORIGIN.'/approval/'.$id.'/verified');
+        self::assertSame(200, $public->getResponse()->getStatusCode(), 'Anyone can open the record, without signing in.');
+        self::assertSame('Approved with a passkey', $page->filter('h1')->text());
+        self::assertStringContainsString('Evacuation order: Riverside Road area', $page->filter('.statement')->text());
+        $html = (string) $public->getResponse()->getContent();
+        $credential = (string) $this->database->pdo->query("SELECT json_extract(proof, '$.credentialId') FROM verified_human_approval_requests WHERE id = '".$id."'")->fetchColumn();
+        foreach (['campaigns', 'editor-personal', '"userId"', $credential] as $private) {
+            self::assertStringNotContainsString($private, $html, 'The public record names no account, tenant, connection or passkey.');
+        }
+
+        // Live text changed by any other path loses the badge; the original text gets it back.
+        $this->database->pdo->exec("UPDATE demo_alerts SET published_body = published_body || ' Edited live.'");
+        self::assertCount(0, $public->request('GET', self::ORIGIN.'/alerts')->filter('.vha-badge'));
+        $this->database->pdo->exec("UPDATE demo_alerts SET published_body = replace(published_body, ' Edited live.', '')");
+        self::assertCount(1, $public->request('GET', self::ORIGIN.'/alerts')->filter('.vha-badge'));
+
+        // A stored record edited afterwards no longer verifies, so neither the badge nor the page vouches for it.
+        $this->database->pdo->exec("UPDATE verified_human_approval_executions SET record = replace(record, '\"disposition\":\"published\"', '\"disposition\":\"edited\"') WHERE request_id = '".$id."'");
+        self::assertCount(0, $public->request('GET', self::ORIGIN.'/alerts')->filter('.vha-badge'));
+        $public->request('GET', self::ORIGIN.'/approval/'.$id.'/verified');
+        self::assertSame(404, $public->getResponse()->getStatusCode());
+    }
+
+    public function testAnAlertARuleLetRunHasNoPasskeyBadge(): void
+    {
+        $issued = $this->mcp('manager')->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
+        self::assertSame('completed', $issued->structuredContent['status'], 'The emergency manager issues directly.');
+        $public = new KernelBrowser(new DemoKernel($this->runtime, 'test'), ['HTTP_HOST' => 'localhost:8080']);
+        $this->browsers[] = $public;
+        $page = $public->request('GET', self::ORIGIN.'/alerts');
+        self::assertSame('Evacuation order: Riverside Road area', $page->filter('.rc-title')->text());
+        self::assertCount(0, $page->filter('.vha-badge'), 'Nobody approved it with a passkey, so the page does not say so.');
+        $public->request('GET', self::ORIGIN.'/approval/'.$issued->structuredContent['requestId'].'/verified');
+        self::assertSame(404, $public->getResponse()->getStatusCode());
+    }
+
     public function testDirectPublicationServiceCannotBypassTheApplicationGuard(): void
     {
         $publisher = new AlertPublisher($this->database, new ExecutionGuard());

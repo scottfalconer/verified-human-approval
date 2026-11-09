@@ -1,0 +1,32 @@
+{% extends '@VerifiedHumanApproval/base.html.twig' %}
+{% block title %}{{ approval ? 'Approved with a passkey' : 'Approval not verified' }}{% endblock %}
+{% block body %}
+{% if approval %}
+<section class="card verification-sheet">
+    <p class="eyebrow">Verified approval · {{ approval.application }}</p>
+    <h1>Approved with a passkey</h1>
+    <div class="done"><p class="notice outcome"><span><strong>{{ approval.title }}</strong> A person approved this exact change with their passkey, and this site signed a receipt as it took effect.</span></p></div>
+    <p class="statement">{{ approval.statement }}</p>
+    <dl>
+        <dt>Approved</dt><dd>{{ approval.approvedAt|date('j F Y, H:i:s T') }}</dd>
+        <dt>Took effect</dt><dd>{{ approval.committedAt|date('j F Y, H:i:s T') }}</dd>
+        <dt>Receipt</dt><dd>Signed as the change committed, and it verifies against this site’s <a href="{{ path('verified_human_approval_receipt_key') }}">published key</a> (<code>{{ approval.keyId }}</code>).</dd>
+    </dl>
+</section>
+<section class="card">
+    <h2>What this shows, and what it doesn’t</h2>
+    <p>The person who asked approved this exact statement and content with the passkey enrolled for their account, which their device unlocks with a fingerprint, face, PIN or similar. The change ran once, and the site signed its receipt as the change committed. A page shows this badge only while it shows exactly the approved content.</p>
+    <p class="muted">This page does not name the person. It shows the signed receipt, which holds only digests; the person who approved keeps the full record, which anyone can check against the same key.</p>
+    <details><summary>The signed receipt</summary>
+        <pre>{{ approval.manifest }}</pre>
+        <p class="small">Signature <code>{{ approval.signature }}</code></p>
+    </details>
+</section>
+<p class="muted small">Request <code>{{ approval.requestId }}</code></p>
+{% else %}
+<section class="card">
+    <h1>This approval can’t be verified here</h1>
+    <p class="muted">There is no approval with a passkey on record for this link, or its record no longer verifies.</p>
+</section>
+{% endif %}
+{% endblock %}
