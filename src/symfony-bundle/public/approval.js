@@ -2,6 +2,47 @@
 const decode = value => Uint8Array.from(atob(value.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
 const encode = value => btoa(String.fromCharCode(...new Uint8Array(value))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
+/**
+ * What this script says, in English. A page hands over its own wording, such as the site's translation, as a JSON
+ * object of these keys in data-messages on the passkey panel and on the return panel. Whatever it leaves out, or
+ * gives as anything but text, stays as it is here.
+ */
+const ENGLISH = {
+    waiting: 'Waiting for your device…',
+    unsupported: 'Passkeys need a supported browser on HTTPS (or localhost).',
+    approvalCancelled: 'Approval cancelled. Nothing was executed.',
+    sending: 'Sending your passkey response to the site…',
+    registered: 'Passkey registered.',
+    loading: 'Loading the result…',
+    deviceCancelled: 'The device request was cancelled or timed out. Nothing was approved.',
+    noAnswer: 'The site did not answer, so nothing changed. Try again.',
+    failed: 'This request could not be completed. Reload the page and try again.',
+    // What a dropped connection means depends on how far the call got. Before the passkey response is sent, nothing
+    // can have been approved; after it, only the site knows, and this page does not guess.
+    unconfirmedApproval: 'The connection dropped before the site answered, so we can’t confirm whether your approval was saved. Reload this page to see where the request stands.',
+    unconfirmedRegistration: 'The connection dropped before the site answered, so we can’t confirm whether your passkey was registered. Reload this page to check.',
+    unconfirmedConfirm: 'The connection dropped before the site answered, so your confirmation may not have been saved. Reload this page and try again.',
+    requestCancelled: 'Request cancelled. Nothing was executed.',
+    cancelUnconfirmed: 'The connection dropped before the site answered, so we can’t confirm whether the request was cancelled. Reload this page to see where it stands.',
+    returnApp: 'Claude already shows the result. This tab can be closed.',
+    returnHandoff: 'Done. Claude on your computer already shows the result.',
+    returnTab: 'Switch back to your Claude tab: it already shows the result.',
+};
+
+function messages(element) {
+    const text = {...ENGLISH};
+    let given = null;
+    try {
+        given = JSON.parse(element?.dataset.messages ?? 'null');
+    } catch {
+        // Unreadable wording leaves the English in place.
+    }
+    for (const key of Object.keys(ENGLISH)) {
+        if (typeof given?.[key] === 'string' && given[key] !== '') text[key] = given[key];
+    }
+    return text;
+}
+
 function publicKeyOptions(options, registration) {
     const result = {...options, challenge: decode(options.challenge)};
     if (registration) {
@@ -40,7 +81,7 @@ class Refusal extends Error {
     }
 }
 
-async function post(url, csrf, body = {}) {
+async function post(url, csrf, body = {}, failed = ENGLISH.failed) {
     let response, value;
     try {
         response = await fetch(url, {
@@ -57,7 +98,7 @@ async function post(url, csrf, body = {}) {
         // Only the site's own refusal is definite. Any other error, such as a gateway's or a server error, means
         // the site's answer was lost on the way: the call may still have taken effect.
         const refused = response.status < 500 && ['rejected', 'rate_limited'].includes(value?.status) && value.reason !== 'execution_uncertain';
-        throw new Refusal(value?.message ?? 'This request could not be completed. Reload the page and try again.', {
+        throw new Refusal(value?.message ?? failed, {
             uncertain: !refused,
             requestStatus: value?.request_status ?? null,
         });
@@ -65,18 +106,12 @@ async function post(url, csrf, body = {}) {
     return value;
 }
 
-// What a dropped connection means depends on how far the call got. Before the passkey response is sent, nothing
-// can have been approved; after it, only the site knows, and this page does not guess.
-const UNCONFIRMED = {
-    approval: 'The connection dropped before the site answered, so we can’t confirm whether your approval was saved. Reload this page to see where the request stands.',
-    registration: 'The connection dropped before the site answered, so we can’t confirm whether your passkey was registered. Reload this page to check.',
-    confirm: 'The connection dropped before the site answered, so your confirmation may not have been saved. Reload this page and try again.',
-};
-
 for (const panel of document.querySelectorAll('[data-passkey-panel]')) {
     const button = panel.querySelector('[data-approve]');
     const message = panel.querySelector('[data-message]');
     const mode = panel.dataset.mode;
+    const text = messages(panel);
+    const unconfirmed = {approval: text.unconfirmedApproval, registration: text.unconfirmedRegistration, confirm: text.unconfirmedConfirm};
     // A request that finished or stopped is shown as the site renders it, with no button that can no longer work.
     // The outcome is at the top of the page, so the reloaded page starts there rather than where the button was.
     const showFinalState = () => {
@@ -85,29 +120,29 @@ for (const panel of document.querySelectorAll('[data-passkey-panel]')) {
     };
     button?.addEventListener('click', async () => {
         button.disabled = true;
-        message.textContent = 'Waiting for your device…';
+        message.textContent = text.waiting;
         let sent = false;
         try {
-            if (!window.PublicKeyCredential || !window.isSecureContext) throw new Error('Passkeys need a supported browser on HTTPS (or localhost).');
+            if (!window.PublicKeyCredential || !window.isSecureContext) throw new Error(text.unsupported);
             const registration = mode === 'registration';
-            const ceremony = await post(panel.dataset.optionsUrl, panel.dataset.csrf);
+            const ceremony = await post(panel.dataset.optionsUrl, panel.dataset.csrf, {}, text.failed);
             const options = {publicKey: publicKeyOptions(ceremony.publicKey, registration)};
             const credential = registration ? await navigator.credentials.create(options) : await navigator.credentials.get(options);
-            if (!credential) throw new Error('Approval cancelled. Nothing was executed.');
-            message.textContent = 'Sending your passkey response to the site…';
+            if (!credential) throw new Error(text.approvalCancelled);
+            message.textContent = text.sending;
             sent = true;
             const result = await post(panel.dataset.completeUrl, panel.dataset.csrf, {
                 ceremony_id: ceremony.ceremony_id,
                 credential: serializeCredential(credential),
-            });
-            message.textContent = result.message ?? (registration ? 'Passkey registered.' : 'Loading the result…');
+            }, text.failed);
+            message.textContent = result.message ?? (registration ? text.registered : text.loading);
             return showFinalState();
         } catch (error) {
             if (error.requestStatus && error.requestStatus !== 'pending') return showFinalState();
             message.textContent = error.name === 'NotAllowedError'
-                ? 'The device request was cancelled or timed out. Nothing was approved.'
+                ? text.deviceCancelled
                 : error.uncertain
-                    ? (sent ? UNCONFIRMED[mode] ?? UNCONFIRMED.approval : 'The site did not answer, so nothing changed. Try again.')
+                    ? (sent ? (Object.hasOwn(unconfirmed, mode) ? unconfirmed[mode] : unconfirmed.approval) : text.noAnswer)
                     : error.message;
         }
         button.disabled = false;
@@ -115,15 +150,13 @@ for (const panel of document.querySelectorAll('[data-passkey-panel]')) {
     panel.querySelector('[data-cancel]')?.addEventListener('click', async event => {
         event.target.disabled = true;
         try {
-            const result = await post(panel.dataset.cancelUrl, panel.dataset.csrf);
+            const result = await post(panel.dataset.cancelUrl, panel.dataset.csrf, {}, text.failed);
             // The request may have finished first, on another device: then the reloaded page says so.
-            message.textContent = result.status === 'cancelled' ? 'Request cancelled. Nothing was executed.' : 'Loading the result…';
+            message.textContent = result.status === 'cancelled' ? text.requestCancelled : text.loading;
             return showFinalState();
         } catch (error) {
             if (error.requestStatus && error.requestStatus !== 'pending') return showFinalState();
-            message.textContent = error.uncertain
-                ? 'The connection dropped before the site answered, so we can’t confirm whether the request was cancelled. Reload this page to see where it stands.'
-                : error.message;
+            message.textContent = error.uncertain ? text.cancelUnconfirmed : error.message;
             event.target.disabled = false;
         }
     });
@@ -134,19 +167,20 @@ for (const panel of document.querySelectorAll('[data-passkey-panel]')) {
 const back = new URLSearchParams(location.hash.slice(1)).get('return');
 const returnPanel = document.querySelector('[data-return]');
 if (returnPanel && back) {
+    const text = messages(returnPanel);
     const app = returnPanel.querySelector('[data-return-app]');
     const tab = returnPanel.querySelector('[data-return-tab]');
     const hint = document.querySelector('[data-return-hint]');
     if (back === 'claude-desktop' || back === 'claude-mobile') {
         returnPanel.hidden = false; app.hidden = false;
-        if (hint) hint.textContent = 'Claude already shows the result. This tab can be closed.';
+        if (hint) hint.textContent = text.returnApp;
     } else if (back === 'handoff') {
-        if (hint) hint.textContent = 'Done. Claude on your computer already shows the result.';
+        if (hint) hint.textContent = text.returnHandoff;
     } else if (back === 'claude-web') {
         returnPanel.hidden = false; tab.hidden = false;
         tab.addEventListener('click', () => {
             window.close();
-            setTimeout(() => { if (hint) hint.textContent = 'Switch back to your Claude tab: it already shows the result.'; }, 300);
+            setTimeout(() => { if (hint) hint.textContent = text.returnTab; }, 300);
         });
     }
 }

@@ -1,0 +1,358 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The review pages' wording, in the VerifiedHumanApproval domain. Each source is the English text itself, so the
+    pages read the same in an application without a translator. To translate them, add a catalogue for your locale
+    to your application, such as translations/VerifiedHumanApproval.fr.xlf, with these sources; to reword the
+    English, add translations/VerifiedHumanApproval.en.xlf there. Keep placeholders such as %agent% as they are.
+-->
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+    <file source-language="en" target-language="en" datatype="plaintext" original="VerifiedHumanApproval.en.xlf">
+        <body>
+            <trans-unit id="layout.language">
+                <source>en</source>
+                <target>en</target>
+                <note>The language of these pages, for the page's lang attribute. A translation gives its own language tag, such as fr.</note>
+            </trans-unit>
+            <trans-unit id="layout.title">
+                <source>Approval</source>
+                <target>Approval</target>
+                <note>The page title and site name when your layout does not set them.</note>
+            </trans-unit>
+            <trans-unit id="layout.footer">
+                <source>The application checks current permissions and the stored proposal before it executes.</source>
+                <target>The application checks current permissions and the stored proposal before it executes.</target>
+            </trans-unit>
+
+            <trans-unit id="review.title">
+                <source>Review this action</source>
+                <target>Review this action</target>
+            </trans-unit>
+            <trans-unit id="review.application">
+                <source>This application</source>
+                <target>This application</target>
+                <note>Stands in for the application's name when the request does not give one.</note>
+            </trans-unit>
+            <trans-unit id="review.standing.pending">
+                <source>Approval requested</source>
+                <target>Approval requested</target>
+                <note>Where the request stands, shown above its title.</note>
+            </trans-unit>
+            <trans-unit id="review.standing.approved">
+                <source>Approved</source>
+                <target>Approved</target>
+            </trans-unit>
+            <trans-unit id="review.standing.completed">
+                <source>Completed</source>
+                <target>Completed</target>
+                <note>A request that ran without a passkey, because the application's rule did not require one.</note>
+            </trans-unit>
+            <trans-unit id="review.standing.cancelled">
+                <source>Cancelled</source>
+                <target>Cancelled</target>
+            </trans-unit>
+            <trans-unit id="review.standing.expired">
+                <source>Expired</source>
+                <target>Expired</target>
+            </trans-unit>
+            <trans-unit id="review.standing.blocked">
+                <source>Blocked</source>
+                <target>Blocked</target>
+            </trans-unit>
+            <trans-unit id="review.heading">
+                <source>Review this exact action</source>
+                <target>Review this exact action</target>
+                <note>The heading when the action gives no title.</note>
+            </trans-unit>
+            <trans-unit id="review.requester.agent">
+                <source>Agent request</source>
+                <target>Agent request</target>
+            </trans-unit>
+            <trans-unit id="review.requester.person">
+                <source>Your request</source>
+                <target>Your request</target>
+            </trans-unit>
+            <trans-unit id="review.requested_by">
+                <source>Requested by %requester%.</source>
+                <target>Requested by %requester%.</target>
+                <note>%requester% is the application's RequesterLabel, or one of the two phrases that follow.</note>
+            </trans-unit>
+            <trans-unit id="review.requested_by.agent">
+                <source>an agent connected to your account</source>
+                <target>an agent connected to your account</target>
+            </trans-unit>
+            <trans-unit id="review.requested_by.person">
+                <source>you, on this site</source>
+                <target>you, on this site</target>
+            </trans-unit>
+            <trans-unit id="review.completed.approved">
+                <source>Approved with your passkey.</source>
+                <target>Approved with your passkey.</target>
+                <note>Shown in bold, followed by the next message.</note>
+            </trans-unit>
+            <trans-unit id="review.completed.approved_detail">
+                <source>This request is completed.</source>
+                <target>This request is completed.</target>
+            </trans-unit>
+            <trans-unit id="review.completed.direct">
+                <source>Completed without a passkey:</source>
+                <target>Completed without a passkey:</target>
+                <note>Shown in bold, followed by the next message, which completes the sentence.</note>
+            </trans-unit>
+            <trans-unit id="review.completed.direct_detail">
+                <source>the application's rule did not require one for this request.</source>
+                <target>the application's rule did not require one for this request.</target>
+            </trans-unit>
+            <trans-unit id="review.back">
+                <source>Back to %application%</source>
+                <target>Back to %application%</target>
+                <note>Leads back to the page on the site where the person made the request.</note>
+            </trans-unit>
+            <trans-unit id="review.back.agent_app">
+                <source>Back to %agent%</source>
+                <target>Back to %agent%</target>
+                <note>Opens the agent's desktop or mobile app. %agent% is the bundle's agent_name.</note>
+            </trans-unit>
+            <trans-unit id="review.back.agent_tab">
+                <source>Back to your %agent% tab</source>
+                <target>Back to your %agent% tab</target>
+            </trans-unit>
+            <trans-unit id="review.back.hint">
+                <source>You can close this tab and return to %agent%.</source>
+                <target>You can close this tab and return to %agent%.</target>
+            </trans-unit>
+            <trans-unit id="review.stopped.cancelled">
+                <source>Cancelled: nothing changed.</source>
+                <target>Cancelled: nothing changed.</target>
+            </trans-unit>
+            <trans-unit id="review.stopped.cancelled_detail">
+                <source>This request was cancelled.</source>
+                <target>This request was cancelled.</target>
+            </trans-unit>
+            <trans-unit id="review.stopped.expired">
+                <source>Expired: nothing changed.</source>
+                <target>Expired: nothing changed.</target>
+            </trans-unit>
+            <trans-unit id="review.stopped.expired_detail">
+                <source>This request expired before it was approved.</source>
+                <target>This request expired before it was approved.</target>
+            </trans-unit>
+            <trans-unit id="review.stopped.blocked">
+                <source>Blocked: nothing changed.</source>
+                <target>Blocked: nothing changed.</target>
+            </trans-unit>
+            <trans-unit id="review.stopped.invalidated_detail">
+                <source>This request can no longer be approved: something it depends on changed after it was made.</source>
+                <target>This request can no longer be approved: something it depends on changed after it was made.</target>
+            </trans-unit>
+            <trans-unit id="review.stopped.denied_detail">
+                <source>This account is no longer allowed to do this.</source>
+                <target>This account is no longer allowed to do this.</target>
+            </trans-unit>
+            <trans-unit id="review.stopped.other">
+                <source>Stopped: nothing changed.</source>
+                <target>Stopped: nothing changed.</target>
+            </trans-unit>
+            <trans-unit id="review.stopped.other_detail">
+                <source>This request stopped.</source>
+                <target>This request stopped.</target>
+            </trans-unit>
+            <trans-unit id="review.stopped.reason">
+                <source>Reason: %reason%.</source>
+                <target>Reason: %reason%.</target>
+                <note>%reason% is a code, such as stale_resource, for whoever looks into it.</note>
+            </trans-unit>
+            <trans-unit id="review.preview.approved">
+                <source>What you approved</source>
+                <target>What you approved</target>
+            </trans-unit>
+            <trans-unit id="review.preview.ran">
+                <source>What ran</source>
+                <target>What ran</target>
+            </trans-unit>
+            <trans-unit id="review.preview.pending">
+                <source>What you are approving</source>
+                <target>What you are approving</target>
+            </trans-unit>
+            <trans-unit id="review.preview.requested">
+                <source>What was requested</source>
+                <target>What was requested</target>
+            </trans-unit>
+            <trans-unit id="review.approve">
+                <source>Approve with your passkey</source>
+                <target>Approve with your passkey</target>
+            </trans-unit>
+            <trans-unit id="review.cancel">
+                <source>Cancel request</source>
+                <target>Cancel request</target>
+            </trans-unit>
+            <trans-unit id="review.terms">
+                <source>Only this exact proposal runs, once. A changed draft, a revoked permission or an expired request stops it.</source>
+                <target>Only this exact proposal runs, once. A changed draft, a revoked permission or an expired request stops it.</target>
+            </trans-unit>
+            <trans-unit id="review.expires_at">
+                <source>Expires %time%.</source>
+                <target>Expires %time%.</target>
+                <note>%time% is the time of day the request expires, such as 14:05 UTC.</note>
+            </trans-unit>
+            <trans-unit id="review.receipt.scoped">
+                <source>Download your receipt from this request’s page in your signed-in browser.</source>
+                <target>Download your receipt from this request’s page in your signed-in browser.</target>
+                <note>Shown on a phone opened with a one-time code, which cannot download the receipt.</note>
+            </trans-unit>
+            <trans-unit id="review.receipt.download">
+                <source>Download your receipt</source>
+                <target>Download your receipt</target>
+            </trans-unit>
+            <trans-unit id="review.receipt.contents_with_passkey">
+                <source>Your copy of this exact request, your passkey’s signature on it, and what ran, signed by this site as it ran.</source>
+                <target>Your copy of this exact request, your passkey’s signature on it, and what ran, signed by this site as it ran.</target>
+            </trans-unit>
+            <trans-unit id="review.receipt.contents">
+                <source>Your copy of this exact request and what ran, signed by this site as it ran.</source>
+                <target>Your copy of this exact request and what ran, signed by this site as it ran.</target>
+                <note>For a request that ran without a passkey.</note>
+            </trans-unit>
+            <trans-unit id="review.receipt.keep">
+                <source>Keep it: if the site’s record were changed later, your copy would show it.</source>
+                <target>Keep it: if the site’s record were changed later, your copy would show it.</target>
+            </trans-unit>
+            <trans-unit id="review.receipt.check">
+                <source>Anyone can check it against the site’s %published_key%.</source>
+                <target>Anyone can check it against the site’s %published_key%.</target>
+                <note>%published_key% becomes a link whose text is the next message.</note>
+            </trans-unit>
+            <trans-unit id="review.receipt.key">
+                <source>published key</source>
+                <target>published key</target>
+            </trans-unit>
+            <trans-unit id="review.receipt.none">
+                <source>This site has no receipt recorded for this request.</source>
+                <target>This site has no receipt recorded for this request.</target>
+            </trans-unit>
+            <trans-unit id="review.details">
+                <source>Details and everything this approval is bound to</source>
+                <target>Details and everything this approval is bound to</target>
+            </trans-unit>
+            <trans-unit id="review.details.application">
+                <source>Application</source>
+                <target>Application</target>
+            </trans-unit>
+            <trans-unit id="review.details.environment">
+                <source>Environment</source>
+                <target>Environment</target>
+            </trans-unit>
+            <trans-unit id="review.details.unspecified">
+                <source>Not specified</source>
+                <target>Not specified</target>
+            </trans-unit>
+            <trans-unit id="review.details.resource">
+                <source>Resource</source>
+                <target>Resource</target>
+            </trans-unit>
+            <trans-unit id="review.details.status">
+                <source>Status</source>
+                <target>Status</target>
+            </trans-unit>
+            <trans-unit id="review.details.expires">
+                <source>Expires</source>
+                <target>Expires</target>
+            </trans-unit>
+            <trans-unit id="review.request">
+                <source>Request</source>
+                <target>Request</target>
+                <note>Labels the request's identifier at the foot of the page.</note>
+            </trans-unit>
+
+            <trans-unit id="script.waiting">
+                <source>Waiting for your device…</source>
+                <target>Waiting for your device…</target>
+                <note>This and the next messages are shown by approval.js as the passkey step runs.</note>
+            </trans-unit>
+            <trans-unit id="script.unsupported">
+                <source>Passkeys need a supported browser on HTTPS (or localhost).</source>
+                <target>Passkeys need a supported browser on HTTPS (or localhost).</target>
+            </trans-unit>
+            <trans-unit id="script.approval_cancelled">
+                <source>Approval cancelled. Nothing was executed.</source>
+                <target>Approval cancelled. Nothing was executed.</target>
+            </trans-unit>
+            <trans-unit id="script.sending">
+                <source>Sending your passkey response to the site…</source>
+                <target>Sending your passkey response to the site…</target>
+            </trans-unit>
+            <trans-unit id="script.loading">
+                <source>Loading the result…</source>
+                <target>Loading the result…</target>
+            </trans-unit>
+            <trans-unit id="script.device_cancelled">
+                <source>The device request was cancelled or timed out. Nothing was approved.</source>
+                <target>The device request was cancelled or timed out. Nothing was approved.</target>
+            </trans-unit>
+            <trans-unit id="script.no_answer">
+                <source>The site did not answer, so nothing changed. Try again.</source>
+                <target>The site did not answer, so nothing changed. Try again.</target>
+                <note>The connection dropped before the passkey response was sent, so nothing can have been approved.</note>
+            </trans-unit>
+            <trans-unit id="script.failed">
+                <source>This request could not be completed. Reload the page and try again.</source>
+                <target>This request could not be completed. Reload the page and try again.</target>
+            </trans-unit>
+            <trans-unit id="script.unconfirmed">
+                <source>The connection dropped before the site answered, so we can’t confirm whether your approval was saved. Reload this page to see where the request stands.</source>
+                <target>The connection dropped before the site answered, so we can’t confirm whether your approval was saved. Reload this page to see where the request stands.</target>
+                <note>The passkey response was sent and the answer was lost: only the site knows the outcome, so this must not claim success or failure.</note>
+            </trans-unit>
+            <trans-unit id="script.request_cancelled">
+                <source>Request cancelled. Nothing was executed.</source>
+                <target>Request cancelled. Nothing was executed.</target>
+            </trans-unit>
+            <trans-unit id="script.cancel_unconfirmed">
+                <source>The connection dropped before the site answered, so we can’t confirm whether the request was cancelled. Reload this page to see where it stands.</source>
+                <target>The connection dropped before the site answered, so we can’t confirm whether the request was cancelled. Reload this page to see where it stands.</target>
+            </trans-unit>
+            <trans-unit id="script.return.app">
+                <source>%agent% already shows the result. This tab can be closed.</source>
+                <target>%agent% already shows the result. This tab can be closed.</target>
+                <note>Shown after approval when the person came from the agent's desktop or mobile app.</note>
+            </trans-unit>
+            <trans-unit id="script.return.handoff">
+                <source>Done. %agent% on your computer already shows the result.</source>
+                <target>Done. %agent% on your computer already shows the result.</target>
+                <note>Shown on a phone that opened the approval with a one-time code from the computer.</note>
+            </trans-unit>
+            <trans-unit id="script.return.tab">
+                <source>Switch back to your %agent% tab: it already shows the result.</source>
+                <target>Switch back to your %agent% tab: it already shows the result.</target>
+            </trans-unit>
+
+            <trans-unit id="handoff.title">
+                <source>Open the approval</source>
+                <target>Open the approval</target>
+            </trans-unit>
+            <trans-unit id="handoff.heading">
+                <source>Open the approval on this phone</source>
+                <target>Open the approval on this phone</target>
+            </trans-unit>
+            <trans-unit id="handoff.explanation">
+                <source>This one-time code opens a single request for you to review. Approving still takes your passkey.</source>
+                <target>This one-time code opens a single request for you to review. Approving still takes your passkey.</target>
+            </trans-unit>
+            <trans-unit id="handoff.continue">
+                <source>Continue</source>
+                <target>Continue</target>
+            </trans-unit>
+            <trans-unit id="handoff.expired.title">
+                <source>Link expired</source>
+                <target>Link expired</target>
+            </trans-unit>
+            <trans-unit id="handoff.expired.heading">
+                <source>This code has already been used or has expired</source>
+                <target>This code has already been used or has expired</target>
+            </trans-unit>
+            <trans-unit id="handoff.expired.explanation">
+                <source>Each phone code works once, for two minutes. Show a new code in %agent% and scan it again.</source>
+                <target>Each phone code works once, for two minutes. Show a new code in %agent% and scan it again.</target>
+            </trans-unit>
+        </body>
+    </file>
+</xliff>

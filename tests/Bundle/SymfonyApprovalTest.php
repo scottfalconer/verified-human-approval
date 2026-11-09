@@ -302,7 +302,12 @@ final class SymfonyApprovalTest extends TestCase
         foreach (['/', '/account/passkeys', '/admin/audit', '/admin/approval-policy'] as $path) {
             $browser->request('GET', self::ORIGIN.$path);
             self::assertSame(200, $browser->getResponse()->getStatusCode(), $path);
-            self::assertStringContainsString("frame-ancestors 'none'", (string) $browser->getResponse()->headers->get('Content-Security-Policy'), $path.' opts in to the review pages’ headers.');
+            // The demo adds no sources: the policy is the strict default, with only this response's nonce in it.
+            self::assertMatchesRegularExpression(
+                "/^default-src 'self'; script-src 'self' 'nonce-([A-Za-z0-9_-]{24})'; style-src 'self' 'nonce-\\1'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'; object-src 'none'$/D",
+                (string) $browser->getResponse()->headers->get('Content-Security-Policy'),
+                $path.' opts in to the review pages’ headers.',
+            );
             self::assertStringContainsString('no-store', (string) $browser->getResponse()->headers->get('Cache-Control'), $path);
         }
         $browser->request('GET', self::ORIGIN.'/alerts');

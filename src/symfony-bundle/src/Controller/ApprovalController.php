@@ -44,6 +44,8 @@ final readonly class ApprovalController
         private ?RequesterLabel $requesters = null,
         private ?EvidenceExporter $receipts = null,
         private ?ReceiptKey $receiptKey = null,
+        // What the pages call the agent's app when they send the person back to it.
+        private string $agentName = 'Claude',
     ) {
     }
 
@@ -67,6 +69,7 @@ final readonly class ApprovalController
             'receipts' => null !== $this->receipts,
             // Where a request made on this site came from, so the finished page can lead back there.
             'return_path' => self::localPath($request->query->get('return')),
+            'agent_name' => $this->agentName,
         ]));
     }
 
@@ -195,11 +198,12 @@ final readonly class ApprovalController
     public function handoff(Request $request, string $token): Response
     {
         if (null === $this->handoff || !$this->handoff->peek($token)) {
-            return new Response($this->twig->render('@VerifiedHumanApproval/handoff_expired.html.twig'), 410);
+            return $this->handoffExpired();
         }
 
         return new Response($this->twig->render('@VerifiedHumanApproval/handoff_continue.html.twig', [
             'csrf' => $this->csrf->getToken('verified_human_approval.handoff')->getValue(),
+            'agent_name' => $this->agentName,
         ]));
     }
 
@@ -207,16 +211,22 @@ final readonly class ApprovalController
     public function handoffContinue(Request $request, string $token): Response
     {
         if (!$this->csrf->isTokenValid(new CsrfToken('verified_human_approval.handoff', (string) $request->request->get('_token', '')))) {
-            return new Response($this->twig->render('@VerifiedHumanApproval/handoff_expired.html.twig'), 410);
+            return $this->handoffExpired();
         }
         $id = $this->handoff?->redeem($token, $request->getSession());
         if (null === $id) {
-            return new Response($this->twig->render('@VerifiedHumanApproval/handoff_expired.html.twig'), 410);
+            return $this->handoffExpired();
         }
 
         $review = $this->urls?->generate('verified_human_approval_review', ['id' => $id]) ?? '/approval/'.rawurlencode($id);
 
         return new RedirectResponse($review.'#return=handoff', 303);
+    }
+
+    /** A phone code that was used, expired or never existed: the person is told to show a new one. */
+    private function handoffExpired(): Response
+    {
+        return new Response($this->twig->render('@VerifiedHumanApproval/handoff_expired.html.twig', ['agent_name' => $this->agentName]), 410);
     }
 
     /** The person reviewing: a phone session scoped to this request, or the signed-in person. */

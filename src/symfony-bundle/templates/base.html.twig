@@ -1,18 +1,21 @@
+{% trans_default_domain 'VerifiedHumanApproval' %}
 <!doctype html>
-<html lang="en">
+{# The catalogue names its own language, so a translation of these pages declares its language too. #}
+<html lang="{{ 'en'|trans }}">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}Approval{% endblock %}</title>
+    <title>{% block title %}{{ 'Approval'|trans }}{% endblock %}</title>
     {# Published by assets:install from the bundle's public/ directory. #}
     <link rel="stylesheet" href="{{ asset('bundles/verifiedhumanapproval/approval.css') }}">
+    {# Your own styles and scripts. An inline one runs when it carries verified_human_approval_csp_nonce(). #}
     {% block stylesheets %}{% endblock %}
     <script type="module" src="{{ asset('bundles/verifiedhumanapproval/approval.js') }}"></script>
 </head>
 <body>
 {# Override this template, or its blocks, to put the review pages in your own layout. #}
-{% block header %}<header><a href="/">{% block site_name %}Approval{% endblock %}</a></header>{% endblock %}
+{% block header %}<header><a href="/">{% block site_name %}{{ 'Approval'|trans }}{% endblock %}</a></header>{% endblock %}
 <main>{% block body %}{% endblock %}</main>
-{% block footer %}<footer>The application checks current permissions and the stored proposal before it executes.</footer>{% endblock %}
+{% block footer %}<footer>{{ 'The application checks current permissions and the stored proposal before it executes.'|trans }}</footer>{% endblock %}
 </body>
 </html>

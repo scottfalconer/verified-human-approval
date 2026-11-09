@@ -16,6 +16,7 @@ use VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool;
 use VerifiedHumanApproval\Bundle\Security\ReviewRequestMatcher;
+use VerifiedHumanApproval\Bundle\Twig\ContentSecurityPolicyExtension;
 use VerifiedHumanApproval\Core\ActionAdapter;
 use VerifiedHumanApproval\Core\ActionRegistry;
 use VerifiedHumanApproval\Core\ApprovalObserver;
@@ -43,7 +44,8 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
 
     public function configure(DefinitionConfigurator $definition): void
     {
-        $definition->rootNode()->children()
+        $root = $definition->rootNode();
+        $root->children()
             ->scalarNode('public_origin')->isRequired()->cannotBeEmpty()
                 ->info('The origin people reach the application at, such as https://app.example.com. Review links are built from it, never from request headers.')->end()
             ->scalarNode('actor_provider')->isRequired()->cannotBeEmpty()->info('Service id of your VerifiedHumanApproval\\Bundle\\ActorProvider.')->end()
@@ -76,7 +78,27 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
                     ->end()
                 ->end()
             ->end()
+            ->stringNode('agent_name')->defaultValue('Claude')->cannotBeEmpty()
+                ->info('What the review pages call the agent\'s app when they send the person back to it, as in "return to Claude". Only requests an agent made say it.')->end()
         ->end();
+
+        // Checked here, as the container is built, so a policy that would let injected script run never ships.
+        $sources = $root->children()->arrayNode('content_security_policy')
+            ->info('Sources the review pages\' Content-Security-Policy adds for your own layout: \'self\', https:// origins, and data: for images and fonts. Anything else, such as \'unsafe-inline\', \'unsafe-eval\', * or http:, is refused. An inline script or style takes the nonce instead: verified_human_approval_csp_nonce() in Twig.')
+            ->addDefaultsIfNotSet()
+            ->children();
+        foreach (ContentSecurityPolicy::DIRECTIVES as $key => $directive) {
+            $sources->arrayNode($key)
+                ->info(\sprintf('Added to %s, such as https://cdn.example.com.', $directive))
+                ->beforeNormalization()->ifString()->then(static fn (string $source): array => [$source])->end()
+                ->scalarPrototype()
+                    ->validate()
+                        ->ifTrue(static fn (mixed $source): bool => null !== ContentSecurityPolicy::refusal($directive, $source))
+                        ->then(static fn (mixed $source): never => throw new \InvalidArgumentException((string) ContentSecurityPolicy::refusal($directive, $source)))
+                    ->end()
+                ->end()
+            ->end();
+        }
     }
 
     /**
@@ -174,6 +196,7 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             null === $config['requester_label'] ? service(RequesterLabel::class)->nullOnInvalid() : service($config['requester_label']),
             null === $config['receipt_signer'] ? null : service('verified_human_approval.evidence_exporter'),
             null === $config['receipt_signer'] ? null : service('verified_human_approval.receipt_key'),
+            $config['agent_name'],
         ]);
 
         // MCP elements, tagged here because the MCP bundle's attribute autoconfiguration does not reach a
@@ -186,7 +209,16 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             ->tag('mcp.tool', ['method' => 'handoff']);
         $services->set('verified_human_approval.card_app', ApprovalCardApp::class)->tag('mcp.app');
 
-        $services->set('verified_human_approval.security_headers', SecurityHeadersSubscriber::class)->tag('kernel.event_subscriber');
+        // The review pages' headers, and their policy's nonce for your layout's templates.
+        $services->set('verified_human_approval.content_security_policy', ContentSecurityPolicy::class)
+            ->args([$config['content_security_policy']]);
+        $services->alias(ContentSecurityPolicy::class, 'verified_human_approval.content_security_policy');
+        $services->set('verified_human_approval.security_headers', SecurityHeadersSubscriber::class)
+            ->args([service('verified_human_approval.content_security_policy')])
+            ->tag('kernel.event_subscriber');
+        $services->set('verified_human_approval.twig.content_security_policy', ContentSecurityPolicyExtension::class)
+            ->args([service('verified_human_approval.content_security_policy'), service('request_stack')])
+            ->tag('twig.extension');
         // For access_control: the review pages open without a sign-in; their controller checks who is reviewing.
         $services->set('verified_human_approval.review_request_matcher', ReviewRequestMatcher::class);
     }
