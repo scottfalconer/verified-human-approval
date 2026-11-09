@@ -1,0 +1,14 @@
+/* The site's own styles, beside the bundle's approval.css: its header, the article, and the review previews. */
+body > header.site {align-items: center;}
+body > header.site nav {display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;}
+body > header.site nav a {font-weight: 600;}
+button.link {background: none; border: none; color: #176452; padding: 0; font-weight: 600; text-decoration: underline;}
+button.danger {background: #8f2727; border-color: #8f2727;}
+.article-title {margin: 0 0 .5rem; font-size: 1.4rem;}
+.article-body {white-space: pre-line;}
+.public-article .vha-badge {margin-top: 1rem;}
+.visitor-view {padding: 1rem 1.2rem; border: 1px solid #dce4e8; border-radius: 8px; background: #fff;}
+.side-by-side {display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;}
+.side-by-side h3, .sheet-preview h3 {font-size: .9rem; margin: .8rem 0 .4rem; color: #5b6c77;}
+.side-by-side .after .visitor-view {border-color: #287b68;}
+@media (max-width: 700px) {.side-by-side {grid-template-columns: 1fr;}}

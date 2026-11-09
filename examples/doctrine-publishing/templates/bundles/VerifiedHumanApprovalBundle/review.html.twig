@@ -1,0 +1,32 @@
+{# The review page's preview, for each of the four changes: what visitors will see, or stop seeing, drawn from the
+   frozen proposal, never from today's draft or today's live text. #}
+{% extends '@!VerifiedHumanApproval/review.html.twig' %}
+{% block preview %}
+{% set pending = state.status == 'pending' %}
+{% if prepared.actionId == 'article.publish' %}
+    <p class="muted">{{ pending ? 'Visitors will see this, exactly, as soon as you approve: the draft as it was when the request was made.' : 'The article this request was about, exactly as it was proposed.' }}</p>
+    <div class="visitor-view">{% include 'public/_article.html.twig' with {title: prepared.effect.title, body: prepared.effect.body} only %}</div>
+{% elseif prepared.actionId == 'article.edit_live' %}
+    <p class="muted">{{ pending ? 'Visitors keep seeing the left until you approve, then see the right. If the live text changes first, this request stops.' : 'The live text this request was about, and the text it proposed.' }}</p>
+    <div class="side-by-side">
+        <section class="before"><h3>Live now · revision {{ prepared.preconditions.revision }}</h3><div class="visitor-view">{% include 'public/_article.html.twig' with {title: prepared.preconditions.title, body: prepared.preconditions.body} only %}</div></section>
+        <section class="after"><h3>After approval · revision {{ prepared.effect.revision }}</h3><div class="visitor-view">{% include 'public/_article.html.twig' with {title: prepared.effect.title, body: prepared.effect.body} only %}</div></section>
+    </div>
+{% elseif prepared.actionId == 'article.archive' %}
+    <p class="muted">{{ pending ? 'Visitors stop seeing all of these as soon as you approve. If any of them changes first, none is archived.' : 'The articles this request was about, as they were when it was made.' }}</p>
+    <table class="batch">
+        <thead><tr><th scope="col">Article</th><th scope="col">Live revision</th></tr></thead>
+        <tbody>{% for article in prepared.preconditions.articles %}<tr><td>{{ article.title }}</td><td>{{ article.revision }}</td></tr>{% endfor %}</tbody>
+    </table>
+{% elseif prepared.actionId == 'article.delete' %}
+    <p class="muted">{{ pending ? 'All of this disappears for good as soon as you approve' ~ (prepared.preconditions.status == 'live' ? ', and visitors stop seeing it' : '') ~ '.' : 'What this request was about, as it was when it was made.' }}</p>
+    {% if prepared.preconditions.live_title is not null %}
+    <h3>{{ prepared.preconditions.status == 'live' ? 'What visitors see' : 'The archived text' }} · revision {{ prepared.preconditions.revision }}</h3>
+    <div class="visitor-view">{% include 'public/_article.html.twig' with {title: prepared.preconditions.live_title, body: prepared.preconditions.live_body} only %}</div>
+    {% endif %}
+    <h3>The draft</h3>
+    <div class="visitor-view">{% include 'public/_article.html.twig' with {title: prepared.preconditions.draft_title, body: prepared.preconditions.draft_body} only %}</div>
+{% else %}
+    {{ parent() }}
+{% endif %}
+{% endblock %}

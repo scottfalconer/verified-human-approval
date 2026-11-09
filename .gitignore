@@ -9,3 +9,7 @@
 .DS_Store
 /phpunit.xml
 /demo/public/bundles/
+/examples/doctrine-publishing/var/
+/examples/doctrine-publishing/public/bundles/
+# Symfony 7.4 writes this array-shape reference whenever the example boots with debug on.
+/examples/doctrine-publishing/config/reference.php

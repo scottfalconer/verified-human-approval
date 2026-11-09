@@ -1,0 +1,15 @@
+{% extends '@VerifiedHumanApproval/base.html.twig' %}
+{% block title %}Newsroom{% endblock %}
+{% block body %}
+<h1>Newsroom</h1>
+{% for article in articles %}
+<section class="card public-article" data-article="{{ article.id }}">
+    {% include 'public/_article.html.twig' with {title: article.liveTitle, body: article.liveBody} only %}
+    {# Shown only while this exact text is what a person approved with their passkey, and the receipt this site signed
+       as it went live still verifies. Text changed by any other path loses it. #}
+    {{ verified_human_approval_badge(article.liveRequestId, article.id, {title: article.liveTitle, body: article.liveBody}) }}
+</section>
+{% else %}
+<p class="muted">Nothing is published yet.</p>
+{% endfor %}
+{% endblock %}

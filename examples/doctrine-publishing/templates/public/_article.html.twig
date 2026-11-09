@@ -1,0 +1,7 @@
+{# How visitors see an article. The review page's preview draws the frozen proposal through this same template, and
+   the publish and live-edit actions' versions include its digest: change it, and a request made before the change can
+   no longer be approved. #}
+<article class="article">
+    <h2 class="article-title">{{ title }}</h2>
+    <div class="article-body">{{ body }}</div>
+</article>

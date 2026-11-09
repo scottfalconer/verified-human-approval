@@ -1,0 +1,23 @@
+{# Every page of the site, the bundle's review pages included: the site's stylesheet and its navigation. A phone that
+   holds only a one-request approval session is signed in to nothing, and sees no navigation. #}
+{% extends '@!VerifiedHumanApproval/base.html.twig' %}
+{% block stylesheets %}
+<link rel="stylesheet" href="{{ asset('site.css') }}">
+<link rel="stylesheet" href="{{ asset('bundles/verifiedhumanapproval/badge.css') }}">
+{% endblock %}
+{% block header %}
+<header class="site">
+    <a class="site-name" href="{{ path('home') }}">Newsroom</a>
+    <nav>
+        <a href="{{ path('home') }}">Public page</a>
+        {% if app.user %}
+        <a href="{{ path('editor') }}">Editing</a>
+        <a href="{{ path('passkey') }}">Your passkey</a>
+        <form class="inline" method="post" action="{{ path('logout') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token('logout') }}"><button class="link">Sign out {{ app.user.userIdentifier }}</button></form>
+        {% else %}
+        <a href="{{ path('login') }}">Sign in</a>
+        {% endif %}
+    </nav>
+</header>
+{% endblock %}
+{% block footer %}<footer>Verified Human Approval example: approved publishing on Doctrine.</footer>{% endblock %}
