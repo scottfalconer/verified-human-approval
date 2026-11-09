@@ -6,6 +6,7 @@ namespace VerifiedHumanApproval\Core\Storage;
 
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\ApprovalHistory;
 use VerifiedHumanApproval\Core\ApprovalRequest;
 use VerifiedHumanApproval\Core\ApprovalState;
 use VerifiedHumanApproval\Core\ApprovalStore;
@@ -13,7 +14,7 @@ use VerifiedHumanApproval\Core\CanonicalJson;
 use VerifiedHumanApproval\Core\Ceremony;
 
 /** Reference SQLite adapter. All protected application writers must use this same connection. */
-final class PdoApprovalStore implements ApprovalStore
+final class PdoApprovalStore implements ApprovalStore, ApprovalHistory
 {
     private bool $active = false;
 
@@ -108,6 +109,21 @@ final class PdoApprovalStore implements ApprovalStore
     {
         $statement = $this->pdo->prepare(self::SELECT.' ORDER BY r.rowid DESC LIMIT ?');
         $statement->bindValue(1, max(1, min($limit, 1000)), \PDO::PARAM_INT);
+        $statement->execute();
+
+        return array_values(array_map(self::state(...), $statement->fetchAll(\PDO::FETCH_ASSOC)));
+    }
+
+    /**
+     * The requests about one resource of one tenant, newest first, read from the frozen proposal itself
+     * (`actor.tenantId` and `action.target.resource`), so no column or migration is needed.
+     */
+    public function forResource(string $tenantId, string $resource, int $limit = 50): array
+    {
+        $statement = $this->pdo->prepare(self::SELECT." WHERE json_extract(r.proposal, '$.actor.tenantId') = ? AND CAST(json_extract(r.proposal, '$.action.target.resource') AS TEXT) = ? ORDER BY r.rowid DESC LIMIT ?");
+        $statement->bindValue(1, $tenantId);
+        $statement->bindValue(2, $resource);
+        $statement->bindValue(3, max(1, min($limit, 1000)), \PDO::PARAM_INT);
         $statement->execute();
 
         return array_values(array_map(self::state(...), $statement->fetchAll(\PDO::FETCH_ASSOC)));

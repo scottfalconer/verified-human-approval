@@ -11,6 +11,7 @@ use Nyholm\Psr7\Factory\Psr17Factory;
 use PHPUnit\Framework\TestCase;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Component\Filesystem\Filesystem;
+use VerifiedHumanApproval\Bundle\Event\ApprovalCompleted;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\CanonicalJson;
@@ -351,6 +352,21 @@ final class SymfonyApprovalTest extends TestCase
             $page = $browser->request('GET', self::ORIGIN.'/approval/'.$match[1].'?return='.rawurlencode($hostile));
             self::assertCount(0, $page->filter('.sheet-back'), $hostile);
         }
+    }
+
+    public function testAnApprovedActionIsASymfonyEventOnceItCommits(): void
+    {
+        $id = $this->requestAction();
+        $browser = $this->browser('editor');
+        $key = $this->enroll($browser);
+        // One kernel for the rest of the test, so the listener stays registered.
+        $browser->disableReboot();
+        $heard = [];
+        $browser->getContainer()->get('event_dispatcher')->addListener(ApprovalCompleted::class, function (ApprovalCompleted $event) use (&$heard): void {
+            $heard[] = [$event->state->request->id, $event->state->execution['approval'] ?? null, $this->mutationCount()];
+        });
+        self::assertSame('completed', $this->approveWith($browser, $id, $key)['status']);
+        self::assertSame([[$id, 'user_verified', 1]], $heard, 'Heard once, after the alert was published.');
     }
 
     public function testDirectPublicationServiceCannotBypassTheApplicationGuard(): void

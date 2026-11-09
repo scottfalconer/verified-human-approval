@@ -8,6 +8,7 @@ namespace VerifiedHumanApproval\Core;
 final class ExecutionGuard
 {
     private ?string $active = null;
+    private ?ExecutingApproval $current = null;
     private ?object $owner = null;
 
     /** @internal Bound once by the ApprovalService. Never expose this object as an MCP argument. */
@@ -20,17 +21,28 @@ final class ExecutionGuard
     }
 
     /** @internal Only ApprovalService can supply its private owner capability. */
-    public function within(object $owner, Actor $actor, PreparedAction $action, callable $callback): mixed
+    public function within(object $owner, Actor $actor, PreparedAction $action, callable $callback, ?ExecutingApproval $approval = null): mixed
     {
         if ($owner !== $this->owner || null !== $this->active) {
             throw new ApprovalException('approval_required', 'No valid execution context exists.');
         }
         $this->active = $this->key($actor, $action);
+        $this->current = $approval;
         try {
             return $callback();
         } finally {
             $this->active = null;
+            $this->current = null;
         }
+    }
+
+    /**
+     * The approval whose action is executing, while its adapter runs; null at any other time. An adapter can
+     * write the request id onto the change it makes, in the same transaction, to link the change to its evidence.
+     */
+    public function current(): ?ExecutingApproval
+    {
+        return $this->current;
     }
 
     public function assertExecuting(Actor $actor, PreparedAction $action): void

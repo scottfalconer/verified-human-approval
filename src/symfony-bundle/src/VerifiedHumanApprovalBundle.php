@@ -18,6 +18,7 @@ use VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool;
 use VerifiedHumanApproval\Bundle\Security\ReviewRequestMatcher;
 use VerifiedHumanApproval\Core\ActionAdapter;
 use VerifiedHumanApproval\Core\ActionRegistry;
+use VerifiedHumanApproval\Core\ApprovalObserver;
 use VerifiedHumanApproval\Core\ApprovalService;
 use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
 use VerifiedHumanApproval\Core\ExecutionGuard;
@@ -99,6 +100,8 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
     {
         // Your own action adapters join the registry when they are autoconfigured, or when you tag them.
         $builder->registerForAutoconfiguration(ActionAdapter::class)->addTag('verified_human_approval.action');
+        // So do observers, told about each executed action after it commits.
+        $builder->registerForAutoconfiguration(ApprovalObserver::class)->addTag('verified_human_approval.observer');
 
         $services = $container->services();
 
@@ -119,8 +122,14 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             service('verified_human_approval.clock'),
             service('verified_human_approval.execution_guard'),
             null === $config['receipt_signer'] ? null : service($config['receipt_signer']),
+            tagged_iterator('verified_human_approval.observer'),
+            service('logger')->nullOnInvalid(),
         ]);
         $services->alias(ApprovalService::class, 'verified_human_approval.approval_service');
+        // After commit, each executed action is also a Symfony event: ApprovalCompleted.
+        $services->set('verified_human_approval.event_observer', EventDispatchingObserver::class)
+            ->args([service('event_dispatcher')])
+            ->tag('verified_human_approval.observer');
 
         $services->set('verified_human_approval.presenter', ApprovalPresenter::class)
             ->args([service('router'), $config['public_origin']]);

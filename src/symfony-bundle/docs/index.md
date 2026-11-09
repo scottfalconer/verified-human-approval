@@ -186,6 +186,15 @@ Override templates in `templates/bundles/VerifiedHumanApprovalBundle/`. `base.ht
 
 Give every action a clear `display.title`: what will change. Add `display.consequence` when the statement does not already say what happens as soon as approval completes; the sheet shows it next to the button. The sheet reads top to bottom: who asked, the exact statement, the `preview`, then the passkey button, so the person sees the effect before they can approve it, on a phone too. Keep the exact statement, preview, expiry, passkey button and truthful completion state visible. If a response is lost after submitting approval, ask the person to reload and check the recorded state; do not claim either success or failure without it. An optional `RequesterLabel` service can name the agent connection on the sheet; set its service ID in `requester_label`.
 
+## After an action runs
+
+Two hooks let the rest of your application follow an approved change:
+
+- **Link the change to its approval.** While your adapter's `execute()` runs, `ExecutionGuard::current()` returns the executing approval: its `requestId`, and whether a person approved it with a passkey (`userVerified()`) or a rule let it run. Write the request id onto the revision or record you create, in the same transaction, so a page can later show that this exact revision was approved, and link to the evidence.
+- **Work that must wait for the commit.** After the transaction commits, the bundle dispatches `VerifiedHumanApproval\Bundle\Event\ApprovalCompleted` with the completed state. Use it to purge caches, reindex or notify. Delivery is at least once, so make a listener tolerate a repeat. A listener that throws is logged and does not change the result the person sees. Services implementing `VerifiedHumanApproval\Core\ApprovalObserver` are registered automatically too.
+
+For history views, `PdoApprovalStore` also implements `VerifiedHumanApproval\Core\ApprovalHistory`: `forResource($tenantId, $resource)` lists the requests made about one target `resource`, newest first, including ones whose resource was later deleted. Decide who may see which history yourself.
+
 ## Stored receipts and later verification
 
 The signed receipt protects the historical proposal, proof and execution report against later alteration. It does not claim that today's live document still equals the document published then. A normal `approval_status` read does not perform full cryptographic verification.

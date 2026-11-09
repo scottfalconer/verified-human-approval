@@ -7,6 +7,7 @@ namespace VerifiedHumanApproval\Tests\Support;
 use VerifiedHumanApproval\Core\ActionAdapter;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\ExecutingApproval;
 use VerifiedHumanApproval\Core\ExecutionGuard;
 use VerifiedHumanApproval\Core\PreparedAction;
 
@@ -16,6 +17,8 @@ final class FixtureAction implements ActionAdapter
     public bool $failAfterWrite = false;
     public bool $alterAfterWrite = false;
     public int $executeCalls = 0;
+    /** The approval the last execution ran under, as the guard reported it. */
+    public ?ExecutingApproval $executing = null;
 
     public function __construct(private readonly \PDO $pdo, private readonly ExecutionGuard $guard)
     {
@@ -69,6 +72,7 @@ final class FixtureAction implements ActionAdapter
         // This is the application mutation boundary, not an MCP-only check.
         $this->guard->assertExecuting($actor, $action);
         ++$this->executeCalls;
+        $this->executing = $this->guard->current();
         $update = $this->pdo->prepare('UPDATE test_articles SET published = 1, revision = revision + 1, publication_count = publication_count + 1 WHERE id = ? AND tenant = ? AND revision = ?');
         $update->execute([$action->target['resource'], $actor->tenantId, $action->preconditions['revision']]);
         if (1 !== $update->rowCount()) {

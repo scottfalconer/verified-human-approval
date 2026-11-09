@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace VerifiedHumanApproval\Core;
 
 use Psr\Clock\ClockInterface;
+use Psr\Log\LoggerInterface;
 use VerifiedHumanApproval\Core\Evidence\EvidenceSigner;
 use VerifiedHumanApproval\Core\Evidence\Receipt;
 
@@ -24,6 +25,9 @@ final class ApprovalService
         // Signs each execution's receipt inside the completing transaction. Without it, receipts are
         // signed only when evidence is exported, which cannot show edits made in between.
         private readonly ?EvidenceSigner $receipts = null,
+        /** @var iterable<ApprovalObserver> told about each executed action after its transaction commits */
+        private readonly iterable $observers = [],
+        private readonly ?LoggerInterface $logger = null,
     ) {
         $this->executionOwner = new \stdClass();
         $guard->bind($this->executionOwner);
@@ -44,7 +48,8 @@ final class ApprovalService
         }
         $fingerprint = hash('sha256', CanonicalJson::encode([$actor->toArray(), $actionId, (object) $input, $locale]));
 
-        return $this->store->transaction(function () use ($actor, $actionId, $input, $idempotencyKey, $locale, $fingerprint): ApprovalState {
+        $executed = false;
+        $state = $this->store->transaction(function () use ($actor, $actionId, $input, $idempotencyKey, $locale, $fingerprint, &$executed): ApprovalState {
             if (null !== $idempotencyKey && ($existing = $this->store->findByKey($actor, $idempotencyKey)) !== null) {
                 if (!hash_equals($existing['fingerprint'], $fingerprint)) {
                     throw new ApprovalException('idempotency_conflict', 'This request key already belongs to different arguments. Use a new key for a new action.');
@@ -81,8 +86,18 @@ final class ApprovalService
 
             // Disabling protection is an administrator decision, not a client-supplied flag.
             // Older pending approvals never enter this path and are invalidated on policy change.
-            return $policy->required ? $state : $this->execute($state, null);
+            if ($policy->required) {
+                return $state;
+            }
+            $executed = true;
+
+            return $this->execute($state, null);
         });
+        if ($executed && 'completed' === $state->status) {
+            $this->notify($state);
+        }
+
+        return $state;
     }
 
     public function get(Actor $actor, string $requestId): ApprovalState
@@ -181,12 +196,18 @@ final class ApprovalService
                 throw new ApprovalException('execution_uncertain', 'The execution outcome could not be confirmed. Read its status before taking further action.', $recoveryError);
             }
             if (null !== $recovered) {
+                // The commit may have been this call's: observers hear about it, at least once.
+                $this->notify($recovered);
+
                 return $recovered;
             }
             throw new ApprovalException('execution_failed', 'The local action was not committed. Start a fresh approval ceremony before retrying.', $error);
         }
         if ($result instanceof ApprovalException) {
             throw $result;
+        }
+        if ($executionStarted && 'completed' === $result->status) {
+            $this->notify($result);
         }
 
         return $result;
@@ -217,6 +238,7 @@ final class ApprovalService
         $this->assertCurrent($request);
         $adapter->assertPreconditions($actor, $action);
         $this->assertUnchanged($action, $frozenAction);
+        $executing = new ExecutingApproval($request->id, $action->actionId, null === $proof ? 'not_required' : 'user_verified');
         $result = $this->guard->within($this->executionOwner, $actor, $action, function () use ($actor, $action, $adapter, $request, $frozenAction): array {
             $result = $adapter->execute($actor, $action);
             $this->assertUnchanged($action, $frozenAction);
@@ -226,7 +248,7 @@ final class ApprovalService
             $this->assertUnchanged($baseline, $frozenAction);
 
             return $result;
-        });
+        }, $executing);
         $this->assertCurrent($request);
         $execution = [
             'format' => 'verified-human-approval/execution/v1', 'requestId' => $request->id, 'proposalDigest' => $request->digest,
@@ -241,6 +263,18 @@ final class ApprovalService
         $this->store->save($completed);
 
         return $completed;
+    }
+
+    /** After commit: tell each observer, and never let one change the result the caller gets. */
+    private function notify(ApprovalState $state): void
+    {
+        foreach ($this->observers as $observer) {
+            try {
+                $observer->completed($state);
+            } catch (\Throwable $error) {
+                $this->logger?->error('An approval observer failed after the action committed.', ['exception' => $error, 'request' => $state->request->id]);
+            }
+        }
     }
 
     /** Persist invalidation outside exception rollback, so status remains authoritative. */
