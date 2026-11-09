@@ -1,0 +1,10 @@
+{# An application's own layout around the review pages: a web font, an inline style and an inline importmap,
+   which run under the pages' policy because they carry its nonce. #}
+{% extends '@!VerifiedHumanApproval/base.html.twig' %}
+{% block stylesheets %}
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter">
+<style nonce="{{ verified_human_approval_csp_nonce() }}">body { font-family: Inter, sans-serif; }</style>
+<script type="importmap" nonce="{{ verified_human_approval_csp_nonce() }}">{"imports": {"app": "/assets/app.js"}}</script>
+<script type="module" nonce="{{ verified_human_approval_csp_nonce() }}">import 'app';</script>
+{% endblock %}
+{% block site_name %}<img src="https://images.example.com/logo.svg" alt="Example">{% endblock %}

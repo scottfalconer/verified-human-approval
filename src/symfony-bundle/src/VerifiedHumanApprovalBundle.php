@@ -13,11 +13,15 @@ use Symfony\Component\Lock\Store\FlockStore;
 use VerifiedHumanApproval\Bundle\Command\AuditHeadCommand;
 use VerifiedHumanApproval\Bundle\Command\RecordKeyRotationCommand;
 use VerifiedHumanApproval\Bundle\Controller\ApprovalController;
+use VerifiedHumanApproval\Bundle\Controller\VerificationController;
 use VerifiedHumanApproval\Bundle\Handoff\ApprovalHandoff;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool;
 use VerifiedHumanApproval\Bundle\Security\ReviewRequestMatcher;
+use VerifiedHumanApproval\Bundle\Twig\ContentSecurityPolicyExtension;
+use VerifiedHumanApproval\Bundle\Twig\VerificationExtension;
+use VerifiedHumanApproval\Bundle\Verification\PublicVerification;
 use VerifiedHumanApproval\Core\ActionAdapter;
 use VerifiedHumanApproval\Core\ActionRegistry;
 use VerifiedHumanApproval\Core\ApprovalObserver;
@@ -47,7 +51,8 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
 
     public function configure(DefinitionConfigurator $definition): void
     {
-        $definition->rootNode()->children()
+        $root = $definition->rootNode();
+        $root->children()
             ->scalarNode('public_origin')->isRequired()->cannotBeEmpty()
                 ->info('The origin people reach the application at, such as https://app.example.com. Review links are built from it, never from request headers.')->end()
             ->scalarNode('actor_provider')->isRequired()->cannotBeEmpty()->info('Service id of your VerifiedHumanApproval\\Bundle\\ActorProvider.')->end()
@@ -84,6 +89,8 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             ->end()
             ->scalarNode('audit_log')->defaultNull()
                 ->info('Service id of the VerifiedHumanApproval\\Core\\Audit\\AuditLog that the console commands verified-human-approval:audit-head and verified-human-approval:record-key-rotation read and append to. Unset, a service named after that class is used if there is one.')->end()
+            ->booleanNode('public_verification')->defaultFalse()
+                ->info('Serve /approval/{id}/verified, the public page a "verified" badge links to: what was approved, when, and the signed receipt, with no account, tenant, connection or passkey ids. Anyone with the link can open it. Needs receipt_signer.')->end()
             ->scalarNode('relying_party_id')->defaultNull()
                 ->info('The passkey relying party id published with the receipt keys, so a receipt\'s passkey signature can be checked offline. Defaults to the public origin\'s host.')->end()
             ->arrayNode('url_elicitation')
@@ -97,11 +104,31 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
                     ->end()
                 ->end()
             ->end()
+            ->stringNode('agent_name')->defaultValue('Claude')->cannotBeEmpty()
+                ->info('What the review pages call the agent\'s app when they send the person back to it, as in "return to Claude". Only requests an agent made say it.')->end()
         ->end()
         ->validate()
             ->ifTrue(static fn (array $config): bool => null === $config['receipt_signer'] && (null !== $config['receipt_keys']['valid_from'] || [] !== $config['receipt_keys']['retired']))
             ->thenInvalid('receipt_keys describes the receipt_signer\'s keys: configure receipt_signer too.')
         ->end();
+
+        // Checked here, as the container is built, so a policy that would let injected script run never ships.
+        $sources = $root->children()->arrayNode('content_security_policy')
+            ->info('Sources the review pages\' Content-Security-Policy adds for your own layout: \'self\', https:// origins, and data: for images and fonts. Anything else, such as \'unsafe-inline\', \'unsafe-eval\', * or http:, is refused. An inline script or style takes the nonce instead: verified_human_approval_csp_nonce() in Twig.')
+            ->addDefaultsIfNotSet()
+            ->children();
+        foreach (ContentSecurityPolicy::DIRECTIVES as $key => $directive) {
+            $sources->arrayNode($key)
+                ->info(\sprintf('Added to %s, such as https://cdn.example.com.', $directive))
+                ->beforeNormalization()->ifString()->then(static fn (string $source): array => [$source])->end()
+                ->scalarPrototype()
+                    ->validate()
+                        ->ifTrue(static fn (mixed $source): bool => null !== ContentSecurityPolicy::refusal($directive, $source))
+                        ->then(static fn (mixed $source): never => throw new \InvalidArgumentException((string) ContentSecurityPolicy::refusal($directive, $source)))
+                    ->end()
+                ->end()
+            ->end();
+        }
     }
 
     /** Whether $keys has the shape of receipt_keys.retired; the values are checked as the container builds the keys. */
@@ -212,6 +239,18 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             ->tag('console.command', ['command' => AuditHeadCommand::NAME, 'description' => 'Print the signed audit log\'s newest entry (sequence and hash) to keep outside the application, or check a kept one.']);
         $services->set('verified_human_approval.record_key_rotation_command', RecordKeyRotationCommand::class)->args([$audit])
             ->tag('console.command', ['command' => RecordKeyRotationCommand::NAME, 'description' => 'Record in the signed audit log that the signing key moved from an old key to the current receipt signer.']);
+        // "Approved with a passkey" on your own pages: a Twig badge, and the public page it links to when enabled.
+        $services->set('verified_human_approval.public_verification', PublicVerification::class)->args([
+            service($config['store']),
+            null === $config['receipt_signer'] ? null : service('verified_human_approval.trusted_keys'),
+        ]);
+        $services->alias(PublicVerification::class, 'verified_human_approval.public_verification');
+        $services->set('verified_human_approval.twig.verification', VerificationExtension::class)
+            ->args([service('verified_human_approval.public_verification'), service('router'), $config['public_verification']])
+            ->tag('twig.extension');
+        $services->set('verified_human_approval.verification_controller', VerificationController::class)->public()->args([
+            service('verified_human_approval.public_verification'), service('twig'), $config['public_verification'],
+        ]);
 
         // The review pages. Public, because routes name it by service id.
         $services->set('verified_human_approval.approval_controller', ApprovalController::class)->public()->args([
@@ -226,6 +265,7 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             null === $config['requester_label'] ? service(RequesterLabel::class)->nullOnInvalid() : service($config['requester_label']),
             null === $config['receipt_signer'] ? null : service('verified_human_approval.evidence_exporter'),
             null === $config['receipt_signer'] ? null : service('verified_human_approval.receipt_key'),
+            $config['agent_name'],
         ]);
 
         // MCP elements, tagged here because the MCP bundle's attribute autoconfiguration does not reach a
@@ -238,7 +278,16 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             ->tag('mcp.tool', ['method' => 'handoff']);
         $services->set('verified_human_approval.card_app', ApprovalCardApp::class)->tag('mcp.app');
 
-        $services->set('verified_human_approval.security_headers', SecurityHeadersSubscriber::class)->tag('kernel.event_subscriber');
+        // The review pages' headers, and their policy's nonce for your layout's templates.
+        $services->set('verified_human_approval.content_security_policy', ContentSecurityPolicy::class)
+            ->args([$config['content_security_policy']]);
+        $services->alias(ContentSecurityPolicy::class, 'verified_human_approval.content_security_policy');
+        $services->set('verified_human_approval.security_headers', SecurityHeadersSubscriber::class)
+            ->args([service('verified_human_approval.content_security_policy')])
+            ->tag('kernel.event_subscriber');
+        $services->set('verified_human_approval.twig.content_security_policy', ContentSecurityPolicyExtension::class)
+            ->args([service('verified_human_approval.content_security_policy'), service('request_stack')])
+            ->tag('twig.extension');
         // For access_control: the review pages open without a sign-in; their controller checks who is reviewing.
         $services->set('verified_human_approval.review_request_matcher', ReviewRequestMatcher::class);
     }

@@ -19,7 +19,7 @@ pre {overflow: auto; padding: 1rem; background: #f3f6f8; border-radius: 6px; fon
 /* The approval sheet: the decision first, then what it changes. */
 .approval-sheet {border-color: #9fc4b8; box-shadow: 0 1px 3px rgba(23, 43, 56, .08);} .approval-sheet h1 {font-size: 1.7rem; line-height: 1.25; margin: .3rem 0 1rem;}
 .approval-sheet .actions {margin-top: 1.2rem;} button.primary {font-size: 1.05rem; padding: .85rem 1.3rem;} .small {font-size: .85rem;}
-.approval-sheet .done .notice {font-weight: 650; color: #14513f;} .receipt {margin-top: 1.2rem; padding-top: 1rem; border-top: 1px solid #dce4e8;} .button.secondary {background: white; color: #172b38; border-color: #b8c7ce;} details {margin-top: 1rem;} summary {cursor: pointer; color: #5b6c77;}
+.done .notice {font-weight: 650; color: #14513f;} .receipt {margin-top: 1.2rem; padding-top: 1rem; border-top: 1px solid #dce4e8;} .button.secondary {background: white; color: #172b38; border-color: #b8c7ce;} details {margin-top: 1rem;} summary {cursor: pointer; color: #5b6c77;}
 [hidden] {display: none !important;}
 
 /* Who asked, rule changes, account and audit pages. */
@@ -47,7 +47,7 @@ td.checks { min-width: 14em; }
 /* On a phone the sheet keeps its order and gets to the preview sooner. */
 @media (max-width: 600px) {.approval-sheet {padding: 1.1rem;} .approval-sheet h1 {font-size: 1.45rem;} .statement {font-size: 1.05rem;}}
 /* The approved moment, unmistakable at a glance. */
-.approval-sheet .done .notice.outcome {display: flex; align-items: center; gap: .9rem; padding: 1rem 1.1rem; border: 1px solid #b9dfc8; font-weight: 500; color: #14513f;}
+.done .notice.outcome {display: flex; align-items: center; gap: .9rem; padding: 1rem 1.1rem; border: 1px solid #b9dfc8; font-weight: 500; color: #14513f;}
 .notice.outcome::before {content: "✓"; flex: none; display: grid; place-items: center; width: 2.5rem; height: 2.5rem; border-radius: 50%; background: #176452; color: #fff; font-size: 1.35rem; font-weight: 800;}
 .notice.outcome strong {display: block; font-size: 1.2rem; color: #0f4535;}
 /* On a wide screen the decision and what it changes sit side by side, so one screen holds the whole decision. */
@@ -56,3 +56,5 @@ td.checks { min-width: 14em; }
   .approval-sheet {display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); grid-template-rows: auto 1fr; grid-template-areas: "head preview" "decision preview"; column-gap: 2.2rem; align-items: start;}
   .sheet-head {grid-area: head;} .sheet-decision {grid-area: decision;} .sheet-preview {grid-area: preview; margin-top: 0;}
 }
+/* The public page a verified badge links to: one column, framed like the approval sheet. */
+.verification-sheet {border-color: #9fc4b8; box-shadow: 0 1px 3px rgba(23, 43, 56, .08);} .verification-sheet h1 {font-size: 1.7rem; line-height: 1.25; margin: .3rem 0 1rem;}

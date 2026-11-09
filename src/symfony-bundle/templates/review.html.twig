@@ -1,51 +1,61 @@
 {% extends '@VerifiedHumanApproval/base.html.twig' %}
-{% block title %}Review this action{% endblock %}
+{% trans_default_domain 'VerifiedHumanApproval' %}
+{% block title %}{{ 'Review this action'|trans }}{% endblock %}
 {% block body %}
 {# One sheet: who asked and the exact statement, what it will look like, then one passkey button. On a phone they
    stack in that order, so nobody approves what they have not seen; on a wide screen the effect sits beside the
    decision, so the whole of it fits on one screen. #}
 {% set agent = proposal.actor.delegationId is not empty %}
-{% set application = prepared.target.application|default('This application') %}
+{% set application = prepared.target.application|default('This application'|trans) %}
 {# The label above the title says where the request stands, not only that it was made. #}
-{% set standing = state.status == 'pending' ? 'Approval requested' : (state.status == 'completed' ? (state.proof ? 'Approved' : 'Completed') : ({cancelled: 'Cancelled', expired: 'Expired'}[state.status] ?? 'Blocked')) %}
+{% set standing = state.status == 'pending' ? 'Approval requested'|trans : (state.status == 'completed' ? (state.proof ? 'Approved'|trans : 'Completed'|trans) : ({cancelled: 'Cancelled'|trans, expired: 'Expired'|trans}[state.status] ?? 'Blocked'|trans)) %}
 <section class="card approval-sheet" data-status="{{ state.status }}">
     <div class="sheet-head">
         <p class="eyebrow">{{ standing }} · {{ application }}</p>
-        <h1>{{ prepared.display.title|default('Review this exact action') }}</h1>
-        <p class="requester"><span class="pill {{ agent ? 'pill-agent' : 'pill-person' }}">{{ agent ? 'Agent request' : 'Your request' }}</span> Requested by {{ requested_by ?? (agent ? 'an agent connected to your account' : 'you, on this site') }}.</p>
+        <h1>{{ prepared.display.title|default('Review this exact action'|trans) }}</h1>
+        <p class="requester"><span class="pill {{ agent ? 'pill-agent' : 'pill-person' }}">{{ agent ? 'Agent request'|trans : 'Your request'|trans }}</span> {{ 'Requested by %requester%.'|trans({'%requester%': requested_by ?? (agent ? 'an agent connected to your account'|trans : 'you, on this site'|trans)}) }}</p>
         {% if state.status == 'completed' %}
         <div class="done">
             {# Only a recorded passkey proof means a person approved it; under a rule that needs none, say so. #}
-            <p class="notice outcome"><span>{% if state.proof %}<strong>Approved with your passkey.</strong> This request is completed.{% else %}<strong>Completed without a passkey:</strong> the application's rule did not require one for this request.{% endif %}</span></p>
+            <p class="notice outcome"><span>{% if state.proof %}<strong>{{ 'Approved with your passkey.'|trans }}</strong> {{ 'This request is completed.'|trans }}{% else %}<strong>{{ 'Completed without a passkey:'|trans }}</strong> {{ "the application's rule did not require one for this request."|trans }}{% endif %}</span></p>
             {# The way back: to the page on this site the request came from, or to the agent that asked. The
-               approval card adds #return=claude-desktop, claude-mobile or claude-web to an agent's review link. #}
+               approval card adds #return=claude-desktop, claude-mobile or claude-web to an agent's review link, and
+               approval.js shows the matching button and wording. Only an agent's request mentions the agent. #}
             {% block return %}
-            {% if return_path %}<div class="actions sheet-back"><a class="button" href="{{ return_path }}">Back to {{ application }}</a></div>{% endif %}
-            <div class="actions" data-return hidden>
-                <a class="button" href="claude://" data-return-app hidden>Back to Claude</a>
-                <button type="button" data-return-tab hidden>Back to your Claude tab</button>
+            {% if return_path %}<div class="actions sheet-back"><a class="button" href="{{ return_path }}">{{ 'Back to %application%'|trans({'%application%': application}) }}</a></div>{% endif %}
+            {% if agent %}
+            <div class="actions" data-return hidden data-messages="{{ {
+                returnApp: 'Claude already shows the result. This tab can be closed.'|trans,
+                returnHandoff: 'Done. %agent% on your computer already shows the result.'|trans({'%agent%': agent_name}),
+                returnTab: 'Switch back to your Claude tab: it already shows the result.'|trans,
+            }|json_encode }}">
+                {# These answer the approval card in Claude, which asks for them with #return=claude-…: they open Claude, so
+                   they say Claude whatever agent_name is. The visible wording below uses agent_name. #}
+                <a class="button" href="claude://" data-return-app hidden>{{ 'Back to Claude'|trans }}</a>
+                <button type="button" data-return-tab hidden>{{ 'Back to your Claude tab'|trans }}</button>
             </div>
-            {% if agent %}<p class="muted" data-return-hint>You can close this tab and return to Claude.</p>{% endif %}
+            <p class="muted" data-return-hint>{{ 'You can close this tab and return to %agent%.'|trans({'%agent%': agent_name}) }}</p>
+            {% endif %}
             {% endblock %}
         </div>
         {% elseif state.status != 'pending' %}
         {# A stopped request never ran. The reason code is for whoever looks into it. #}
         {% set stopped = {
-            cancelled: ['Cancelled: nothing changed.', 'This request was cancelled.'],
-            expired: ['Expired: nothing changed.', 'This request expired before it was approved.'],
-            invalidated: ['Blocked: nothing changed.', 'This request can no longer be approved: something it depends on changed after it was made.'],
-            denied: ['Blocked: nothing changed.', 'This account is no longer allowed to do this.'],
-        }[state.status] ?? ['Stopped: nothing changed.', 'This request stopped.'] %}
+            cancelled: ['Cancelled: nothing changed.'|trans, 'This request was cancelled.'|trans],
+            expired: ['Expired: nothing changed.'|trans, 'This request expired before it was approved.'|trans],
+            invalidated: ['Blocked: nothing changed.'|trans, 'This request can no longer be approved: something it depends on changed after it was made.'|trans],
+            denied: ['Blocked: nothing changed.'|trans, 'This account is no longer allowed to do this.'|trans],
+        }[state.status] ?? ['Stopped: nothing changed.'|trans, 'This request stopped.'|trans] %}
         <div class="notice error stopped">
             <p class="stopped-title">{{ stopped[0] }}</p>
-            <p>{{ stopped[1] }}{% if state.reason and state.status in ['invalidated', 'denied'] %} <span class="small">Reason: {{ state.reason }}.</span>{% endif %}</p>
+            <p>{{ stopped[1] }}{% if state.reason and state.status in ['invalidated', 'denied'] %} <span class="small">{{ 'Reason: %reason%.'|trans({'%reason%': state.reason}) }}</span>{% endif %}</p>
         </div>
-        {% if return_path %}<div class="actions sheet-back"><a class="button secondary" href="{{ return_path }}">Back to {{ application }}</a></div>{% endif %}
+        {% if return_path %}<div class="actions sheet-back"><a class="button secondary" href="{{ return_path }}">{{ 'Back to %application%'|trans({'%application%': application}) }}</a></div>{% endif %}
         {% endif %}
         <p class="statement">{{ state.request.statement }}</p>
     </div>
     <div class="sheet-preview">
-        <h2>{{ state.status == 'completed' ? (state.proof ? 'What you approved' : 'What ran') : (state.status == 'pending' ? 'What you are approving' : 'What was requested') }}</h2>
+        <h2>{{ state.status == 'completed' ? (state.proof ? 'What you approved'|trans : 'What ran'|trans) : (state.status == 'pending' ? 'What you are approving'|trans : 'What was requested'|trans) }}</h2>
         {# Override this block to show the effect as its audience will see it, rendered from the frozen proposal. #}
         {% block preview %}
         {% if prepared.effect.title is defined %}<h3>{{ prepared.effect.title }}</h3>{% endif %}
@@ -57,13 +67,27 @@
         {% if state.status == 'pending' %}
         {# What happens the moment it is approved, in the action's own words, frozen with the proposal. #}
         {% if prepared.display.consequence is defined %}<p class="consequence">{{ prepared.display.consequence }}</p>{% endif %}
+        {# approval.js shows these as the passkey step runs; any it is not given stay in its own English. #}
         <div data-passkey-panel data-mode="approval" data-csrf="{{ csrf }}"
              data-options-url="{{ path('verified_human_approval_options', {id: state.request.id}) }}"
              data-complete-url="{{ path('verified_human_approval_complete', {id: state.request.id}) }}"
-             data-cancel-url="{{ path('verified_human_approval_cancel', {id: state.request.id}) }}">
-            <div class="actions"><button type="button" class="primary" data-approve>Approve with your passkey</button>{% if not scoped %}<button type="button" class="secondary" data-cancel>Cancel request</button>{% endif %}</div>
+             data-cancel-url="{{ path('verified_human_approval_cancel', {id: state.request.id}) }}"
+             data-messages="{{ {
+                waiting: 'Waiting for your device…'|trans,
+                unsupported: 'Passkeys need a supported browser on HTTPS (or localhost).'|trans,
+                approvalCancelled: 'Approval cancelled. Nothing was executed.'|trans,
+                sending: 'Sending your passkey response to the site…'|trans,
+                loading: 'Loading the result…'|trans,
+                deviceCancelled: 'The device request was cancelled or timed out. Nothing was approved.'|trans,
+                noAnswer: 'The site did not answer, so nothing changed. Try again.'|trans,
+                failed: 'This request could not be completed. Reload the page and try again.'|trans,
+                unconfirmedApproval: 'The connection dropped before the site answered, so we can’t confirm whether your approval was saved. Reload this page to see where the request stands.'|trans,
+                requestCancelled: 'Request cancelled. Nothing was executed.'|trans,
+                cancelUnconfirmed: 'The connection dropped before the site answered, so we can’t confirm whether the request was cancelled. Reload this page to see where it stands.'|trans,
+             }|json_encode }}">
+            <div class="actions"><button type="button" class="primary" data-approve>{{ 'Approve with your passkey'|trans }}</button>{% if not scoped %}<button type="button" class="secondary" data-cancel>{{ 'Cancel request'|trans }}</button>{% endif %}</div>
             <p data-message aria-live="polite"></p>
-            <p class="muted small">Only this exact proposal runs, once. A changed draft, a revoked permission or an expired request stops it. Expires {{ state.request.expiresAt|date('H:i T') }}.</p>
+            <p class="muted small">{{ 'Only this exact proposal runs, once. A changed draft, a revoked permission or an expired request stops it.'|trans }} {{ 'Expires %time%.'|trans({'%time%': state.request.expiresAt|date('H:i T')}) }}</p>
         </div>
         {% else %}
         {# The person's own copy, signed as the action ran, so the site's record cannot change later without it showing. #}
@@ -71,12 +95,14 @@
         {% if receipts %}
         <div class="receipt">
             {% if scoped %}
-            <p class="muted small">Download your receipt from this request’s page in your signed-in browser.</p>
+            <p class="muted small">{{ 'Download your receipt from this request’s page in your signed-in browser.'|trans }}</p>
             {% elseif state.receipt %}
-            <a class="button secondary" href="{{ path('verified_human_approval_evidence', {id: state.request.id}) }}" download>Download your receipt</a>
-            <p class="muted small">Your copy of this exact request{% if state.proof %}, your passkey’s signature on it,{% endif %} and what ran, signed by this site as it ran. Keep it: if the site’s record were changed later, your copy would show it. Anyone can check it against the site’s <a href="{{ path('verified_human_approval_receipt_keys') }}">published keys</a>, even after the site changes its key.</p>
+            <a class="button secondary" href="{{ path('verified_human_approval_evidence', {id: state.request.id}) }}" download>{{ 'Download your receipt'|trans }}</a>
+            {# The link goes in after the sentence is escaped, so a translation of it stays text. #}
+            {% set key_link %}<a href="{{ path('verified_human_approval_receipt_keys') }}">{{ 'published keys'|trans }}</a>{% endset %}
+            <p class="muted small">{{ state.proof ? 'Your copy of this exact request, your passkey’s signature on it, and what ran, signed by this site as it ran.'|trans : 'Your copy of this exact request and what ran, signed by this site as it ran.'|trans }} {{ 'Keep it: if the site’s record were changed later, your copy would show it.'|trans }} {{ 'Anyone can check it against the site’s %published_keys%, even after the site changes its key.'|trans|e|replace({'%published_keys%': key_link})|raw }}</p>
             {% else %}
-            <p class="muted small">This site has no receipt recorded for this request.</p>
+            <p class="muted small">{{ 'This site has no receipt recorded for this request.'|trans }}</p>
             {% endif %}
         </div>
         {% endif %}
@@ -86,17 +112,17 @@
     {% endif %}
 </section>
 <section class="card">
-    <details><summary>Details and everything this approval is bound to</summary>
+    <details><summary>{{ 'Details and everything this approval is bound to'|trans }}</summary>
         <dl>
-            <dt>Application</dt><dd>{{ prepared.target.application|default('This application') }}</dd>
-            <dt>Environment</dt><dd>{{ prepared.target.environment|default('Not specified') }}</dd>
-            <dt>Resource</dt><dd>{{ prepared.target.resource|default(prepared.actionId) }}</dd>
-            <dt>Status</dt><dd>{{ state.status }}</dd>
-            <dt>Expires</dt><dd>{{ state.request.expiresAt|date('Y-m-d H:i:s T') }}</dd>
+            <dt>{{ 'Application'|trans }}</dt><dd>{{ prepared.target.application|default('This application'|trans) }}</dd>
+            <dt>{{ 'Environment'|trans }}</dt><dd>{{ prepared.target.environment|default('Not specified'|trans) }}</dd>
+            <dt>{{ 'Resource'|trans }}</dt><dd>{{ prepared.target.resource|default(prepared.actionId) }}</dd>
+            <dt>{{ 'Status'|trans }}</dt><dd>{{ state.status }}</dd>
+            <dt>{{ 'Expires'|trans }}</dt><dd>{{ state.request.expiresAt|date('Y-m-d H:i:s T') }}</dd>
         </dl>
         <pre>{{ {'effect': prepared.effect, 'preconditions': prepared.preconditions}|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre>
         {% if state.result %}<pre>{{ state.result|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre>{% endif %}
     </details>
 </section>
-<p class="muted">Request <code>{{ state.request.id }}</code></p>
+<p class="muted">{{ 'Request'|trans }} <code>{{ state.request.id }}</code></p>
 {% endblock %}

@@ -48,8 +48,11 @@ final readonly class ApprovalPresenter implements ResultPresenter
             $data['message'] = $message;
         }
         if (null !== $state->receipt) {
-            // The site's signature over what ran, as it ran: a copy the person keeps, checked against the published key.
+            // The site's signature over what ran, as it ran: a copy the person keeps, checked against the published keys.
+            // The key set lists every key the site has signed with, so it still checks this copy after a rotation; the
+            // one-key file names the current key only.
             $data['receipt'] = $state->receipt;
+            $data['receipt_keys_url'] = rtrim($this->publicOrigin, '/').$this->urls->generate('verified_human_approval_receipt_keys');
             $data['receipt_key_url'] = rtrim($this->publicOrigin, '/').$this->urls->generate('verified_human_approval_receipt_key');
         }
         // The MCP App card reads these fixed names; it shows only what the application recorded.

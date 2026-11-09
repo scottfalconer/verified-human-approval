@@ -209,6 +209,8 @@ final class DemoKernel extends Kernel
             'receipt_keys' => ['valid_from' => '%env(DEMO_RUNTIME_RECEIPT_KEY_VALID_FROM)%', 'retired' => '%env(json:DEMO_RUNTIME_RETIRED_RECEIPT_KEYS)%'],
             // The security log the audit-head and record-key-rotation commands read and append to.
             'audit_log' => AuditLog::class,
+            // A live alert links to the public record of its approval.
+            'public_verification' => true,
             'relying_party_id' => '%env(DEMO_RUNTIME_RP_ID)%',
             'attempts_per_minute' => '%env(int:DEMO_RUNTIME_APPROVAL_ATTEMPTS)%',
             // The framework's lock, which a multi-host deployment would back with a shared store.

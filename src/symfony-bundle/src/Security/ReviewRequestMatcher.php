@@ -11,7 +11,8 @@ use Symfony\Component\HttpFoundation\RequestMatcherInterface;
  * Matches this bundle's review routes, for `access_control`. They must open without a sign-in,
  * because a one-time phone code opens a review on a device that never signed in. The controller
  * then requires the signed-in person, or a browser session scoped to that one request, and its
- * actions require a CSRF token and the person's passkey. The receipt keys are public for anyone.
+ * actions require a CSRF token and the person's passkey. The receipt keys, and the verification page
+ * when enabled, are public for anyone.
  *
  *     access_control:
  *         - { request_matcher: verified_human_approval.review_request_matcher, roles: PUBLIC_ACCESS }
@@ -28,6 +29,7 @@ final class ReviewRequestMatcher implements RequestMatcherInterface
         'verified_human_approval_complete',
         'verified_human_approval_cancel',
         'verified_human_approval_evidence',
+        'verified_human_approval_verified',
         'verified_human_approval_receipt_key',
         'verified_human_approval_receipt_keys',
         'verified_human_approval_handoff',

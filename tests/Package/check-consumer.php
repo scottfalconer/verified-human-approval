@@ -55,7 +55,7 @@ try {
             'core' => ['composer.json', 'README.md', 'LICENSE', 'src/ApprovalService.php'],
             'webauthn' => ['composer.json', 'README.md', 'LICENSE', 'src/WebAuthnVerifier.php', 'bin/verify-evidence.php'],
             'mcp' => ['composer.json', 'README.md', 'LICENSE', 'src/ApprovalCard.php', 'resources/approval-card.html'],
-            'symfony-bundle' => ['composer.json', 'README.md', 'LICENSE', 'src/VerifiedHumanApprovalBundle.php', 'config/routes.php', 'public/approval.js', 'templates/review.html.twig'],
+            'symfony-bundle' => ['composer.json', 'README.md', 'LICENSE', 'src/VerifiedHumanApprovalBundle.php', 'config/routes.php', 'public/approval.js', 'templates/review.html.twig', 'translations/VerifiedHumanApproval.en.xlf'],
         ];
         foreach ($required as $package => $files) {
             $run([$composer, '--working-dir='.$root.'/src/'.$package, 'archive', '--format=tar', '--dir='.$directory, '--file='.$package, '--no-interaction'], 'Archive '.$package);

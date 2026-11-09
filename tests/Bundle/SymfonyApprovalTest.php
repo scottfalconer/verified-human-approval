@@ -9,7 +9,10 @@ use Mcp\Client\Transport\HttpTransport;
 use Mcp\Schema\Extension\Apps\McpApps;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use PHPUnit\Framework\TestCase;
+use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Tester\CommandTester;
 use Symfony\Component\Filesystem\Filesystem;
 use VerifiedHumanApproval\Bundle\Event\ApprovalCompleted;
 use VerifiedHumanApproval\Core\Actor;
@@ -125,6 +128,7 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame($evidence['receipt']['manifest'], $status->structuredContent['receipt']['manifest']);
         self::assertSame($evidence['receipt']['signature'], $status->structuredContent['receipt']['signature']);
         self::assertSame(self::ORIGIN.'/approval/receipt-key.json', $status->structuredContent['receipt_key_url']);
+        self::assertSame(self::ORIGIN.'/approval/receipt-keys.json', $status->structuredContent['receipt_keys_url'], 'The agent gets the key set, which still checks this receipt after a rotation.');
 
         // Anyone, signed in or not, can fetch the key that checks it, and the downloaded file checks against it.
         $anyone = new KernelBrowser(new DemoKernel($this->runtime, 'test'), ['HTTP_HOST' => 'localhost:8080']);
@@ -310,7 +314,12 @@ final class SymfonyApprovalTest extends TestCase
         foreach (['/', '/account/passkeys', '/admin/audit', '/admin/approval-policy'] as $path) {
             $browser->request('GET', self::ORIGIN.$path);
             self::assertSame(200, $browser->getResponse()->getStatusCode(), $path);
-            self::assertStringContainsString("frame-ancestors 'none'", (string) $browser->getResponse()->headers->get('Content-Security-Policy'), $path.' opts in to the review pages’ headers.');
+            // The demo adds no sources: the policy is the strict default, with only this response's nonce in it.
+            self::assertMatchesRegularExpression(
+                "/^default-src 'self'; script-src 'self' 'nonce-([A-Za-z0-9_-]{24})'; style-src 'self' 'nonce-\\1'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'; object-src 'none'$/D",
+                (string) $browser->getResponse()->headers->get('Content-Security-Policy'),
+                $path.' opts in to the review pages’ headers.',
+            );
             self::assertStringContainsString('no-store', (string) $browser->getResponse()->headers->get('Cache-Control'), $path);
         }
         $browser->request('GET', self::ORIGIN.'/alerts');
@@ -375,6 +384,83 @@ final class SymfonyApprovalTest extends TestCase
         });
         self::assertSame('completed', $this->approveWith($browser, $id, $key)['status']);
         self::assertSame([[$id, 'user_verified', 1]], $heard, 'Heard once, after the alert was published.');
+    }
+
+    public function testALiveAlertApprovedWithAPasskeySaysSoAndAnyoneCanCheckIt(): void
+    {
+        $id = $this->requestAction();
+        $browser = $this->browser('editor');
+        self::assertSame('completed', $this->approveWith($browser, $id, $this->enroll($browser))['status']);
+        $public = new KernelBrowser(new DemoKernel($this->runtime, 'test'), ['HTTP_HOST' => 'localhost:8080']);
+        $this->browsers[] = $public;
+
+        $badge = $public->request('GET', self::ORIGIN.'/alerts')->filter('.vha-badge');
+        self::assertCount(1, $badge, 'The live alert says it was approved with a passkey.');
+        self::assertStringStartsWith('Approved with a passkey · ', $badge->filter('span')->last()->text());
+        self::assertSame('/approval/'.$id.'/verified', $badge->attr('href'));
+
+        $page = $public->request('GET', self::ORIGIN.'/approval/'.$id.'/verified');
+        self::assertSame(200, $public->getResponse()->getStatusCode(), 'Anyone can open the record, without signing in.');
+        self::assertSame('Approved with a passkey', $page->filter('h1')->text());
+        self::assertStringContainsString('Evacuation order: Riverside Road area', $page->filter('.statement')->text());
+        $html = (string) $public->getResponse()->getContent();
+        $credential = (string) $this->database->pdo->query("SELECT json_extract(proof, '$.credentialId') FROM verified_human_approval_requests WHERE id = '".$id."'")->fetchColumn();
+        foreach (['campaigns', 'editor-personal', '"userId"', $credential] as $private) {
+            self::assertStringNotContainsString($private, $html, 'The public record names no account, tenant, connection or passkey.');
+        }
+
+        // Live text changed by any other path loses the badge; the original text gets it back.
+        $this->database->pdo->exec("UPDATE demo_alerts SET published_body = published_body || ' Edited live.'");
+        self::assertCount(0, $public->request('GET', self::ORIGIN.'/alerts')->filter('.vha-badge'));
+        $this->database->pdo->exec("UPDATE demo_alerts SET published_body = replace(published_body, ' Edited live.', '')");
+        self::assertCount(1, $public->request('GET', self::ORIGIN.'/alerts')->filter('.vha-badge'));
+
+        // A stored record edited afterwards no longer verifies, so neither the badge nor the page vouches for it.
+        $this->database->pdo->exec("UPDATE verified_human_approval_executions SET record = replace(record, '\"disposition\":\"published\"', '\"disposition\":\"edited\"') WHERE request_id = '".$id."'");
+        self::assertCount(0, $public->request('GET', self::ORIGIN.'/alerts')->filter('.vha-badge'));
+        $public->request('GET', self::ORIGIN.'/approval/'.$id.'/verified');
+        self::assertSame(404, $public->getResponse()->getStatusCode());
+    }
+
+    public function testABadgeOutlivesARotationOfTheSigningKeyButNotTheKeyBeingDropped(): void
+    {
+        $id = $this->requestAction();
+        $browser = $this->browser('editor');
+        self::assertSame('completed', $this->approveWith($browser, $id, $this->enroll($browser))['status']);
+
+        // The site moves to a new signing key. The alert was approved and signed before, with the old one.
+        $rotate = new CommandTester((new Application(new DemoKernel($this->runtime, 'test')))->find('demo:rotate-receipt-key'));
+        self::assertSame(Command::SUCCESS, $rotate->execute(['--reason' => 'scheduled rotation']), $rotate->getDisplay());
+        $public = new KernelBrowser(new DemoKernel($this->runtime, 'test'), ['HTTP_HOST' => 'localhost:8080']);
+        $this->browsers[] = $public;
+        self::assertCount(1, $public->request('GET', self::ORIGIN.'/alerts')->filter('.vha-badge'), 'The old key still vouches for what it signed in its window.');
+        $page = $public->request('GET', self::ORIGIN.'/approval/'.$id.'/verified');
+        self::assertSame(200, $public->getResponse()->getStatusCode());
+        self::assertStringContainsString('Signed with key demo-application-1 as the change committed', $page->filter('dl')->text());
+        self::assertSame('/approval/receipt-keys.json', $page->filter('dl a')->attr('href'), 'It links every key the site signs with, not only the current one.');
+
+        // A site that stops trusting the old key no longer vouches for anything it signed.
+        $settings = json_decode((string) file_get_contents($this->runtime.'/settings.json'), true, 32, \JSON_THROW_ON_ERROR);
+        $settings['retired_receipt_keys'] = [];
+        file_put_contents($this->runtime.'/settings.json', json_encode($settings, \JSON_THROW_ON_ERROR));
+        $untrusting = new KernelBrowser(new DemoKernel($this->runtime, 'test'), ['HTTP_HOST' => 'localhost:8080']);
+        $this->browsers[] = $untrusting;
+        self::assertCount(0, $untrusting->request('GET', self::ORIGIN.'/alerts')->filter('.vha-badge'));
+        $untrusting->request('GET', self::ORIGIN.'/approval/'.$id.'/verified');
+        self::assertSame(404, $untrusting->getResponse()->getStatusCode());
+    }
+
+    public function testAnAlertARuleLetRunHasNoPasskeyBadge(): void
+    {
+        $issued = $this->mcp('manager')->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
+        self::assertSame('completed', $issued->structuredContent['status'], 'The emergency manager issues directly.');
+        $public = new KernelBrowser(new DemoKernel($this->runtime, 'test'), ['HTTP_HOST' => 'localhost:8080']);
+        $this->browsers[] = $public;
+        $page = $public->request('GET', self::ORIGIN.'/alerts');
+        self::assertSame('Evacuation order: Riverside Road area', $page->filter('.rc-title')->text());
+        self::assertCount(0, $page->filter('.vha-badge'), 'Nobody approved it with a passkey, so the page does not say so.');
+        $public->request('GET', self::ORIGIN.'/approval/'.$issued->structuredContent['requestId'].'/verified');
+        self::assertSame(404, $public->getResponse()->getStatusCode());
     }
 
     public function testDirectPublicationServiceCannotBypassTheApplicationGuard(): void
