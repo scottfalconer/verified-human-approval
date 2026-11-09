@@ -250,7 +250,7 @@ One Ed25519 key signs new receipts and new audit log entries. Rotating it replac
    php bin/console verified-human-approval:record-key-rotation application-1 --reason="scheduled rotation"
    ```
 
-   The entry, `signing_key.rotated`, is signed with the new key and names both keys, so the chain shows where trust moved. From it on, the log refuses anything the old key signs. The command refuses a rotation the configuration does not show yet: the old key needs a `valid_until`, the new one a `valid_from`. It prints the new head of the log.
+   The entry, `signing_key.rotated`, is signed with the new key and names both keys, so the chain shows where trust moved. From it on, the log refuses any entry the old key signs. The command refuses a rotation the configuration does not show yet: the old key needs a `valid_until`, the new one a `valid_from`. It prints the new head of the log.
 
 5. **Keep a checkpoint** of that head ([below](#keep-checkpoints-of-the-audit-log)), then **destroy the old private key** everywhere it was kept, backups included. Ask anyone who checks your receipts to save `/approval/receipt-keys.json` again.
 
@@ -290,7 +290,7 @@ It passes only if the whole chain still verifies and entry 5 still has that hash
 
 Rotation limits what a stolen key can do from then on. It cannot take back what the key signed, and the time a receipt or an entry records is the application's own claim: a thief can sign a record backdated into the stolen key's window, and it verifies.
 
-1. **Rotate at once** as above, recording `--reason="suspected compromise"`, and close the old key's window at the switch. If you know when the key was exposed, you can close it there instead. Then everything it signed after that stops verifying, genuine receipts included, so tell the people who hold them.
+1. **Rotate at once** as above, recording `--reason="suspected compromise"`, and close the old key's window at the switch. Closing it earlier, at the exposure, would refuse everything the key signed since, genuine receipts and entries included: the audit log would report those entries as failing from then on, and no checkpoint of it would verify again.
 2. **Check the chain against your newest checkpoint from before the exposure** with `audit-head --check`. If it holds, every entry up to that checkpoint is as it was. Review the entries after it that the old key signed: enrollments, revocations, links issued. Treat a passkey enrolled in that period as suspect: revoke it and enroll it again through your trusted account process.
 3. **Keep a new checkpoint** right after the rotation entry.
 4. **Destroy the old private key**, publish the new key set, and say when the exposure started if you know.

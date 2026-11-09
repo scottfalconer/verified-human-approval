@@ -76,7 +76,7 @@ final class AuditHeadCommand extends Command
         $problem = match (true) {
             $report['newest'] < $seq => \sprintf('The log now ends at entry %d, before the kept entry %d: entries were cut off.', $report['newest'], $seq),
             null === $kept => \sprintf('Entry %d is missing from the log.', $seq),
-            !hash_equals($hash, $kept['hash']) => \sprintf('Entry %d is not the entry kept: the chain was rewritten from there or before.', $seq),
+            !hash_equals($hash, $kept['hash']) => \sprintf('Entry %d is no longer the entry kept: it, or the chain before it, was rewritten.', $seq),
             !$report['intact'] => \sprintf('Entry %d is unchanged, but the chain does not verify. Open the audit log to see which entries fail.', $seq),
             default => null,
         };

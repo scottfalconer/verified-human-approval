@@ -111,6 +111,10 @@ final class KeyRotationTest extends TestCase
         $check = $this->console('verified-human-approval:audit-head', ['--check' => $checkpoint]);
         self::assertSame(Command::SUCCESS, $check->getStatusCode(), $check->getDisplay());
         self::assertStringContainsString('The checkpoint holds', $check->getDisplay());
+        $other = $this->console('verified-human-approval:audit-head', ['--check' => $json['seq'].':'.str_repeat('0', 64)]);
+        self::assertSame(Command::FAILURE, $other->getStatusCode());
+        self::assertStringContainsString('is no longer the entry kept', $other->getDisplay());
+        self::assertSame(Command::INVALID, $this->console('verified-human-approval:audit-head', ['--check' => 'yesterday'])->getStatusCode());
 
         $this->database->pdo->prepare('DELETE FROM verified_human_approval_audit WHERE seq = ?')->execute([$json['seq']]);
         $check = $this->console('verified-human-approval:audit-head', ['--check' => $checkpoint]);
