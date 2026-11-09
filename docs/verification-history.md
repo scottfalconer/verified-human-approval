@@ -1,6 +1,6 @@
 # Verification history
 
-This is an archive of run notes recorded on November 8, 2026. Counts, dependency versions, client names and statements such as "not tested" apply to the build described in each section. Later sections were added to the top, so older statements can be superseded by a newer entry. The original first-build commit was not recorded.
+This is an archive of run notes recorded on November 8 and 9, 2026. Counts, dependency versions, client names and statements such as "not tested" apply to the build described in each section. Later sections were added to the top, so older statements can be superseded by a newer entry. The original first-build commit was not recorded.
 
 For the current baseline and commands, see [verification status](verification.md).
 
@@ -9,6 +9,21 @@ For the current baseline and commands, see [verification status](verification.md
 # Verification results
 
 Build verification completed on November 8, 2026, using PHP 8.4.24. These results describe the implemented Symfony/PHP slice, not a production certification or physical-device demonstration.
+
+## Update: an existing OAuth server (November 9, 2026)
+
+Run on macOS with PHP 8.3.31 at `7968edf3`, on the branch that replaced the demo's hand-written OAuth server with league/oauth2-server and omouren/mcp-oauth-bundle.
+
+| Check | Result |
+| --- | --- |
+| PHPUnit, `composer test` | 207 tests, 1326 assertions, all passing. `OAuthTest` (16 tests) keeps the earlier server's security checks as acceptance tests and adds claude.ai's metadata document with and without a resource, a client that names no resource, and `plain` PKCE |
+| PHPStan, coding standard, Composer validation | No errors. The root manifest is validated with `--no-check-all` because of the `symfony/mcp-bundle` alias |
+| Lowest allowed dependencies, replayed with Composer 2.10.3 | 207 tests and the HTTP smoke test passing, with league/oauth2-server 9.2.0, its bundle 1.2.0, lcobucci/jwt 5.1.0 and Symfony 7.4.23 |
+| Symfony 8 | Dependencies resolve (Symfony 8.1.11, league's bundle 1.2.3). The tests were not run: PHP 8.4 was not installed |
+| Real Chrome OAuth connection, Node Playwright with Chrome for Testing (build 1228) | 22 checks passed, from registration and consent to disconnecting on the account page |
+| `tests/http_smoke.py`, `card_smoke.py`, `browser_smoke.py`, `phone_smoke.py` | Passed |
+
+claude.ai has not been connected to this server yet.
 
 ## Update: maintainer review fixes (November 8, 2026, evening)
 

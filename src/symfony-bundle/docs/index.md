@@ -16,7 +16,7 @@ For a runnable application, start with the [demo guide](https://github.com/scott
 | Your account process | Trusted passkey enrollment and recovery; an agent token cannot use it |
 | This bundle | Review routes and templates, CSRF checks, rate limiting, action discovery, MCP status/card/handoff services, the person's receipt download and the public receipt key |
 | Core and WebAuthn packages | Proposal binding, WebAuthn verification, transactional execution and signed receipts |
-| Demo only | Its accounts, OAuth server, administrator forms and audit pages |
+| Demo only | Its accounts, OAuth wiring (league/oauth2-server with omouren/mcp-oauth-bundle), administrator forms and audit pages |
 
 The bundle does not add an approval check to existing writes by itself. Every supported route, command and job that performs the protected mutation must use the same guarded application boundary.
 
@@ -116,7 +116,9 @@ Action adapters are discovered when their services are autoconfigured. If you co
 
 ## 3. Connect existing authentication
 
-Keep the review routes on your application's normal session firewall. Keep `/mcp` on a separate stateless firewall that authenticates a personal bearer token on every request. Your MCP authenticator must pass its **validated** `Mcp\Server\Authorization\AccessToken` to the SDK as the request attribute named `AccessToken::class`.
+Keep the review routes on your application's normal session firewall. Keep `/mcp` on a separate stateless firewall that authenticates a bearer token on every request: a personal token, or an access token from your OAuth server. Your MCP authenticator must pass its **validated** `Mcp\Server\Authorization\AccessToken` to the SDK as the request attribute named `AccessToken::class`.
+
+For remote clients such as claude.ai, use an existing OAuth implementation rather than writing one, and keep it in your application: the bundle only reads the validated token's person, tenant, scopes and delegation ID. The demo uses league/oauth2-server-bundle with omouren/mcp-oauth-bundle, which adds MCP's discovery metadata, client ID metadata documents, registration and consent, and binds each token to the MCP endpoint. Each consent opens an agent connection whose ID is the delegation an approval records, so revoking the connection stops its tokens and any request it made. Its [kernel](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/src/DemoKernel.php) and [authenticator](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/src/Security/AgentTokenAuthenticator.php) show the wiring. omouren/mcp-oauth-bundle 1.2 declares `symfony/mcp-bundle ^0.13`, so the demo installs it beside 1.0.0-BETA1 with a Composer inline alias; the [conformance review](https://github.com/scottfalconer/verified-human-approval/blob/main/docs/conformance-review.md#an-existing-oauth-server) explains why that is safe.
 
 The [example identity adapter](first-action.md#3-map-the-authenticated-person) specifies the principal fields and token claims it expects. It never accepts a user ID or tenant ID from tool arguments.
 

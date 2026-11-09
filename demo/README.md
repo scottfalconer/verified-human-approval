@@ -4,7 +4,7 @@ This Symfony application runs a fictional council's public alerts site. An agent
 
 The walkthrough uses the real MCP SDK client supplied in this repository. You do not need Claude, a model API key, or a paid model. You will request an alert, review the exact proposal, approve it, and check the recorded result.
 
-The accounts, alert pages, administrator screens, and OAuth server are demo code. For your own application, start with the [Symfony bundle guide](../src/symfony-bundle/README.md).
+The accounts, alert pages, administrator screens, and OAuth wiring are demo code; the OAuth server itself is league/oauth2-server with omouren/mcp-oauth-bundle. For your own application, start with the [Symfony bundle guide](../src/symfony-bundle/README.md).
 
 ## Run the demo
 
@@ -141,7 +141,7 @@ demo/bin/public start
 This starts a second demo and a Cloudflare quick tunnel under launchd. It prints the address and MCP connector URL. Its credentials and passkey links are in `var/public-demo-setup.txt`; keep that file private. A new tunnel hostname creates a fresh demo because passkeys belong to a hostname.
 
 1. Open the public address, sign in as its `editor`, and enroll a passkey through that editor's link. Use a passkey available on the phone if you want to approve there.
-2. Add the printed HTTPS MCP URL as a custom connector in claude.ai. Sign in as the public demo's editor and grant access through the demo's OAuth flow.
+2. Add the printed HTTPS MCP URL as a custom connector in claude.ai. claude.ai finds the sign-in through the server's OAuth metadata. Sign in as the public demo's editor and choose **Allow** on the consent page, which lists what Claude may ask for. Connecting approves nothing: each alert still needs the editor's passkey.
 3. Request the alert. Use **Review and approve**, or **Approve on your phone** when the client displays the card. Scan the QR code, review the alert, and approve with the enrolled passkey.
 
 The phone code works once for two minutes. It opens only that review, without granting a general login, and still requires the person's passkey.
@@ -159,5 +159,6 @@ The phone code works once for two minutes. It opens only that review, without gr
 | [`src/Action/DemoPolicyProvider.php`](src/Action/DemoPolicyProvider.php) | The administrator's rules |
 | [`src/Controller/AccountController.php`](src/Controller/AccountController.php) | Passkey enrollment and confirmation |
 | [`src/Controller/AuditController.php`](src/Controller/AuditController.php) | Receipt and passkey checks in the administrator view |
-| [`src/OAuth`](src/OAuth) | Demo OAuth server for remote clients |
+| [`src/OAuth`](src/OAuth) | Storage, agent connections and consent text for the OAuth server (league/oauth2-server with omouren/mcp-oauth-bundle) |
+| [`src/Security/AgentTokenAuthenticator.php`](src/Security/AgentTokenAuthenticator.php) | The `/mcp` firewall: a personal or OAuth token to a person and an agent connection |
 | [`../examples/README.md`](../examples/README.md) | SDK and Symfony AI clients |

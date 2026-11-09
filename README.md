@@ -17,7 +17,7 @@ This is a development preview. The packages are not on Packagist yet; the integr
 - Your application supplies its accounts, current permissions, trusted passkey enrollment and protected action. The bundle supplies the approval flow and review pages.
 - Configure `receipt_signer` to sign receipts when actions commit. The demo and integration example include this configuration.
 - Passkeys use WebAuthn. The device can use Touch ID, Face ID, a PIN or another supported local method. The server receives a signature, not biometric data, and does not claim which local method was used.
-- The demo's account screens, administrator audit page and OAuth server are reference code, not features installed by the bundle.
+- The demo's account screens, administrator audit page and OAuth wiring are reference code, not features installed by the bundle. Remote clients connect through an existing OAuth server: league/oauth2-server with omouren/mcp-oauth-bundle.
 
 ## Try it locally
 
