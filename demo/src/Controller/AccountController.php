@@ -24,6 +24,7 @@ use VerifiedHumanApproval\Core\ChallengeBinding;
 use VerifiedHumanApproval\Demo\Account\AgentConnections;
 use VerifiedHumanApproval\Demo\Account\PasskeyConfirmation;
 use VerifiedHumanApproval\Demo\Account\PasskeyEnrollment;
+use VerifiedHumanApproval\Demo\Account\PasskeyRevocation;
 use VerifiedHumanApproval\Demo\DemoDatabase;
 use VerifiedHumanApproval\Demo\Security\Authenticators;
 use VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository;
@@ -47,6 +48,7 @@ final readonly class AccountController
         private PasskeyEnrollment $enrollment,
         private PasskeyConfirmation $confirmation,
         private AgentConnections $connections,
+        private PasskeyRevocation $revocation,
         private DemoDatabase $database,
         private CsrfTokenManagerInterface $csrf,
         private Environment $twig,
@@ -192,7 +194,7 @@ final readonly class AccountController
     {
         $actor = $this->actors->interactive();
         $this->assertFormCsrf($request);
-        $this->anchored->revoke($actor, $id, ['by' => $actor->userId, 'reason' => 'revoked by its owner']);
+        $this->revocation->byOwner($actor, $id);
 
         return new RedirectResponse('/account/passkeys');
     }

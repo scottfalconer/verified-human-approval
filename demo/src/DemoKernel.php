@@ -20,6 +20,7 @@ use VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool;
 use VerifiedHumanApproval\Bundle\SecurityHeadersSubscriber;
 use VerifiedHumanApproval\Bundle\VerifiedHumanApprovalBundle;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
+use VerifiedHumanApproval\Core\Audit\AuditStore;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
 use VerifiedHumanApproval\Core\Storage\PdoApprovalStore;
 use VerifiedHumanApproval\Core\Storage\PdoAuditStore;
@@ -219,7 +220,10 @@ final class DemoKernel extends Kernel
         $services->set(PdoCredentialRepository::class);
         // Approvals accept only passkeys whose signed enrollment record vouches for them.
         $services->set(PdoAuditStore::class);
-        $services->set(AuditLog::class)->args([service(PdoAuditStore::class), service(SodiumEvidenceSigner::class), '%env(DEMO_RUNTIME_RECEIPT_PUBLIC_KEY)%', service('verified_human_approval.clock')]);
+        $services->alias(AuditStore::class, PdoAuditStore::class);
+        $services->set(AuditLog::class)->args([service(AuditStore::class), service(SodiumEvidenceSigner::class), '%env(DEMO_RUNTIME_RECEIPT_PUBLIC_KEY)%', service('verified_human_approval.clock')]);
+        // Verification reads passkeys through the anchored wrapper; the wrapper reads the raw rows. Wired
+        // explicitly, so the inner repository can never resolve back to the wrapper.
         $services->set(AnchoredCredentialRepository::class)->arg('$credentials', service(PdoCredentialRepository::class));
         $services->alias(CredentialRepository::class, AnchoredCredentialRepository::class);
         $services->set(Configuration::class)->args(['%env(DEMO_RUNTIME_RP_ID)%', $origin]);

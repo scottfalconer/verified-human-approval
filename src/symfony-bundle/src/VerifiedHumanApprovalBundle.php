@@ -143,8 +143,9 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
         $services->alias(ApprovalFlow::class, 'verified_human_approval.flow');
 
         // With a receipt signer, the person can download their receipt, and the key that checks it is published.
+        // The download serves the original receipts only, so the exporter gets no access to the private key.
         if (null !== $config['receipt_signer']) {
-            $services->set('verified_human_approval.evidence_exporter', EvidenceExporter::class)->args([service($config['receipt_signer'])]);
+            $services->set('verified_human_approval.evidence_exporter', EvidenceExporter::class);
             $services->alias(EvidenceExporter::class, 'verified_human_approval.evidence_exporter');
             $services->set('verified_human_approval.receipt_key', ReceiptKey::class)
                 ->args([service($config['receipt_signer']), $config['public_origin'], $config['relying_party_id']]);
