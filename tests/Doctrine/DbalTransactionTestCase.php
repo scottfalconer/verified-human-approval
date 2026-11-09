@@ -231,17 +231,22 @@ abstract class DbalTransactionTestCase extends TestCase
         self::assertSame(['FOR UPDATE', $mysql ? 'LOCK IN SHARE MODE' : 'FOR SHARE'], [$this->transaction->forUpdate(), $this->transaction->forShare()]);
         // A session default of REPEATABLE READ does not reach the approval transaction, and is kept for the rest.
         $this->connection->executeStatement($mysql ? 'SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ' : 'SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL REPEATABLE READ');
-        $level = fn (): string => $mysql
-            // InnoDB starts the transaction at its first read of a table.
-            ? (string) $this->connection->fetchOne('SELECT trx_isolation_level FROM information_schema.innodb_trx WHERE trx_mysql_thread_id = CONNECTION_ID() AND 0 <= (SELECT COUNT(*) FROM notes)')
-            : (string) $this->connection->fetchOne('SHOW transaction_isolation');
-        self::assertSame($mysql ? 'READ COMMITTED' : 'read committed', $this->transaction->run($level));
+        $level = function (int $note) use ($mysql): string {
+            if (!$mysql) {
+                return (string) $this->connection->fetchOne('SHOW transaction_isolation');
+            }
+            // InnoDB lists a transaction once it has touched a table; a write makes sure it has.
+            $this->note($note);
+
+            return (string) $this->connection->fetchOne('SELECT trx_isolation_level FROM information_schema.innodb_trx WHERE trx_mysql_thread_id = CONNECTION_ID()');
+        };
+        self::assertSame($mysql ? 'READ COMMITTED' : 'read committed', $this->transaction->run(static fn (): string => $level(11)));
         $this->connection->beginTransaction();
-        self::assertSame($mysql ? 'REPEATABLE READ' : 'repeatable read', $level());
+        self::assertSame($mysql ? 'REPEATABLE READ' : 'repeatable read', $level(12));
         $this->connection->rollBack();
         // And no lock is taken that a writer of other rows would wait for.
         $this->transaction->run(static fn () => $other->insert('notes', ['id' => 9, 'note' => 'another writer']));
-        self::assertSame([9], $this->notes());
+        self::assertSame($mysql ? [9, 11] : [9], $this->notes());
     }
 
     public function testAConnectionOutsideAutoCommitIsRefused(): void
