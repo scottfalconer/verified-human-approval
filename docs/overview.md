@@ -74,6 +74,8 @@ If a connection fails after submission, the outcome may be unknown to the browse
 
 The passkey assertion binds the credential to the frozen proposal. The application's receipt binds that proposal, the proof and the execution report. With commit signing configured, the receipt is saved in the same transaction as the change. Export returns the original receipt and refuses if it is missing; it does not recreate it from editable records.
 
-The offline verifier needs separately trusted public application and credential records. It reports the two signature checks separately and states when the application report was signed. It verifies the historical evidence, not the current live content or an independently observed database effect.
+With the Symfony bundle, the person can download their own copy from the completed review page, and the agent's result carries the signed receipt. The application publishes its public key at `/approval/receipt-key.json`. A person who keeps their copy can later show that the stored record changed, but only for their own requests.
+
+The offline verifier needs the application's public key, trusted separately from the record, and optionally the credential's trusted record to check the passkey signature too. It reports the two signature checks separately and states when the application report was signed. It verifies the historical evidence, not the current live content or an independently observed database effect.
 
 See [receipt verification](evidence.md) for a complete example, including a changed copy that fails verification. See the [security model](security-model.md) for trust assumptions and [integration contracts](integration-contract.md) for the interfaces.

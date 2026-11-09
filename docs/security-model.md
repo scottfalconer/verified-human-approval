@@ -46,6 +46,8 @@ The demo also records passkey enrollment and revocation in a signed audit log. `
 
 These signatures make later changes detectable when verification runs. They do not stop someone with database write access from changing or deleting bytes. The default exporter refuses a completed action whose original receipt is missing. It does not replace that receipt with a fresh signature.
 
+The person's downloaded receipt, and the copy in the agent's result, sit outside the application's database. Checked against the application's published key, they show a later change to, or deletion of, the stored record. They cover only that person's own requests, and they depend on the person keeping them.
+
 The demo's administrator page at `/admin/audit` rechecks completed actions against their receipts and the passkeys' signed enrollment records. It also verifies the audit chain. This checks the original historical records, not whether today's live content still matches an earlier approval.
 
 Recorded times remain application claims, and an old assertion does not independently prove its historical revocation status. Deleting the newest audit entries cannot be detected without an independently retained checkpoint. A compromised application signing key can forge application reports or new enrollment records; it cannot recreate a passkey assertion under a separately trusted original user public key. Obtaining and retaining trusted verification keys is therefore part of the host's responsibility.
@@ -61,7 +63,7 @@ The demo keeps bearer-authenticated MCP access separate from human sessions, enr
 - Passkey and agent-connection revocations are recorded and checked for subsequent use.
 - Changing who must approve is itself a passkey-approved action. Its approval rule is fixed in code, so an administrator cannot switch off approval of rule changes through that rule editor.
 
-The phone handoff code opens one request for one person, once, within two minutes. A Continue step avoids accidental redemption by link previewers. Redemption is locked; the scoped session can approve but cannot cancel. The tool that creates codes checks read scope and a rate budget. Its app-only visibility is a host convention, not authorization.
+The phone handoff code opens one request for one person, once, within two minutes. A Continue step avoids accidental redemption by link previewers. Redemption is locked; the scoped session can approve but cannot cancel or download the receipt. The tool that creates codes checks read scope and a rate budget. Its app-only visibility is a host convention, not authorization.
 
 The demo's OAuth metadata fetch uses `NoPrivateNetworkHttpClient`, with bounded responses and a timeout, to reject private-network destinations and pin resolved addresses. Its OAuth server and personal tokens are reference implementations. A production host must connect its own identity and recovery processes.
 

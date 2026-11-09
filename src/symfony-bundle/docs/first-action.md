@@ -115,7 +115,7 @@ cat var/approval/key.env >> .env.local
 chmod 600 .env.local
 ```
 
-Use your deployment's secret store for production. Keep the private key outside the database and web root, back it up, and keep its public key and ID in a separately trusted record for later verification. Do not generate keys during application boot or normal deployments. The reference audit log accepts one trusted signing key; plan key rotation and preservation of old trust records before changing it.
+Use your deployment's secret store for production. Keep the private key outside the database and web root, back it up, and keep its public key and ID in a separately trusted record for later verification. The bundle also publishes that public key at `/approval/receipt-key.json`, so people can check the receipts they download. Do not generate keys during application boot or normal deployments. The reference audit log accepts one trusted signing key; plan key rotation and preservation of old trust records before changing it.
 
 Add these application settings, choosing the actual absolute database path:
 
@@ -702,6 +702,7 @@ Use a real test account in your application, enroll its passkey through your tru
 | Revoke the initiating grant or publication permission before completing | Approval stops; nothing is published |
 | Call `PublishDocument::execute()` directly | `approval_required`; no business write |
 | Cause a postcondition or signing failure | The business write, credential update and receipt commit all roll back |
-| Edit an exported receipt's content and verify it | Verification fails; see the evidence guide |
+| Download the receipt from the completed review page, then check it and an edited copy against `/approval/receipt-key.json` | The original verifies; the edited copy fails. See the evidence guide |
+| Open `/approval/receipt-key.json` while signed out | The public key, readable only if the bundle's access-control rule from the integration guide is in place |
 
-The [evidence guide](https://github.com/scottfalconer/verified-human-approval/blob/main/docs/evidence.md) explains how to export the original receipt and verify it against independently trusted application and enrollment records. Reading `approval_status` alone is not that verification step.
+The [evidence guide](https://github.com/scottfalconer/verified-human-approval/blob/main/docs/evidence.md) explains how to download the original receipt and verify it against the application's published key, and against the trusted enrollment record to check the passkey signature too. Reading `approval_status` alone is not that verification step.
