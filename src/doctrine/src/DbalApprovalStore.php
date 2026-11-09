@@ -109,12 +109,16 @@ final readonly class DbalApprovalStore implements ApprovalStore, ApprovalHistory
                 ]);
             }
         }
-        $this->connection->executeStatement('UPDATE '.ApprovalSchema::REQUESTS." SET status = ?, reason = ?, result = ?, proof = ? WHERE id = ? AND status = 'pending'", [
+        $changed = $this->connection->executeStatement('UPDATE '.ApprovalSchema::REQUESTS." SET status = ?, reason = ?, result = ?, proof = ? WHERE id = ? AND status = 'pending'", [
             $state->status, $state->reason,
             null === $state->result ? null : CanonicalJson::encode((object) $state->result),
             null === $state->proof ? null : CanonicalJson::encode((object) $state->proof),
             $state->request->id,
         ]);
+        // The row is locked and was pending, and its status changes, so every database reports one changed row.
+        if ('pending' !== $state->status && 1 !== (int) $changed) {
+            throw new ApprovalException('immutable_approval', 'A frozen proposal or terminal outcome cannot be overwritten.');
+        }
     }
 
     public function putCeremony(Ceremony $ceremony): void

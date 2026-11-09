@@ -27,7 +27,7 @@ final readonly class ApprovalSchemaListener
         }
         // An ORM before 3.6.8 cannot take a new schema, so the tables go into the one it holds.
         $replace = (new \ReflectionClass($event))->hasMethod('setSchema');
-        $schema = ApprovalSchema::addTo($event->getSchema(), $this->connection->getDatabasePlatform(), !$replace);
+        $schema = ApprovalSchema::addTo($event->getSchema(), $this->connection->getDatabasePlatform(), !$replace, $this->connection->getConfiguration()->getSchemaAssetsFilter());
         if ($replace && $schema !== $event->getSchema()) {
             $event->setSchema($schema);
         }

@@ -138,6 +138,13 @@ abstract class ApprovalSchemaTestCase extends TestCase
         // An entity manager on another connection is left alone, even on the same database.
         $other = new SchemaTool($this->entityManager(TestDatabase::connect(static::KIND, (string) $this->location), $this->connection));
         self::assertSame([], $other->getCreateSchemaSql([]));
+
+        // So is a table the application's schema filter hides, as DoctrineBundle's schema_filter does.
+        $filtered = TestDatabase::connect(static::KIND, (string) $this->location);
+        $filtered->getConfiguration()->setSchemaAssetsFilter(static fn (string $name): bool => ApprovalSchema::AUDIT !== $name);
+        $create = implode("\n", (new SchemaTool($this->entityManager($filtered)))->getCreateSchemaSql([]));
+        self::assertStringNotContainsString(ApprovalSchema::AUDIT.' ', $create);
+        self::assertStringContainsString(ApprovalSchema::REQUESTS.' ', $create);
     }
 
     private function entityManager(Connection $connection, ?Connection $approvals = null): EntityManager

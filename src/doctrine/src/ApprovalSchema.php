@@ -147,10 +147,15 @@ final class ApprovalSchema
      * Adds the tables a schema does not have yet, for a schema listener or a migration. Returns the schema with
      * them: on DBAL 4.5 and later a new one, built with the schema editor, so pass it on; with $inPlace, or on an
      * older DBAL, the same object, changed.
+     *
+     * @param (callable(string): bool)|null $assetFilter the connection's schema assets filter
      */
-    public static function addTo(Schema $schema, AbstractPlatform $platform, bool $inPlace = false): Schema
+    public static function addTo(Schema $schema, AbstractPlatform $platform, bool $inPlace = false, ?callable $assetFilter = null): Schema
     {
-        $missing = array_values(array_filter(self::tables($platform), static fn (Table $table): bool => !$schema->hasTable($table->getObjectName()->toString())));
+        // A table the application's schema filter hides (DoctrineBundle's schema_filter) is left out, as it would be
+        // left out of the database's schema, so a migration diff never proposes to create a table that exists.
+        $missing = array_values(array_filter(self::tables($platform), static fn (Table $table): bool => !$schema->hasTable($table->getObjectName()->toString())
+            && (null === $assetFilter || $assetFilter($table->getObjectName()->toString()))));
         if ([] === $missing) {
             return $schema;
         }
