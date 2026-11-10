@@ -26,6 +26,9 @@ if (!class_exists(ReceiptVerifier::class)) {
     exit(2);
 }
 
+// register_argc_argv can disable the argument globals. Missing input is a usage error, not a PHP warning.
+$argv ??= [];
+$argc = count($argv);
 if (3 !== $argc && 4 !== $argc) {
     fwrite(\STDERR, <<<'USAGE'
         Usage: vendor/bin/verify-evidence.php receipt.json site-keys.json [passkey.json]
