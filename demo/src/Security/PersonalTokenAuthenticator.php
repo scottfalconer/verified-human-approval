@@ -65,15 +65,27 @@ final class PersonalTokenAuthenticator extends AbstractAuthenticator implements 
 
     public function onAuthenticationFailure(Request $request, AuthenticationException $exception): Response
     {
-        return $this->start($request, $exception);
+        // RFC 6750 §3.1: a bearer token that was presented and refused is named as the error, so a client
+        // knows to get a new one. Any other Authorization header is a request without a bearer token.
+        $presented = 1 === preg_match('/^Bearer /i', $request->headers->get('Authorization') ?? '');
+
+        return $this->challenge($presented ? 'invalid_token' : null);
     }
 
     public function start(Request $request, ?AuthenticationException $authException = null): Response
     {
+        return $this->challenge();
+    }
+
+    private function challenge(?string $error = null): Response
+    {
         // RFC 9728: point MCP clients at the protected resource metadata, so they can find the authorization
         // server, and name the scopes an agent needs (the MCP authorization spec's SHOULD).
         $challenge = \sprintf('Bearer resource_metadata="%s", scope="%s"', $this->metadata->getMetadataUrl(), implode(' ', OAuthServer::SCOPES));
+        if (null !== $error) {
+            $challenge .= \sprintf(', error="%s"', $error);
+        }
 
-        return new JsonResponse(['error' => 'authentication_required'], 401, ['WWW-Authenticate' => $challenge]);
+        return new JsonResponse(['error' => $error ?? 'authentication_required'], 401, ['WWW-Authenticate' => $challenge]);
     }
 }

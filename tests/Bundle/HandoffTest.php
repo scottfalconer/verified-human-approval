@@ -6,6 +6,7 @@ namespace VerifiedHumanApproval\Tests\Bundle;
 
 use Mcp\Client;
 use Mcp\Client\Transport\HttpTransport;
+use Mcp\Exception\RequestException;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use PHPUnit\Framework\TestCase;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
@@ -109,8 +110,12 @@ final class HandoffTest extends TestCase
         $database->pdo->prepare('INSERT INTO demo_grants (id, user_id, tenant_id, token_hash, scopes) VALUES (?, ?, ?, ?, ?)')
             ->execute(['editor-limited', 'editor', 'campaigns', hash('sha256', $limited), '["alert.read","alert.publish"]']);
         $this->accounts['limited'] = ['personal_token' => $limited];
-        $refused = $this->mcp('limited')->callTool('approval_handoff', ['request_id' => $id]);
-        self::assertTrue($refused->isError, 'A connection that may not read results cannot open the review elsewhere either.');
+        try {
+            $this->mcp('limited')->callTool('approval_handoff', ['request_id' => $id]);
+            self::fail('A connection that may not read results cannot open the review elsewhere either.');
+        } catch (RequestException $error) {
+            self::assertSame('The access token lacks a required scope. This operation needs the scope "approval.read".', $error->getMessage());
+        }
 
         $agent = $this->mcp('editor');
         self::assertFalse($agent->callTool('approval_handoff', ['request_id' => $id])->isError);

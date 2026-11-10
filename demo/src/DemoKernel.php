@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace VerifiedHumanApproval\Demo;
 
 use Mcp\Server\Transport\Http\OAuth\ProtectedResourceMetadata;
+use Mcp\Server\Transport\Http\OAuth\ScopePolicy;
 use Symfony\AI\McpBundle\McpBundle;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
 use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
@@ -17,6 +18,7 @@ use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool;
+use VerifiedHumanApproval\Bundle\Security\McpScopeChallengeSubscriber;
 use VerifiedHumanApproval\Bundle\SecurityHeadersSubscriber;
 use VerifiedHumanApproval\Bundle\VerifiedHumanApprovalBundle;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
@@ -46,6 +48,7 @@ use VerifiedHumanApproval\WebAuthn\CredentialRepository;
 use VerifiedHumanApproval\WebAuthn\PdoCredentialRepository;
 use VerifiedHumanApproval\WebAuthn\WebAuthnVerifier;
 
+use function Symfony\Component\DependencyInjection\Loader\Configurator\inline_service;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 
 final class DemoKernel extends Kernel
@@ -239,6 +242,15 @@ final class DemoKernel extends Kernel
         $services->set(SodiumEvidenceSigner::class, SodiumEvidenceSigner::class)->factory([SodiumEvidenceSigner::class, 'fromEncoded'])->args(['%env(DEMO_RUNTIME_RECEIPT_KEY_ID)%', '%env(DEMO_RUNTIME_RECEIPT_SECRET_KEY)%']);
         // One description of the protected resource (RFC 9728): served at /.well-known and named in every 401.
         $services->set(ProtectedResourceMetadata::class)->args([$origin.'/mcp', [$origin], OAuthServer::SCOPES, 'Riverside Council public alerts']);
+        // A token that lacks one of a tool's scopes is answered 403 with a challenge naming them all, so a client
+        // can ask for more and retry. The MCP bundle takes no SDK middleware yet, so the approval bundle's
+        // subscriber applies the SDK's policy; the tools and the authorizer still check for themselves.
+        $services->set(McpScopeChallengeSubscriber::class)->args([inline_service(ScopePolicy::class)->arg('$tools', [
+            'read_alert' => ['alert.read'],
+            'publish_alert' => ['alert.publish', 'approval.read'],
+            'approval_status' => ['approval.read'],
+            'approval_handoff' => ['approval.read'],
+        ]), service(ProtectedResourceMetadata::class)]);
         $services->get(PublishAlert::class)->arg('$layoutFiles', '%env(json:DEMO_RUNTIME_LAYOUT_FILES)%');
         $services->get(AccountController::class)->arg('$limiter', service('limiter.demo_passkey_enrollment'));
         $services->get(OAuthController::class)->arg('$origin', $origin)->arg('$registrationLimiter', service('limiter.demo_oauth_registration'));

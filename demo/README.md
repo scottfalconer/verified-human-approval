@@ -154,8 +154,8 @@ The phone code works once for two minutes. It opens only that review, without gr
 
 | Path | Purpose |
 | --- | --- |
-| [`src/DemoKernel.php`](src/DemoKernel.php) | Bundle configuration, firewalls, routes, and service wiring |
-| [`src/Mcp/DemoTools.php`](src/Mcp/DemoTools.php) | Read and publish tools, with connection scope checks |
+| [`src/DemoKernel.php`](src/DemoKernel.php) | Bundle configuration, firewalls, routes, service wiring, and the scopes each tool needs, which a token lacking one is told with HTTP 403 |
+| [`src/Mcp/DemoTools.php`](src/Mcp/DemoTools.php) | Read and publish tools, which check the connection's scopes again for themselves |
 | [`src/Action/PublishAlert.php`](src/Action/PublishAlert.php) | Frozen proposal, version, preconditions, and postconditions |
 | [`src/Action/AlertPublisher.php`](src/Action/AlertPublisher.php) | The guarded database mutation |
 | [`src/Action/DemoPolicyProvider.php`](src/Action/DemoPolicyProvider.php) | The administrator's rules |

@@ -225,6 +225,45 @@ A pending response is a normal tool outcome. It contains a `requestId`, `review_
 
 URL-mode elicitation is optional and off by default. Enable it only for clients you have tested. The card and review link do not depend on it. See [MCP presentation](https://github.com/scottfalconer/verified-human-approval/blob/main/src/mcp/README.md) for client and protocol details.
 
+### Scope challenges over HTTP
+
+A scope check inside a tool can only refuse inside the tool's result. The model reads why, but the MCP client gets nothing it can act on. Where `/mcp` is an OAuth protected resource, the MCP authorization specification asks for more: HTTP 403 with `WWW-Authenticate: Bearer error="insufficient_scope"` naming the scopes the operation needs, so the client can ask the person for them and retry.
+
+The PHP SDK has `AuthorizationMiddleware` for this, but `symfony/mcp-bundle` 1.0 builds the HTTP transport itself and takes no middleware ([symfony/ai#2883](https://github.com/symfony/ai/issues/2883)). Until it does, register the bundle's `McpScopeChallengeSubscriber` with the SDK's own `ScopePolicy`:
+
+```yaml
+# Merge into config/services.yaml, under the default autowiring and autoconfiguration
+services:
+    Mcp\Server\Transport\Http\OAuth\ScopePolicy:
+        arguments:
+            $tools:
+                publish_document: [document.publish, approval.read]
+                approval_status: [approval.read]
+                approval_handoff: [approval.read]
+
+    VerifiedHumanApproval\Bundle\Security\McpScopeChallengeSubscriber: ~
+```
+
+After your authenticator has run and before any MCP code does, the subscriber reads the tool name from the request body, never from a header, and compares the policy with the validated token:
+
+| The request | The answer |
+| --- | --- |
+| The token lacks a scope the operation needs | `403`, a challenge naming every scope the operation needs, and a JSON-RPC error that names them for a client that only reports the failure |
+| A scope is needed and the request has no validated token | `401`, with the same scopes in the challenge |
+| A `POST` body over the SDK's default limit of 4 MiB | `413`: it never passes on a body it did not inspect |
+| Anything else | Passed to the MCP server, the token gaining any scopes the policy says its own imply |
+
+If a `ProtectedResourceMetadata` service (RFC 9728) exists, the challenge also carries `resource_metadata`, which leads the client to your authorization server. The [demo](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/src/DemoKernel.php) registers all three.
+
+Before relying on it:
+
+- **It is opt-in, and it is for OAuth.** With fixed personal tokens there is no authorization server for a client to ask. Leave the subscriber out and keep the refusal in the tool, where the model can read it; the [publishing example](https://github.com/scottfalconer/verified-human-approval/blob/main/examples/doctrine-publishing/README.md) does.
+- **A tool the policy does not name needs no scope** beyond the policy's `$default` list. Add every new tool to the map. The checks inside your tools are what holds if one is forgotten.
+- **Your authenticator must have run.** Require a role for the MCP path in `access_control`, and set the validated token as the `AccessToken::class` request attribute, as [section 3](#3-connect-existing-authentication) asks.
+- **It covers every HTTP MCP server the application serves.** It recognises the MCP bundle's controller, not a path.
+- **Keep the scope checks in your tools.** Stdio has no HTTP status to answer with. Ownership and permission refusals are not scope problems either: they stay tool results, because a broader token would not change them.
+- **If you build the transport yourself, add the SDK's `AuthorizationMiddleware` instead.** The subscriber applies the same policy and writes the same header.
+
 ## 5. Connect passkey enrollment and the review screen
 
 WebAuthn already supports authenticator verification such as Touch ID, Face ID or a PIN. The application requires user verification; it does not choose or prove which local biometric method was used. No additional authentication mechanism is needed for those cases.

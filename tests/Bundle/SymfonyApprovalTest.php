@@ -6,6 +6,7 @@ namespace VerifiedHumanApproval\Tests\Bundle;
 
 use Mcp\Client;
 use Mcp\Client\Transport\HttpTransport;
+use Mcp\Exception\RequestException;
 use Mcp\Schema\Extension\Apps\McpApps;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use PHPUnit\Framework\TestCase;
@@ -255,8 +256,19 @@ final class SymfonyApprovalTest extends TestCase
 
     public function testAReadOnlyPersonsMcpCredentialCannotRequestPublication(): void
     {
+        // The reader's connection was never given the publishing scope, so the call is refused before any tool runs.
         $client = $this->mcp('reader');
-        self::assertFalse($client->callTool('read_alert', ['alert_id' => 'riverside-evacuation'])->isError);
+        try {
+            $client->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
+            self::fail('A read-only connection must be challenged for the scopes publishing needs.');
+        } catch (RequestException $error) {
+            self::assertSame('The access token lacks a required scope. This operation needs the scope "alert.publish approval.read".', $error->getMessage(), 'The SDK\'s client reports which scopes the call needs.');
+        }
+        self::assertFalse($client->callTool('read_alert', ['alert_id' => 'riverside-evacuation'])->isError, 'The refusal ends that call, not the connection.');
+
+        // With every scope, the person's own permission still decides: more scope would not help, so that is a tool result.
+        $this->database->pdo->prepare("UPDATE demo_grants SET scopes = ? WHERE id = 'reader-personal'")
+            ->execute([json_encode(['alert.read', 'alert.publish', 'approval.read'], \JSON_THROW_ON_ERROR)]);
         $response = $client->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
         self::assertTrue($response->isError);
         self::assertSame('permission_denied', $response->structuredContent['reason']);
@@ -490,13 +502,18 @@ final class SymfonyApprovalTest extends TestCase
         $id = $request->structuredContent['requestId'];
         $this->database->pdo->prepare("UPDATE demo_grants SET scopes = ? WHERE id = 'editor-personal'")
             ->execute([json_encode(['alert.read', 'alert.publish'], \JSON_THROW_ON_ERROR)]);
-        $status = $client->callTool('approval_status', ['request_id' => $id]);
-        self::assertTrue($status->isError);
-        self::assertNull($status->structuredContent);
-        $retry = $client->callTool('publish_alert', ['alert_id' => 'riverside-evacuation', 'request_key' => 'scope-test']);
-        self::assertTrue($retry->isError);
-        self::assertSame('result_read_denied', $retry->structuredContent['reason']);
-        self::assertArrayNotHasKey('result', $retry->structuredContent);
+        $calls = [
+            'approval_status' => [['request_id' => $id], 'approval.read'],
+            'publish_alert' => [['alert_id' => 'riverside-evacuation', 'request_key' => 'scope-test'], 'alert.publish approval.read'],
+        ];
+        foreach ($calls as $tool => [$arguments, $needed]) {
+            try {
+                $client->callTool($tool, $arguments);
+                self::fail('Removing the read scope must stop the connection reading the result, a retry included: '.$tool);
+            } catch (RequestException $error) {
+                self::assertSame('The access token lacks a required scope. This operation needs the scope "'.$needed.'".', $error->getMessage());
+            }
+        }
         self::assertSame(0, $this->mutationCount());
     }
 
@@ -635,6 +652,9 @@ final class SymfonyApprovalTest extends TestCase
         $staff = $this->mcp('editor')->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
         self::assertSame('pending', $staff->structuredContent['status'], 'County staff must verify each exact alert.');
         self::assertSame(0, $this->mutationCount());
+        // Even a connection with every scope cannot override the account's permission or the rule for its role.
+        $this->database->pdo->prepare("UPDATE demo_grants SET scopes = ? WHERE id = 'reader-personal'")
+            ->execute([json_encode(['alert.read', 'alert.publish', 'approval.read'], \JSON_THROW_ON_ERROR)]);
         $reader = $this->mcp('reader')->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
         self::assertTrue($reader->isError, 'A read-only colleague cannot issue alerts.');
         self::assertSame(0, $this->mutationCount());

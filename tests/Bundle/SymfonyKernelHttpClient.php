@@ -14,13 +14,18 @@ use VerifiedHumanApproval\Demo\DemoKernel;
 /** Test adapter transports real HTTP messages through a fresh Symfony kernel per request. */
 final readonly class SymfonyKernelHttpClient implements ClientInterface
 {
-    public function __construct(private string $runtime)
+    /** @param (\Closure(DemoKernel): void)|null $prepare changes the booted kernel before it handles each request */
+    public function __construct(private string $runtime, private ?\Closure $prepare = null)
     {
     }
 
     public function sendRequest(RequestInterface $request): ResponseInterface
     {
         $kernel = new DemoKernel($this->runtime, 'test');
+        if (null !== $this->prepare) {
+            $kernel->boot();
+            ($this->prepare)($kernel);
+        }
         $http = Request::create((string) $request->getUri(), $request->getMethod(), content: (string) $request->getBody());
         $http->headers->replace($request->getHeaders());
         $response = $kernel->handle($http);

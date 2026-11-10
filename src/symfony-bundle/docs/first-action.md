@@ -672,6 +672,8 @@ final readonly class PublishDocumentTool
 
 Register this class with the MCP configuration in the [integration guide](index.md#4-register-the-mcp-tools-and-card). Ask the tool to publish a real document belonging to the signed-in tenant. The caller needs an active account with publication permission and a personal grant containing `document.publish` and `approval.read`.
 
+The scope checks in this tool answer inside the tool's result. If `/mcp` is an OAuth protected resource, also register the [scope challenge](index.md#scope-challenges-over-http): a client whose token lacks `document.publish` or `approval.read` then gets HTTP 403 naming both and can ask the person for them. Keep the checks here either way.
+
 ## 7. Connect trusted passkey enrollment
 
 Use your existing trusted account flow to authorize enrollment. It must establish the human account independently of an ordinary agent bearer or a password-only takeover. The demo uses a one-time trusted link for the first passkey and an existing passkey for another registration; your account recovery process remains your responsibility.
