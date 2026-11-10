@@ -50,7 +50,7 @@ On HTTPS, the optional phone handoff opens only one review in a scoped browser s
 
 ## 4. Execute in one transaction
 
-The supplied `PdoApprovalStore` supports SQLite and owns the outer transaction. The action's data, current account and grant records, credentials and approval records must use **the same PDO connection**.
+The supplied `PdoApprovalStore` supports SQLite; the Doctrine adapter supports SQLite, PostgreSQL, MySQL and MariaDB. Both own the outer transaction. The action's data, current account and grant records, credentials and approval records must use **the same application connection**. See the [Doctrine guide](../src/doctrine/README.md) for supported versions and ORM integration.
 
 During completion, the core reloads the stored proposal, checks current authority and policy, verifies the assertion, checks preconditions, executes the stored effect and checks postconditions. It consumes the proof, updates the credential counter and records the execution and signed receipt in that transaction.
 
@@ -58,7 +58,7 @@ The mutation service calls `ExecutionGuard::assertExecuting()`. Every supported 
 
 With a receipt signer configured, a signing failure rolls back the change. An execution or postcondition failure also rolls back the business change and credential update. The original expectation stays immutable during adapter callbacks.
 
-This boundary covers local database changes. A remote API call, email or payment cannot be rolled back by SQLite. Other databases, transaction managers and external effects need a separate implementation and review.
+This boundary covers local database changes. A remote API call, email or payment cannot be rolled back by the local database. Other storage adapters must pass the published transaction contracts; external effects need their own delivery design.
 
 ## 5. Read the outcome and handle retries
 

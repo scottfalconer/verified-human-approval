@@ -14,7 +14,7 @@ use Symfony\Component\Filesystem\Filesystem;
 use VerifiedHumanApproval\Demo\DemoDatabase;
 use VerifiedHumanApproval\Demo\DemoKernel;
 use VerifiedHumanApproval\Demo\DemoSetup;
-use VerifiedHumanApproval\Tests\Support\VirtualAuthenticator;
+use VerifiedHumanApproval\Testing\VirtualAuthenticator;
 
 /** "Approve on your phone": a one-time code that opens one approval, and nothing else, on another device. */
 final class HandoffTest extends TestCase

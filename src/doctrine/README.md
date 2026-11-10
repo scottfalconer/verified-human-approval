@@ -88,6 +88,8 @@ With a `PrimaryReadReplicaConnection`, every read the stores make, inside or out
 
 ## Actions on ORM entities
 
+Use `currentApproval()->requestId` from `apply()` to associate the written revision with its approval in the same transaction. `currentApproval()` also reports `userVerified()` and refuses use outside execution; subclasses need not inject or store another `ExecutionGuard`.
+
 Extend `Orm\EntityAction`. Its `execute()` is final: it clears the entity manager, so nothing loaded or changed earlier is read as current or flushed with the approved change; loads the targets you name, locked for writing; lets your `apply()` change them; and flushes inside the approval transaction, so your postconditions read the written rows and the receipt is signed after them. If the transaction rolls back, the entity manager is reset.
 
 ```php

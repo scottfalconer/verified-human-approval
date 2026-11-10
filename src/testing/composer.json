@@ -1,0 +1,34 @@
+{
+  "name": "verified-human-approval/testing",
+  "description": "Test support for Verified Human Approval: a software passkey with real signatures, a helper that sends what the approval page's script sends, and an HTTP client that runs an MCP client against your kernel in the test's process. Require it for development to test your own protected action.",
+  "keywords": ["testing", "webauthn", "passkeys", "approval", "mcp"],
+  "type": "library",
+  "license": "MIT",
+  "support": {
+    "issues": "https://github.com/scottfalconer/verified-human-approval/issues",
+    "source": "https://github.com/scottfalconer/verified-human-approval",
+    "security": "https://github.com/scottfalconer/verified-human-approval/security/policy",
+    "docs": "https://github.com/scottfalconer/verified-human-approval/tree/main/docs"
+  },
+  "require": {
+    "php": "^8.3",
+    "ext-dom": "*",
+    "ext-json": "*",
+    "ext-openssl": "*",
+    "paragonie/constant_time_encoding": "^2.6 || ^3.0",
+    "psr/http-client": "^1.0",
+    "psr/http-factory": "^1.0",
+    "psr/http-message": "^1.1 || ^2.0",
+    "spomky-labs/cbor-php": "^3.4",
+    "symfony/browser-kit": "^7.4 || ^8.0",
+    "symfony/dom-crawler": "^7.4 || ^8.0",
+    "symfony/http-foundation": "^7.4 || ^8.0",
+    "symfony/http-kernel": "^7.4 || ^8.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "VerifiedHumanApproval\\Testing\\": "src/"
+    }
+  },
+  "homepage": "https://github.com/scottfalconer/verified-human-approval"
+}

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\Bundle\Doctrine;
 
+use Composer\InstalledVersions;
 use Doctrine\Bundle\DoctrineBundle\DoctrineBundle;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
 use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
@@ -66,10 +67,14 @@ final class DoctrineKernel extends Kernel
             'lock' => 'flock', 'router' => ['utf8' => true, 'resource' => __DIR__.'/routes.php'],
             'property_info' => ['with_constructor_extractor' => true],
         ]);
+        // DoctrineBundle 3 always uses native lazy objects and deprecates these former opt-in settings.
+        $legacyOrm = version_compare(InstalledVersions::getVersion('doctrine/doctrine-bundle') ?? '0', '3.0', '<')
+            ? ['enable_native_lazy_objects' => \PHP_VERSION_ID >= 80400, 'controller_resolver' => ['auto_mapping' => false]]
+            : [];
         $container->extension('doctrine', [
             'dbal' => ['driver' => 'pdo_sqlite', 'path' => $this->database],
             'orm' => [
-                'controller_resolver' => ['auto_mapping' => false],
+                ...$legacyOrm,
                 'mappings' => ['Fixture' => ['type' => 'attribute', 'dir' => \dirname(__DIR__, 2).'/Doctrine/Fixture', 'prefix' => 'VerifiedHumanApproval\Tests\Doctrine\Fixture']],
             ],
         ]);

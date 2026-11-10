@@ -12,7 +12,7 @@ use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\Audit\AuditStore;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
 use VerifiedHumanApproval\Core\Storage\PdoAuditStore;
-use VerifiedHumanApproval\Tests\Support\VirtualAuthenticator;
+use VerifiedHumanApproval\Testing\VirtualAuthenticator;
 use VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository;
 use VerifiedHumanApproval\WebAuthn\Configuration;
 use VerifiedHumanApproval\WebAuthn\Credential;

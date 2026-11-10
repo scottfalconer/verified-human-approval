@@ -71,7 +71,13 @@ final class ProtectedEntityListener
     /** The final changes of an update, after other listeners had their say. */
     public function preUpdate(PreUpdateEventArgs $event): void
     {
-        $this->assertAllowed($event->getObjectManager(), $event->getObject(), 'changed', array_keys($event->getEntityChangeSet()));
+        $manager = $event->getObjectManager();
+        $entity = $event->getObject();
+        $work = $manager->getUnitOfWork();
+        // Earlier preUpdate listeners may set a property without updating the event's change set. Doctrine
+        // recomputes those changes after dispatch; do it before this final check so it sees the same update.
+        $work->recomputeSingleEntityChangeSet($manager->getClassMetadata($entity::class), $entity);
+        $this->assertAllowed($manager, $entity, 'changed', array_keys($work->getEntityChangeSet($entity)));
     }
 
     /**
@@ -94,7 +100,8 @@ final class ProtectedEntityListener
     }
 
     /**
-     * The protected fields that hold a value other than null.
+     * Protected fields that hold a value other than null, or whose value is unknown. An unloaded reference has
+     * no original data; its missing fields must not be treated as null and allowed to be deleted as a draft.
      *
      * @param array<string, mixed> $values
      *
@@ -104,7 +111,7 @@ final class ProtectedEntityListener
     {
         $rules = $this->rules($manager->getClassMetadata($entity::class));
 
-        return $rules['entity'] ? array_keys($values) : array_values(array_filter($rules['fields'], static fn (string $field): bool => null !== ($values[$field] ?? null)));
+        return $rules['entity'] ? array_keys($values) : array_values(array_filter($rules['fields'], static fn (string $field): bool => !\array_key_exists($field, $values) || null !== $values[$field]));
     }
 
     /**

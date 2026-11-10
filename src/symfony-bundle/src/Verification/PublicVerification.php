@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Bundle\Verification;
 
+use Psr\Log\LoggerInterface;
 use VerifiedHumanApproval\Core\ApprovalStore;
 use VerifiedHumanApproval\Core\CanonicalJson;
 use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
@@ -25,7 +26,7 @@ use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
  */
 final readonly class PublicVerification
 {
-    public function __construct(private ApprovalStore $store, private ?TrustedKeys $keys)
+    public function __construct(private ApprovalStore $store, private ?TrustedKeys $keys, private ?LoggerInterface $logger = null)
     {
     }
 
@@ -35,6 +36,19 @@ final readonly class PublicVerification
         if (null === $requestId || null === $this->keys || 1 !== preg_match('/^apr_[0-9a-f]{32}$/D', $requestId)) {
             return null;
         }
+        try {
+            return $this->verify($requestId, $resource, $shows, $this->keys);
+        } catch (\Throwable $error) {
+            // Missing, malformed or unavailable evidence must remove the badge, not the page.
+            $this->logger?->warning('Approval evidence could not be verified for a public badge.', ['requestId' => $requestId, 'exception' => $error]);
+
+            return null;
+        }
+    }
+
+    /** @param array<string, mixed> $shows */
+    private function verify(string $requestId, ?string $resource, array $shows, TrustedKeys $keys): ?VerifiedApproval
+    {
         $state = $this->store->get($requestId);
         if (null === $state || 'completed' !== $state->status || null === $state->proof || null === $state->execution
             || 'user_verified' !== ($state->execution['approval'] ?? null) || null === $state->receipt) {
@@ -49,11 +63,7 @@ final readonly class PublicVerification
                 return null;
             }
         }
-        try {
-            $verified = (new ReceiptVerifier())->verify((new EvidenceExporter())->export($state), $this->keys);
-        } catch (\Throwable) {
-            return null;
-        }
+        $verified = (new ReceiptVerifier())->verify((new EvidenceExporter())->export($state), $keys);
         if (Receipt::COMMIT !== $verified['receiptSignedAt'] || !\is_string($state->proof['verifiedAt'] ?? null) || !\is_string($state->execution['recordedAt'] ?? null)) {
             return null;
         }

@@ -9,9 +9,10 @@ namespace VerifiedHumanApproval\Core;
  * is durable, such as purging a cache, reindexing or notifying someone. It runs outside the transaction and cannot
  * change the result; if it throws, the error is logged and the person still gets the completed state.
  *
- * Delivery is at least once. A call that recovers from an ambiguous commit reports the completed state it reads,
- * so an observer can see the same request twice and must treat a repeat as harmless. It never sees a change that
- * did not commit.
+ * Delivery is synchronous and best effort, not durable: the process can stop after commit before an observer is
+ * called. Recovery from an ambiguous commit can report a completed state again, so observers must also tolerate
+ * repeats. It never reports a change that did not commit. Work requiring durable delivery needs the host to write
+ * an outbox entry in the action's transaction and dispatch it independently; this callback is not a queue.
  */
 interface ApprovalObserver
 {

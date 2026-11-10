@@ -204,7 +204,7 @@ final class ApprovalService
                 throw new ApprovalException('execution_uncertain', 'The execution outcome could not be confirmed. Read its status before taking further action.', $recoveryError);
             }
             if (null !== $recovered) {
-                // The commit may have been this call's: observers hear about it, at least once.
+                // The commit may have been this call's: best-effort observers hear about the recovered state.
                 $this->notify($recovered);
 
                 return $recovered;

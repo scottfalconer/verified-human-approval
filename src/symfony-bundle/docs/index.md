@@ -46,7 +46,8 @@ Choose and record the commit you intend to use. Add this entry to your applicati
             "verified-human-approval/mcp": "dev-main",
             "verified-human-approval/symfony-bundle": "dev-main",
             "verified-human-approval/doctrine": "dev-main",
-            "verified-human-approval/store-contracts": "dev-main"
+            "verified-human-approval/store-contracts": "dev-main",
+            "verified-human-approval/testing": "dev-main"
         }
     }
 }
@@ -60,7 +61,7 @@ composer require --no-scripts \
   verified-human-approval/webauthn:dev-main \
   verified-human-approval/mcp:dev-main \
   verified-human-approval/symfony-bundle:dev-main \
-  'symfony/mcp-bundle:^1.0@beta'
+  'symfony/mcp-bundle:^1.0@beta' nyholm/psr7
 ```
 
 On Doctrine, add `verified-human-approval/doctrine:dev-main` to that command, with `doctrine/doctrine-bundle` if your application does not have it yet; see [Storage on Doctrine](#storage-on-doctrine).
@@ -169,7 +170,7 @@ The approval transaction runs at `READ COMMITTED` on those databases, so a read 
 
 Keep the review routes on your application's normal session firewall. Keep `/mcp` on a separate stateless firewall that authenticates a personal bearer token on every request. Your MCP authenticator must pass its **validated** `Mcp\Server\Authorization\AccessToken` to the SDK as the request attribute named `AccessToken::class`.
 
-The [example identity adapter](first-action.md#3-map-the-authenticated-person) specifies the principal fields and token claims it expects. It never accepts a user ID or tenant ID from tool arguments.
+The [host authentication contract](authentication.md) shows how an existing authenticator supplies the verified principal and SDK token. The [example identity adapter](first-action.md#3-map-the-authenticated-person) specifies the principal fields and token claims it expects. It never accepts a user ID or tenant ID from tool arguments.
 
 `ActorProvider` has three jobs:
 
@@ -216,6 +217,8 @@ mcp:
                 key: '%env(MCP_REQUEST_STATE_KEY)%'
                 ttl: 900
 ```
+
+The MCP Flex recipe may already define a server named `default` on `/mcp`. Update that server in place, or replace its definition with `application` above; do not leave two servers claiming the same path. Keep your other existing tools in the registry.
 
 Set `allowed_hosts` to your application's host. Keep the MCP route import (`resource: '.', type: mcp`) supplied by your MCP integration. The session lock prevents the card's polling and a tool call from overwriting each other's session state. The request-state key must be at least 32 bytes and separate from the receipt key. Its TTL should exceed your approval lifetime; this example uses a 600-second approval lifetime.
 
@@ -344,7 +347,7 @@ Only a request an agent made mentions the agent. Set `agent_name` (default `Clau
 Two hooks let the rest of your application follow an approved change:
 
 - **Link the change to its approval.** While your adapter's `execute()` runs, `ExecutionGuard::current()` returns the executing approval: its `requestId`, and whether a person approved it with a passkey (`userVerified()`) or a rule let it run. Write the request id onto the revision or record you create, in the same transaction, so a page can later show that this exact revision was approved, and link to the evidence.
-- **Work that must wait for the commit.** After the transaction commits, the bundle dispatches `VerifiedHumanApproval\Bundle\Event\ApprovalCompleted` with the completed state. Use it to purge caches, reindex or notify. Delivery is at least once, so make a listener tolerate a repeat. A listener that throws is logged and does not change the result the person sees. Services implementing `VerifiedHumanApproval\Core\ApprovalObserver` are registered automatically too.
+- **Work that must wait for the commit.** After the transaction commits, the bundle dispatches `VerifiedHumanApproval\Bundle\Event\ApprovalCompleted` with the completed state. Use it to purge caches, reindex or notify. Delivery is best effort: a process can stop after commit before dispatch, and recovery can deliver a repeat. Make listeners tolerate repeats; use a transactional outbox for work that requires durable delivery. A listener that throws is logged and does not change the result the person sees. Services implementing `VerifiedHumanApproval\Core\ApprovalObserver` are registered automatically too.
 
 ### Show that a change was approved
 
@@ -388,6 +391,10 @@ vendor/bin/verify-evidence.php receipt-REQUEST_ID.json receipt-keys.json
 ```
 
 Add the approving passkey's trusted registration record as a third file to check the passkey signature as well; without it, the output says that signature was not checked.
+
+## Test your integration
+
+Install the [testing package](testing.md) as a development dependency. It supplies a software passkey with real signatures, a BrowserKit helper for the enrollment and review pages, and an in-process MCP HTTP client. Test your own application services and routes rather than copying this repository's private test fixtures. The guide covers test environment settings, isolated rate limits, and verifying the exported receipt.
 
 ## Before deployment
 

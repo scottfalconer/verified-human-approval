@@ -6,6 +6,7 @@ namespace VerifiedHumanApproval\Tests\Doctrine;
 
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Event\OnFlushEventArgs;
+use Doctrine\ORM\Event\PreUpdateEventArgs;
 use Doctrine\ORM\Events;
 use PHPUnit\Framework\TestCase;
 use VerifiedHumanApproval\Core\ApprovalException;
@@ -183,6 +184,48 @@ abstract class EntityActionTestCase extends TestCase
         $manager->flush();
         $memo->signedOff = 'by nobody';
         $this->assertRefusedFlush($manager, 'signedOff');
+    }
+
+    public function testDeletingAnUnloadedReferenceCannotTreatItsMissingStateAsAnUnpublishedDraft(): void
+    {
+        $this->fixture->connection->executeStatement('UPDATE orm_documents SET published_title = ?, published_body = ?, published_revision = ? WHERE id = ?', ['Live title', 'Live words.', 3, 1]);
+        $manager = $this->fixture->manager();
+        $document = $manager->getReference(Document::class, 1);
+        self::assertNotNull($document);
+        self::assertSame([], $manager->getUnitOfWork()->getOriginalEntityData($document), 'The reference has not loaded the protected fields.');
+
+        $manager->remove($document);
+        $this->assertRefusedFlush($manager, 'deleted');
+
+        self::assertSame('Live words.', $this->fixture->stored()['published_body'], 'The published row still exists.');
+    }
+
+    public function testAnEarlierPreUpdateListenerCannotHideAProtectedPropertyChangeOutsideTheEventChangeSet(): void
+    {
+        $manager = $this->fixture->manager();
+        $events = $manager->getEventManager();
+        // Run the protection last, as the bundle configures it. Doctrine recomputes changes only after all
+        // preUpdate listeners return, so the event still contains the earlier, draft-only change set.
+        $events->removeEventListener(Events::preUpdate, $this->fixture->protection);
+        $events->addEventListener(Events::preUpdate, new class {
+            public function preUpdate(PreUpdateEventArgs $event): void
+            {
+                $entity = $event->getObject();
+                if ($entity instanceof Document) {
+                    TestCase::assertFalse($event->hasChangedField('publishedBody'));
+                    $entity->publishedBody = 'Slipped in before the final protection check';
+                }
+            }
+        });
+        $events->addEventListener(Events::preUpdate, $this->fixture->protection);
+        $document = $manager->find(Document::class, 1);
+        self::assertNotNull($document);
+        $document->title = 'An ordinary draft edit';
+
+        $this->assertRefusedFlush($manager, 'publishedBody');
+
+        self::assertNull($this->fixture->stored()['published_body']);
+        self::assertSame('Spring notice', $this->fixture->stored()['title'], 'The whole flush rolled back.');
     }
 
     public function testAListenerThatChangesAProtectedFieldDuringAFlushIsCaught(): void

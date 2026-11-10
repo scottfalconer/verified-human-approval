@@ -293,6 +293,7 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
         $services->set('verified_human_approval.public_verification', PublicVerification::class)->args([
             service($store),
             null === $config['receipt_signer'] ? null : service('verified_human_approval.trusted_keys'),
+            service('logger')->nullOnInvalid(),
         ]);
         $services->alias(PublicVerification::class, 'verified_human_approval.public_verification');
         $services->set('verified_human_approval.twig.verification', VerificationExtension::class)

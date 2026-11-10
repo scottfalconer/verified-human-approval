@@ -15,7 +15,7 @@ use VerifiedHumanApproval\Core\CanonicalJson;
 use VerifiedHumanApproval\Demo\DemoDatabase;
 use VerifiedHumanApproval\Demo\DemoKernel;
 use VerifiedHumanApproval\Demo\DemoSetup;
-use VerifiedHumanApproval\Tests\Support\VirtualAuthenticator;
+use VerifiedHumanApproval\Testing\VirtualAuthenticator;
 
 /** Exercise corrupted stored records through the actual owner, MCP and administrator routes. */
 final class StoredApprovalAuditTest extends TestCase

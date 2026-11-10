@@ -9,7 +9,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
-use VerifiedHumanApproval\Tests\Support\VirtualAuthenticator;
+use VerifiedHumanApproval\Testing\VirtualAuthenticator;
 use VerifiedHumanApproval\WebAuthn\Configuration;
 use VerifiedHumanApproval\WebAuthn\Credential;
 use VerifiedHumanApproval\WebAuthn\PdoCredentialRepository;

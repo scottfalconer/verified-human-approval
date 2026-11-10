@@ -6,7 +6,7 @@ Let an AI agent request an action in your Symfony application. When your applica
 
 The demo is a council alerts site. An agent can request publication of an evacuation alert, but an editor must review the exact public page and approve it before it goes live. The same rule applies to the site's own **Issue alert** button.
 
-**[Run the demo](demo/README.md)** · **[Integrate into Symfony](src/symfony-bundle/docs/index.md)** · **[Verify a receipt](docs/evidence.md)**
+**[Run the demo](demo/README.md)** · **[Integrate into Symfony](src/symfony-bundle/docs/index.md)** · **[Test your integration](src/symfony-bundle/docs/testing.md)** · **[Verify a receipt](docs/evidence.md)**
 
 ## Current scope
 
@@ -17,7 +17,7 @@ This is a development preview. The packages are not on Packagist yet; the integr
 - Your application supplies its accounts, current permissions, trusted passkey enrollment and protected action. The bundle supplies the approval flow and review pages.
 - Configure `receipt_signer` to sign receipts when actions commit. The demo and integration example include this configuration.
 - Passkeys use WebAuthn. The device can use Touch ID, Face ID, a PIN or another supported local method. The server receives a signature, not biometric data, and does not claim which local method was used.
-- The demo's account screens, administrator audit page and OAuth server are reference code, not features installed by the bundle.
+- The demo's account screens, administrator audit page and maintained-package OAuth integration are reference application code. The bundle uses the host's authentication and current permissions; it does not provide an OAuth issuer. See the [host contract](src/symfony-bundle/docs/authentication.md).
 
 ## Try it locally
 

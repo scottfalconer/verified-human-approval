@@ -28,7 +28,9 @@ jobs:
           php-version: '${{ matrix.php }}'
           extensions: pdo_sqlite, openssl, sodium, mbstring, dom, pcntl
           coverage: none
-      - run: composer validate --strict --no-check-publish
+      # The reference app aliases the SDK-compatible MCP bundle version for its host OAuth bundle's older bound.
+      # Keep strict schema/lock validation here; package dependency constraints still get full strict checks below.
+      - run: composer validate --strict --no-check-publish --no-check-all
       - run: for manifest in src/*/composer.json; do composer validate --strict --no-check-publish --no-check-lock "$manifest"; done
       - name: Install the locked dependencies
         if: matrix.dependencies == 'locked'
@@ -69,9 +71,11 @@ jobs:
       - run: node --test tests/card_lifecycle.mjs
         if: matrix.dependencies == 'locked' && matrix.php == '8.3'
       - run: PHP_BIN=php python3 tests/http_smoke.py
+      - run: PHP_BIN=php python3 tests/oauth_http_smoke.py
   consumer:
     # Core, WebAuthn and MCP installed into a separate project, the way a Drupal module or any other host
-    # would use them: no monorepo autoloader and no framework bundles. Then what each package archive ships.
+    # would use them: no monorepo autoloader and no framework bundles. Then the Doctrine storage, and the testing
+    # package as a host's own tests would use it. Then what each package archive ships.
     name: Separate consumer, PHP ${{ matrix.php }}
     runs-on: ubuntu-latest
     strategy:
@@ -83,7 +87,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '${{ matrix.php }}'
-          extensions: pdo_sqlite, openssl, sodium, mbstring
+          extensions: pdo_sqlite, openssl, sodium, mbstring, dom
           coverage: none
       - name: Core and WebAuthn
         run: php tests/Package/check-consumer.php webauthn
@@ -91,6 +95,10 @@ jobs:
         run: php tests/Package/check-consumer.php mcp
       - name: Core, WebAuthn and the Doctrine storage
         run: php tests/Package/check-consumer.php doctrine
+      - name: Core, WebAuthn and the testing package
+        run: php tests/Package/check-consumer.php testing
+      - name: Symfony application with all seven packages
+        run: php tests/Package/check-symfony-consumer.php
       - name: Package archives
         run: php tests/Package/check-consumer.php archives
   postgresql:

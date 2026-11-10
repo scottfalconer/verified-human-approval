@@ -1,6 +1,6 @@
 # Versions and releases
 
-The packages are developed together in this repository and released together, under one version number. Each depends on its siblings at `self.version`, so `verified-human-approval/symfony-bundle` 0.1.0 installs `core`, `webauthn` and `mcp` 0.1.0.
+The packages are developed together in this repository and released together, under one version number. Sibling dependencies use `self.version`, so `verified-human-approval/symfony-bundle` 0.1.0 installs `core` and `mcp` 0.1.0. Add `webauthn` and your storage package explicitly as the integration guide describes.
 
 ## What a version promises
 
@@ -16,7 +16,7 @@ Some of these steps are the maintainer's, because they publish: making the repos
 
 1. **Once, before the first release:**
    - Make this repository public, and enable private vulnerability reporting (Settings → Code security), which [SECURITY.md](../SECURITY.md) points to.
-   - Create one empty repository per package under one account or organization. [The split workflow](../.github/workflows/split.yml) names them `verified-human-approval-core`, `-webauthn`, `-mcp`, `-symfony-bundle`, `-doctrine` and `-store-contracts`; change the names there if you choose others.
+   - Create one empty repository per package under one account or organization. [The split workflow](../.github/workflows/split.yml) names them `verified-human-approval-core`, `-webauthn`, `-mcp`, `-symfony-bundle`, `-doctrine`, `-store-contracts` and `-testing`; change the names there if you choose others.
    - Create a token that can push to those repositories only (a fine-grained token with Contents: read and write). Save it as the secret `SPLIT_TOKEN` of this repository, and set the repository variable `SPLIT_OWNER` to that account or organization. From then on, every push to `main` updates each package repository.
    - Submit each package repository to Packagist under the `verified-human-approval` vendor name, and turn on its update hook.
 2. **Each release:**

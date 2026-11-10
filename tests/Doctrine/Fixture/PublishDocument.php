@@ -4,14 +4,10 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\Doctrine\Fixture;
 
-use Doctrine\Persistence\ManagerRegistry;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
-use VerifiedHumanApproval\Core\ExecutionGuard;
 use VerifiedHumanApproval\Core\PreparedAction;
-use VerifiedHumanApproval\Doctrine\DbalTransaction;
 use VerifiedHumanApproval\Doctrine\Orm\EntityAction;
-use VerifiedHumanApproval\Doctrine\Orm\ProtectedEntityListener;
 
 /** Publishes a document's draft through the ORM: the example the Doctrine guide describes. */
 final class PublishDocument extends EntityAction
@@ -21,11 +17,6 @@ final class PublishDocument extends EntityAction
     /** Breaks the postcondition after the flush, so the transaction rolls back after the write. */
     public bool $breakPostcondition = false;
     public int $executions = 0;
-
-    public function __construct(ManagerRegistry $doctrine, private readonly ExecutionGuard $guard, DbalTransaction $transaction, ?ProtectedEntityListener $protection)
-    {
-        parent::__construct($doctrine, $guard, $transaction, $protection);
-    }
 
     public function id(): string
     {
@@ -74,7 +65,7 @@ final class PublishDocument extends EntityAction
         $document->publishedTitle = $action->effect['title'];
         $document->publishedBody = $action->effect['body'];
         $document->publishedRevision = $action->preconditions['revision'];
-        $document->approvalRequestId = $this->guard->current()?->requestId;
+        $document->approvalRequestId = $this->currentApproval()->requestId;
         if (null !== $this->alsoPublish) {
             // Loaded outside the targets, so nothing permits a protected change to it.
             $other = $this->manager()->find(Document::class, $this->alsoPublish);

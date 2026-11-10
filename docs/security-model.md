@@ -8,19 +8,19 @@ One proposal can commit the protected effect at most once **within that transact
 
 The application code, action adapter, authorization provider, review page, credential enrollment process and evidence signing key are trusted components. The agent is an ordinary client with delegated access. Tool arguments do not select the authenticated user, add a passkey, change an approval rule or provide approval.
 
-`ExecutionGuard` gives the protected mutation service a capability to run only the exact prepared action for the exact actor. Approval and ordinary authorization are both required checks. A generic entity update, CLI command or another route that bypasses this service bypasses the protection.
+`ExecutionGuard` gives the protected mutation service a capability to run only the exact prepared action for the exact actor. Approval and ordinary authorization are both required checks. Configure every supported route, CLI command and job to use that boundary. The optional Doctrine protected-entity listener also rejects unapproved unit-of-work writes; DQL bulk updates/deletes and raw SQL remain outside that listener and must stay behind the guarded service.
 
 This is an application boundary, not a sandbox for someone who can change application code or write directly to its database. If a demonstration is meant to show independence from a coding agent, the running application, database and secrets must be outside that agent's write access.
 
 ## Transaction boundary
 
-The current persistence implementation is SQLite. `PdoApprovalStore` owns the outer transaction and uses `BEGIN IMMEDIATE`. Business state, current authorization data, credentials, proposals and execution records must use the **same PDO connection**.
+The PDO implementation supports SQLite and uses `BEGIN IMMEDIATE`. The Doctrine adapter supports SQLite, PostgreSQL, MySQL and MariaDB using its database-specific locking and isolation rules. Both own the outer transaction. Business state, current authorization data, credentials, proposals and execution records must use the **same application connection**. The [Doctrine guide](../src/doctrine/README.md) documents the supported configurations and ORM boundary.
 
 The initiating user and approving browser user must be the same account in the same tenant. Completion rechecks the original delegation's current permissions; the browser's broader privileges do not replace them. The adapter checks current resource versions before writing and checks the resulting business state before commit.
 
 Failures roll back the protected effect, credential updates, consumed approval and result together. The service retires a failed ceremony. If the commit outcome is uncertain, it checks persisted state before reporting success, failure or uncertainty. A caller should read the existing request's status rather than start a new action blindly.
 
-This transaction does not include remote HTTP or MCP calls, email, payments or nontransactional hooks. Only SQLite has the verified transaction implementation. Another database adapter must preserve the contract and pass the contention and rollback checks.
+This transaction does not include remote HTTP or MCP calls, email, payments or nontransactional hooks. The supplied PDO and Doctrine adapters are covered by storage contracts. Another database adapter must preserve those contracts and pass the contention and rollback checks.
 
 ## What the passkey proves
 

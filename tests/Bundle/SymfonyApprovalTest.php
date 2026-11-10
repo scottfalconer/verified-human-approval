@@ -31,7 +31,7 @@ use VerifiedHumanApproval\Demo\DemoKernel;
 use VerifiedHumanApproval\Demo\DemoSetup;
 use VerifiedHumanApproval\Mcp\ApprovalCard;
 use VerifiedHumanApproval\Mcp\UrlPrompt;
-use VerifiedHumanApproval\Tests\Support\VirtualAuthenticator;
+use VerifiedHumanApproval\Testing\VirtualAuthenticator;
 
 /** Actual Symfony kernel, firewall, forms, SDK HTTP transport and WebAuthn cryptography. */
 final class SymfonyApprovalTest extends TestCase
@@ -465,6 +465,26 @@ final class SymfonyApprovalTest extends TestCase
         self::assertCount(0, $untrusting->request('GET', self::ORIGIN.'/alerts')->filter('.vha-badge'));
         $untrusting->request('GET', self::ORIGIN.'/approval/'.$id.'/verified');
         self::assertSame(404, $untrusting->getResponse()->getStatusCode());
+    }
+
+    public function testACorruptStoredProposalRemovesTheBadgeWithoutBreakingThePublicContentPage(): void
+    {
+        $id = $this->requestAction();
+        $browser = $this->browser('editor');
+        self::assertSame('completed', $this->approveWith($browser, $id, $this->enroll($browser))['status']);
+        $public = new KernelBrowser(new DemoKernel($this->runtime, 'test'), ['HTTP_HOST' => 'localhost:8080']);
+        $this->browsers[] = $public;
+        $proposal = (string) $this->database->pdo->query("SELECT proposal FROM verified_human_approval_requests WHERE id = '".$id."'")->fetchColumn();
+
+        foreach ([$proposal.' ', '{'] as $corrupt) {
+            $this->database->pdo->prepare('UPDATE verified_human_approval_requests SET proposal = ? WHERE id = ?')->execute([$corrupt, $id]);
+            $page = $public->request('GET', self::ORIGIN.'/alerts');
+            self::assertSame(200, $public->getResponse()->getStatusCode(), 'An unverifiable record must not take the content page down.');
+            self::assertSame('Evacuation order: Riverside Road area', $page->filter('.rc-title')->text());
+            self::assertCount(0, $page->filter('.vha-badge'), 'A corrupt proposal is never presented as verified.');
+            $public->request('GET', self::ORIGIN.'/approval/'.$id.'/verified');
+            self::assertSame(404, $public->getResponse()->getStatusCode(), 'An invalid proposal is indistinguishable from an unknown public verification record.');
+        }
     }
 
     public function testAnAlertARuleLetRunHasNoPasskeyBadge(): void
