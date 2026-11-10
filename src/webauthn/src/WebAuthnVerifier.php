@@ -188,6 +188,11 @@ final class WebAuthnVerifier implements ApprovalVerifier
             throw new \InvalidArgumentException('The passkey label must be between one and 200 bytes.');
         }
         try {
+            // The library writes rp.name into the options for the browser, defaulting it to the RP ID. It never
+            // verifies with it, and from 5.3 deprecates setting it, so it is not read back.
+            if (\is_array($savedOptions['rp'] ?? null)) {
+                unset($savedOptions['rp']['name']);
+            }
             $options = $this->serializer->deserialize($this->encoded($savedOptions), PublicKeyCredentialCreationOptions::class, 'json');
             if ($options->rp->id !== $this->configuration->rpId
                 || !hash_equals($this->userHandle($actor), $options->user->id)

@@ -145,6 +145,8 @@ final class DemoKernel extends Kernel
             'csrf_protection' => true,
             'form' => true,
             'validation' => ['email_validation_mode' => 'html5'],
+            // Symfony 8's default, as Symfony's recipe sets it, so 7.4 and 8 read types alike.
+            'property_info' => ['with_constructor_extractor' => true],
             // Each runtime's cache pools (rate-limit state, phone codes) stay its own.
             'cache' => ['directory' => $runtime.'/cache/pools'],
             // Locks for the rate limiters and the phone code's single redemption.

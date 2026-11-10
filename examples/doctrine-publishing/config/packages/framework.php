@@ -20,6 +20,8 @@ return static function (ContainerConfigurator $container): void {
         'csrf_protection' => true,
         'cache' => ['directory' => '%env(resolve:APP_STATE_DIR)%/pools'],
         'router' => ['utf8' => true],
+        // Symfony 8's default, as Symfony's recipe sets it, so 7.4 and 8 read types alike.
+        'property_info' => ['with_constructor_extractor' => true],
     ]);
     if ('test' === $container->env()) {
         $container->extension('framework', ['test' => true, 'session' => ['storage_factory_id' => 'session.storage.factory.mock_file']]);

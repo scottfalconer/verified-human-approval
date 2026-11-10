@@ -10,6 +10,8 @@ return static function (ContainerConfigurator $container): void {
         // postgresql://app:secret@127.0.0.1:5432/newsroom?charset=utf8 or mysql://app:secret@127.0.0.1:3306/newsroom?charset=utf8mb4
         'dbal' => ['url' => '%env(resolve:DATABASE_URL)%'],
         'orm' => [
+            // As Symfony's recipe sets it: a route placeholder is not used to look an entity up unless mapped.
+            'controller_resolver' => ['auto_mapping' => false],
             'mappings' => [
                 'Publishing' => ['type' => 'attribute', 'dir' => '%kernel.project_dir%/src/Entity', 'prefix' => 'VerifiedHumanApproval\Example\Publishing\Entity'],
             ],

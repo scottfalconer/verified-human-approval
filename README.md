@@ -128,7 +128,7 @@ composer cs
 PHP_BIN=php python3 tests/http_smoke.py
 ```
 
-The tests cover real WebAuthn signatures, Symfony and MCP integration, concurrent completion, transaction rollback and receipt tampering. CI covers PHP 8.3 and 8.4, lowest supported dependencies and Symfony 8. Browser tests, physical devices and hosted clients are reported separately in [verification status](docs/verification.md).
+The tests cover real WebAuthn signatures, Symfony and MCP integration, concurrent completion, transaction rollback and receipt tampering. CI runs them on PHP 8.3, 8.4 and 8.5, on the lowest supported dependencies and on Symfony 8, runs the storage suites on PostgreSQL, MySQL and MariaDB, and fails on a deprecation. Browser tests, physical devices and hosted clients are reported separately in [verification status](docs/verification.md).
 
 ## Further reading
 

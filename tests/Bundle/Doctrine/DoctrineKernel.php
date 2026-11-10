@@ -64,10 +64,12 @@ final class DoctrineKernel extends Kernel
             'secret' => 'doctrine-kernel-test', 'test' => true, 'http_method_override' => false, 'handle_all_throwables' => true,
             'csrf_protection' => true, 'session' => ['storage_factory_id' => 'session.storage.factory.mock_file'],
             'lock' => 'flock', 'router' => ['utf8' => true, 'resource' => __DIR__.'/routes.php'],
+            'property_info' => ['with_constructor_extractor' => true],
         ]);
         $container->extension('doctrine', [
             'dbal' => ['driver' => 'pdo_sqlite', 'path' => $this->database],
             'orm' => [
+                'controller_resolver' => ['auto_mapping' => false],
                 'mappings' => ['Fixture' => ['type' => 'attribute', 'dir' => \dirname(__DIR__, 2).'/Doctrine/Fixture', 'prefix' => 'VerifiedHumanApproval\Tests\Doctrine\Fixture']],
             ],
         ]);
