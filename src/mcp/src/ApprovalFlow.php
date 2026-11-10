@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Mcp;
 
+use Mcp\Schema\Content\TextContent;
 use Mcp\Schema\Result\CallToolResult;
 use Mcp\Schema\Result\InputRequiredResult;
 use Mcp\Server\RequestContext;
 use VerifiedHumanApproval\Core\Actor;
+use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalService;
 use VerifiedHumanApproval\Core\ApprovalState;
 
@@ -25,6 +27,8 @@ final readonly class ApprovalFlow
      * JSON Schema of the structured result a protected tool and the status tool return: the
      * presenter's data. Declare it as the tool's `outputSchema`, so clients know what to expect and
      * can validate it. A refusal is an error result carrying `status: rejected`, `reason` and `message`.
+     * A stored record that fails its integrity check carries `status: integrity_error` instead, which
+     * does not establish whether the action ran. {@see self::errorResult()} builds both.
      */
     public const OUTPUT_SCHEMA = [
         'type' => 'object',
@@ -32,8 +36,8 @@ final readonly class ApprovalFlow
             'requestId' => ['type' => 'string', 'description' => 'The approval request. Read its outcome with the status tool.'],
             'status' => [
                 'type' => 'string',
-                'enum' => ['pending', 'completed', 'cancelled', 'expired', 'invalidated', 'denied', 'rejected'],
-                'description' => 'What the application recorded. Only "completed" means the action ran; "pending" means a person still has to approve it on the site.',
+                'enum' => ['pending', 'completed', 'cancelled', 'expired', 'invalidated', 'denied', 'rejected', 'integrity_error'],
+                'description' => 'What the application recorded. Only "completed" means the action ran; "pending" means a person still has to approve it on the site. "integrity_error" means the stored record failed its integrity check, so it does not say whether the action ran: do not retry, and have the site’s administrator look at it.',
             ],
             'reason' => ['type' => ['string', 'null'], 'description' => 'Why the request stopped, when it did.'],
             'result' => ['type' => ['object', 'array', 'null'], 'description' => 'What the action recorded when it ran.'],
@@ -73,6 +77,30 @@ final readonly class ApprovalFlow
 
     public function __construct(private ApprovalService $approvals, private ResultPresenter $presenter, private UrlPrompt $prompt)
     {
+    }
+
+    /**
+     * The error result for what the application would not do or could not vouch for, in the shape
+     * {@see self::OUTPUT_SCHEMA} declares. Return it from a tool's `catch (ApprovalException $error)`.
+     *
+     * A stored record that fails its integrity check is not a refusal: nothing in it says whether the
+     * action ran. It is reported as `integrity_error`, never as `rejected`, so no agent reads it as
+     * "nothing happened" and tries again.
+     *
+     * @param string|null $requestId the request the caller named, when it named one
+     */
+    public static function errorResult(ApprovalException $error, ?string $requestId = null): CallToolResult
+    {
+        $data = [
+            'status' => 'record_integrity_error' === $error->reason ? 'integrity_error' : 'rejected',
+            'reason' => $error->reason,
+            'message' => $error->getMessage(),
+        ];
+        if (null !== $requestId) {
+            $data = ['requestId' => $requestId] + $data;
+        }
+
+        return new CallToolResult([new TextContent(json_encode($data, \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE))], isError: true, structuredContent: $data);
     }
 
     /**

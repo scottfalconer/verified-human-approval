@@ -138,17 +138,63 @@ final class ReceiptKeyRotationTest extends TestCase
         $this->assertRefused((new EvidenceExporter($this->old, signAtExport: true))->export($after), $this->keys, 'The receipt claims a time outside the window of its key "application-1".');
     }
 
-    /** One approved action, signed at commit when a signer is given; the clock says when. */
-    private function commit(?EvidenceSigner $signer, int $article): ApprovalState
+    public function testTheServiceReadsWhatAnEarlierKeySignedOnceItIsGivenItsTrustedKeys(): void
     {
-        $guard = new ExecutionGuard();
-        $service = new ApprovalService(new ActionRegistry([new FixtureAction($this->fixture->pdo, $guard)]), $this->fixture->policies, $this->fixture->authorizer, $this->fixture->store, $this->fixture->verifier, $this->fixture->clock, $guard, $signer);
-        $pending = $service->request($this->fixture->actor, 'article.publish', ['id' => $article]);
+        $id = $this->commit($this->old, 1, 'saved-request')->request->id;
+        $this->fixture->clock->modify('2026-11-09T13:00:00Z');
+
+        // After the rotation, told every key it has signed with: the earlier outcome reads, and replays for its request key.
+        $rotated = $this->service($this->new, $this->keys);
+        $state = $rotated->get($this->fixture->actor, $id);
+        self::assertSame(['completed', 'application-1'], [$state->status, $state->receipt['keyId'] ?? null]);
+        self::assertEquals($state, $rotated->request($this->fixture->actor, 'article.publish', ['id' => 1], 'saved-request'));
+        self::assertSame(1, $this->fixture->effectCount());
+
+        // Told only its current key, it cannot tell that receipt from one a stranger's key signed, so it refuses the outcome.
+        $this->assertNotRead($this->service($this->new), $id, 'The receipt is signed with key "application-1", which the trusted keys do not list.');
+        self::assertEquals($state, $rotated->get($this->fixture->actor, $id), 'Refusing a record never changes it.');
+    }
+
+    public function testTheServiceHoldsAStoredReceiptToItsKeysWindow(): void
+    {
+        // The new key signs as an action commits a second before the window recorded for it opens.
+        $this->fixture->clock->modify('2026-11-09T11:59:59Z');
+        $id = $this->commit($this->new, 1)->request->id;
+
+        $this->assertNotRead($this->service($this->new, $this->keys), $id, 'The receipt claims a time outside the window of its key "application-2".');
+        // Without recorded windows the same service takes its current key's signature at any time, as before a first rotation.
+        self::assertSame('completed', $this->service($this->new)->get($this->fixture->actor, $id)->status);
+    }
+
+    /** One approved action, signed at commit when a signer is given; the clock says when. */
+    private function commit(?EvidenceSigner $signer, int $article, ?string $requestKey = null): ApprovalState
+    {
+        $service = $this->service($signer);
+        $pending = $service->request($this->fixture->actor, 'article.publish', ['id' => $article], $requestKey);
         $ceremony = $service->begin($this->fixture->reviewer, $pending->request->id);
         $completed = $service->complete($this->fixture->reviewer, $ceremony->id, $this->fixture->proof($ceremony));
         self::assertSame('completed', $completed->status);
 
         return $service->get($this->fixture->actor, $completed->request->id);
+    }
+
+    /** The application's service as it is built with this signer and, after a rotation, the keys it has signed with. */
+    private function service(?EvidenceSigner $signer, ?TrustedKeys $keys = null): ApprovalService
+    {
+        $guard = new ExecutionGuard();
+
+        return new ApprovalService(new ActionRegistry([new FixtureAction($this->fixture->pdo, $guard)]), $this->fixture->policies, $this->fixture->authorizer, $this->fixture->store, $this->fixture->verifier, $this->fixture->clock, $guard, $signer, trustedKeys: $keys);
+    }
+
+    private function assertNotRead(ApprovalService $service, string $id, string $why): void
+    {
+        try {
+            $service->get($this->fixture->actor, $id);
+            self::fail('The service reported an outcome whose receipt its keys do not vouch for.');
+        } catch (ApprovalException $error) {
+            self::assertSame('record_integrity_error', $error->reason);
+            self::assertSame($why, $error->getPrevious()?->getPrevious()?->getMessage());
+        }
     }
 
     /** @return array<string, mixed> the evidence with its original receipt, as the person downloads it */

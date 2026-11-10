@@ -6,9 +6,12 @@ namespace VerifiedHumanApproval\Tests\Doctrine;
 
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Schema\AbstractSchemaManager;
+use Doctrine\DBAL\Schema\Column;
+use Doctrine\DBAL\Schema\ComparatorConfig;
 use Doctrine\DBAL\Schema\Table;
 use Doctrine\DBAL\Types\JsonType;
 use Doctrine\DBAL\Types\TextType;
+use Doctrine\DBAL\Types\Type;
 use Doctrine\ORM\EntityManager;
 use Doctrine\ORM\ORMSetup;
 use Doctrine\ORM\Tools\SchemaTool;
@@ -87,7 +90,8 @@ abstract class ApprovalSchemaTestCase extends TestCase
     {
         ApprovalSchema::install($this->connection);
         $schemaManager = $this->connection->createSchemaManager();
-        $comparator = $schemaManager->createComparator();
+        // As DBAL 5 compares: a changed index counts as one dropped and one added, so it still shows as a difference.
+        $comparator = $schemaManager->createComparator((new ComparatorConfig())->withReportModifiedIndexes(false));
         foreach (ApprovalSchema::tables($this->connection->getDatabasePlatform()) as $defined) {
             $name = $defined->getObjectName()->toString();
             $installed = self::introspect($schemaManager, $name);
@@ -103,9 +107,9 @@ abstract class ApprovalSchemaTestCase extends TestCase
         $seen = 0;
         foreach (ApprovalSchema::tables($this->connection->getDatabasePlatform()) as $defined) {
             foreach (self::introspect($schemaManager, $defined->getObjectName()->toString())->getColumns() as $column) {
-                self::assertNotInstanceOf(JsonType::class, $column->getType());
+                self::assertNotInstanceOf(JsonType::class, self::typeOf($column));
                 if (\in_array($column->getObjectName()->getIdentifier()->getValue(), $json, true)) {
-                    self::assertInstanceOf(TextType::class, $column->getType());
+                    self::assertInstanceOf(TextType::class, self::typeOf($column));
                     ++$seen;
                 }
             }
@@ -168,5 +172,11 @@ abstract class ApprovalSchemaTestCase extends TestCase
     private static function introspect(AbstractSchemaManager $schemaManager, string $name): Table
     {
         return method_exists($schemaManager, 'introspectTableByUnquotedName') ? $schemaManager->introspectTableByUnquotedName($name) : $schemaManager->introspectTable($name);
+    }
+
+    /** DBAL 4.5 names a column's type and deprecates handing out the object; 4.4 has only the object. */
+    private static function typeOf(Column $column): Type
+    {
+        return method_exists($column, 'getTypeName') ? Type::getType($column->getTypeName()) : $column->getType();
     }
 }

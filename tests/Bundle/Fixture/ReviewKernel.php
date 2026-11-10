@@ -104,6 +104,7 @@ final class ReviewKernel extends Kernel
             'session' => ['handler_id' => null, 'storage_factory_id' => 'session.storage.factory.mock_file'],
             'csrf_protection' => true,
             'lock' => 'flock',
+            'property_info' => ['with_constructor_extractor' => true],
             // Off unless a test asks for Symfony's own translator, so "no translator" stays true when the component is installed.
             'translator' => null === $this->realTranslator ? ['enabled' => false] : ['enabled' => true, 'default_path' => $this->realTranslator['path'], 'fallbacks' => ['en']],
             'default_locale' => $this->realTranslator['locale'] ?? 'en',

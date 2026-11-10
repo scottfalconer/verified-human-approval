@@ -389,6 +389,25 @@
                 <target>Each phone code works once, for two minutes. Show a new code in %agent% and scan it again.</target>
             </trans-unit>
 
+            <trans-unit id="integrity.title">
+                <source>Approval record needs investigation</source>
+                <target>Approval record needs investigation</target>
+                <note>The page shown in place of the review when the stored record fails its integrity check.</note>
+            </trans-unit>
+            <trans-unit id="integrity.heading">
+                <source>We cannot confirm this approval’s outcome</source>
+                <target>We cannot confirm this approval’s outcome</target>
+            </trans-unit>
+            <trans-unit id="integrity.explanation">
+                <source>The stored record of this request did not pass its integrity checks. It may have been changed or damaged since it was written, so this page cannot say whether the action ran.</source>
+                <target>The stored record of this request did not pass its integrity checks. It may have been changed or damaged since it was written, so this page cannot say whether the action ran.</target>
+                <note>Never say that nothing happened: the record does not establish that.</note>
+            </trans-unit>
+            <trans-unit id="integrity.next">
+                <source>Ask the site’s administrator to investigate before you request the action again. Keep any receipt you already downloaded.</source>
+                <target>Ask the site’s administrator to investigate before you request the action again. Keep any receipt you already downloaded.</target>
+            </trans-unit>
+
             <trans-unit id="badge.label">
                 <source>Approved with a passkey · %date%</source>
                 <target>Approved with a passkey · %date%</target>

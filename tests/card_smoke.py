@@ -43,7 +43,7 @@ HOST = """<!doctype html><meta charset="utf-8"><body style="margin:0;background:
     const m = event.data;
     if (!card() || event.source !== card().contentWindow || !m || m.jsonrpc !== '2.0') return;
     if (m.method === 'ui/initialize') reply(m.id, { protocolVersion: '2026-01-26', hostInfo: { name: 'card-smoke', version: '1' },
-      hostCapabilities: { openLinks: {}, serverTools: {} }, hostContext: { theme: %(theme)s, platform: %(platform)s } });
+      hostCapabilities: %(capabilities)s, hostContext: { theme: %(theme)s, platform: %(platform)s } });
     if (m.method === 'ui/notifications/initialized') card().contentWindow.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-result',
       params: { content: [], structuredContent: { approval: view('pending') } } }, '*');
     if (m.method === 'ui/notifications/size-changed') card().style.height = m.params.height + 'px';
@@ -59,12 +59,13 @@ HOST = """<!doctype html><meta charset="utf-8"><body style="margin:0;background:
 <iframe id="card" sandbox="allow-scripts" style="border:0;width:560px;height:200px" srcdoc="%(card)s"></iframe>"""
 
 
-def host(browser, review=REVIEW, handoff="approval_handoff", theme="light", platform="desktop"):
+def host(browser, review=REVIEW, handoff="approval_handoff", theme="light", platform="desktop", capabilities=None):
     # A fresh page each time: set_content keeps the window, and the host script's constants with it.
     page = browser.new_page(viewport={"width": 600, "height": 520}, device_scale_factor=2)
     page.set_content(HOST % {
         "background": "#1f1f1e" if theme == "dark" else "#ffffff", "review": json.dumps(review), "handoff": json.dumps(handoff),
         "theme": json.dumps(theme), "platform": json.dumps(platform), "link": json.dumps(LINK), "modules": json.dumps(MODULES),
+        "capabilities": json.dumps({"openLinks": {}, "serverTools": {}} if capabilities is None else capabilities),
         "card": html.escape(CARD, quote=True)})
     card = page.frame_locator("#card")
     expect(card.locator("#statement")).to_contain_text("Evacuation order")
@@ -114,6 +115,35 @@ def main():
             expect(card.locator("#open")).to_be_visible()
             expect(card.locator("#phone-show")).to_be_hidden()
             checks.append("no phone option on " + label)
+
+        # The button asks the host to open the site's own page and says where the person came from.
+        page, card = host(browser)
+        card.locator("#open").click()
+        expect(card.locator("#status")).to_contain_text("Approve on the site with your passkey")
+        opened = page.evaluate("window.opened")
+        assert opened == [REVIEW + "#return=claude-desktop"], f"the card asked the host to open {opened!r}"
+        # Two status checks sent means one answered "pending" and drawn, and the line is still there.
+        page.wait_for_function("window.calls.filter((name) => name === 'approval_status').length >= 2", timeout=10000)
+        expect(card.locator("#status")).to_contain_text("Approve on the site with your passkey")
+        checks.append("the button opens the review page through the host, and its line outlasts a status check")
+
+        # A host that declares neither capability is sent neither request, and the card says what it cannot do.
+        page, card = host(browser, capabilities={})
+        expect(card.locator("#status")).to_contain_text("can’t check the result in this app")
+        expect(card.locator("#status")).to_contain_text("Use the review link in the reply")
+        expect(card.locator("#open")).to_be_hidden()
+        expect(card.locator("#phone-show")).to_be_hidden()
+        page.wait_for_timeout(3500)
+        assert page.evaluate("window.calls.length + window.opened.length") == 0, "the card called a host that offered nothing"
+        checks.append("a host without link opening or server tools gets no button and no status checks")
+
+        # The site cannot vouch for its own record, so the card claims neither an approval nor that nothing changed.
+        page, card = host(browser)
+        page.evaluate("window.server.status = 'integrity_error'")
+        expect(card.locator("#status")).to_contain_text("stored approval record is inconsistent", timeout=8000)
+        expect(card.locator("#status")).not_to_contain_text("Nothing changed")
+        expect(card.locator("#open")).to_be_hidden()
+        checks.append("an integrity error is shown as an unconfirmed outcome")
 
         # The host stops the tool call. The site may have acted, so the card claims nothing either way.
         page, card = host(browser)

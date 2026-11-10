@@ -46,7 +46,8 @@ Choose and record the commit you intend to use. Add this entry to your applicati
             "verified-human-approval/mcp": "dev-main",
             "verified-human-approval/symfony-bundle": "dev-main",
             "verified-human-approval/doctrine": "dev-main",
-            "verified-human-approval/store-contracts": "dev-main"
+            "verified-human-approval/store-contracts": "dev-main",
+            "verified-human-approval/testing": "dev-main"
         }
     }
 }
@@ -60,7 +61,7 @@ composer require --no-scripts \
   verified-human-approval/webauthn:dev-main \
   verified-human-approval/mcp:dev-main \
   verified-human-approval/symfony-bundle:dev-main \
-  'symfony/mcp-bundle:^1.0@beta'
+  'symfony/mcp-bundle:^1.0@beta' nyholm/psr7
 ```
 
 On Doctrine, add `verified-human-approval/doctrine:dev-main` to that command, with `doctrine/doctrine-bundle` if your application does not have it yet; see [Storage on Doctrine](#storage-on-doctrine).
@@ -99,9 +100,9 @@ verified_human_approval:
 
 On Doctrine, replace `store` with `persistence: { driver: doctrine, connection: default }`, as [Storage on Doctrine](#storage-on-doctrine) describes; `store` and `persistence` are exclusive.
 
-`receipt_signer` is required for the stored-record tamper evidence described in this guide. It signs the receipt before commit. A signing failure rolls the action back. Store the private signing key outside the database, and retain a trusted copy of its public key separately from exported evidence. With a signer configured, the completed review page offers the person their receipt, and the bundle publishes the public keys; see [Stored receipts](#stored-receipts-and-later-verification).
+`receipt_signer` is required for the stored-record tamper evidence described in this guide. It signs the receipt before commit. A signing failure rolls the action back. Store the private signing key outside the database, and retain a trusted copy of its public key separately from exported evidence. With a signer configured, the completed review page offers the person their receipt, and the bundle publishes the public keys; see [Stored receipts](#stored-receipts-and-later-verification). Configure it before the first action runs: with a signer, the approval service reads a completed request only while the receipt signed as it committed still verifies, so a request that completed earlier, without a receipt, is answered as an integrity error from then on.
 
-The optional `receipt_keys` describes the signer's key and the keys it replaced. `valid_from` is when the signer's key began signing, an RFC 3339 time such as `2026-11-09T12:00:00Z`: a record it signed that claims an earlier time does not verify. Unset or empty, there is no earlier limit. `retired` lists earlier keys, by public key only, each with `key_id`, `public_key`, `valid_until` and optionally `valid_from`; what each signed keeps verifying inside its window. The bundle serves these keys as `VerifiedHumanApproval\Core\Evidence\TrustedKeys`, which your `AuditLog` checks entries against, and publishes them. To change keys, follow [Rotate the signing key](https://github.com/scottfalconer/verified-human-approval/blob/main/docs/evidence.md#rotate-the-signing-key).
+The optional `receipt_keys` describes the signer's key and the keys it replaced. `valid_from` is when the signer's key began signing, an RFC 3339 time such as `2026-11-09T12:00:00Z`: a record it signed that claims an earlier time does not verify. Unset or empty, there is no earlier limit. `retired` lists earlier keys, by public key only, each with `key_id`, `public_key`, `valid_until` and optionally `valid_from`; what each signed keeps verifying inside its window. The bundle serves these keys as `VerifiedHumanApproval\Core\Evidence\TrustedKeys`, which your `AuditLog` checks entries against and the approval service reads stored receipts against, and publishes them. A retired key left out of the list, or given a window that does not cover what it signed, makes every request it completed read as an integrity error until the list is corrected. To change keys, follow [Rotate the signing key](https://github.com/scottfalconer/verified-human-approval/blob/main/docs/evidence.md#rotate-the-signing-key).
 
 `public_origin` is a fixed, trusted setting such as `https://app.example.com`. Use it for the WebAuthn configuration too. `relying_party_id` is optional: it is published with the receipt keys so a receipt's passkey signature can be checked offline, and defaults to the public origin's host. Do not derive it from a request's Host header. Choose the origin and RP ID before enrolling passkeys. HTTP `localhost` is allowed for local development.
 
@@ -169,7 +170,7 @@ The approval transaction runs at `READ COMMITTED` on those databases, so a read 
 
 Keep the review routes on your application's normal session firewall. Keep `/mcp` on a separate stateless firewall that authenticates a personal bearer token on every request. Your MCP authenticator must pass its **validated** `Mcp\Server\Authorization\AccessToken` to the SDK as the request attribute named `AccessToken::class`.
 
-The [example identity adapter](first-action.md#3-map-the-authenticated-person) specifies the principal fields and token claims it expects. It never accepts a user ID or tenant ID from tool arguments.
+The [host authentication contract](authentication.md) shows how an existing authenticator supplies the verified principal and SDK token. The [example identity adapter](first-action.md#3-map-the-authenticated-person) specifies the principal fields and token claims it expects. It never accepts a user ID or tenant ID from tool arguments.
 
 `ActorProvider` has three jobs:
 
@@ -217,6 +218,8 @@ mcp:
                 ttl: 900
 ```
 
+The MCP Flex recipe may already define a server named `default` on `/mcp`. Update that server in place, or replace its definition with `application` above; do not leave two servers claiming the same path. Keep your other existing tools in the registry.
+
 Set `allowed_hosts` to your application's host. Keep the MCP route import (`resource: '.', type: mcp`) supplied by your MCP integration. The session lock prevents the card's polling and a tool call from overwriting each other's session state. The request-state key must be at least 32 bytes and separate from the receipt key. Its TTL should exceed your approval lifetime; this example uses a 600-second approval lifetime.
 
 The [tool example](first-action.md#6-expose-the-action-through-mcp) checks the validated token's `approval.read` scope **before** calling `ApprovalFlow::respond()`. This matters because a retry may return a stored result without executing the action again. The tool also declares `ApprovalFlow::OUTPUT_SCHEMA`, uses `ApprovalCard::TOOL_META` and returns structured errors.
@@ -224,6 +227,45 @@ The [tool example](first-action.md#6-expose-the-action-through-mcp) checks the v
 A pending response is a normal tool outcome. It contains a `requestId`, `review_url`, status and instructions. The agent must not say the action is completed while it is pending. Reuse a `request_key` for a retry; call `approval_status` to read the outcome. Status reads never perform the business mutation.
 
 URL-mode elicitation is optional and off by default. Enable it only for clients you have tested. The card and review link do not depend on it. See [MCP presentation](https://github.com/scottfalconer/verified-human-approval/blob/main/src/mcp/README.md) for client and protocol details.
+
+### Scope challenges over HTTP
+
+A scope check inside a tool can only refuse inside the tool's result. The model reads why, but the MCP client gets nothing it can act on. Where `/mcp` is an OAuth protected resource, the MCP authorization specification asks for more: HTTP 403 with `WWW-Authenticate: Bearer error="insufficient_scope"` naming the scopes the operation needs, so the client can ask the person for them and retry.
+
+The PHP SDK has `AuthorizationMiddleware` for this, but `symfony/mcp-bundle` 1.0 builds the HTTP transport itself and takes no middleware ([symfony/ai#2883](https://github.com/symfony/ai/issues/2883)). Until it does, register the bundle's `McpScopeChallengeSubscriber` with the SDK's own `ScopePolicy`:
+
+```yaml
+# Merge into config/services.yaml, under the default autowiring and autoconfiguration
+services:
+    Mcp\Server\Transport\Http\OAuth\ScopePolicy:
+        arguments:
+            $tools:
+                publish_document: [document.publish, approval.read]
+                approval_status: [approval.read]
+                approval_handoff: [approval.read]
+
+    VerifiedHumanApproval\Bundle\Security\McpScopeChallengeSubscriber: ~
+```
+
+After your authenticator has run and before any MCP code does, the subscriber reads the tool name from the request body, never from a header, and compares the policy with the validated token:
+
+| The request | The answer |
+| --- | --- |
+| The token lacks a scope the operation needs | `403`, a challenge naming every scope the operation needs, and a JSON-RPC error that names them for a client that only reports the failure |
+| A scope is needed and the request has no validated token | `401`, with the same scopes in the challenge |
+| A `POST` body over the SDK's default limit of 4 MiB | `413`: it never passes on a body it did not inspect |
+| Anything else | Passed to the MCP server, the token gaining any scopes the policy says its own imply |
+
+If a `ProtectedResourceMetadata` service (RFC 9728) exists, the challenge also carries `resource_metadata`, which leads the client to your authorization server. The [demo](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/src/DemoKernel.php) registers all three.
+
+Before relying on it:
+
+- **It is opt-in, and it is for OAuth.** With fixed personal tokens there is no authorization server for a client to ask. Leave the subscriber out and keep the refusal in the tool, where the model can read it; the [publishing example](https://github.com/scottfalconer/verified-human-approval/blob/main/examples/doctrine-publishing/README.md) does.
+- **A tool the policy does not name needs no scope** beyond the policy's `$default` list. Add every new tool to the map. The checks inside your tools are what holds if one is forgotten.
+- **Your authenticator must have run.** Require a role for the MCP path in `access_control`, and set the validated token as the `AccessToken::class` request attribute, as [section 3](#3-connect-existing-authentication) asks.
+- **It covers every HTTP MCP server the application serves.** It recognises the MCP bundle's controller, not a path.
+- **Keep the scope checks in your tools.** Stdio has no HTTP status to answer with. Ownership and permission refusals are not scope problems either: they stay tool results, because a broader token would not change them.
+- **If you build the transport yourself, add the SDK's `AuthorizationMiddleware` instead.** The subscriber applies the same policy and writes the same header.
 
 ## 5. Connect passkey enrollment and the review screen
 
@@ -305,7 +347,7 @@ Only a request an agent made mentions the agent. Set `agent_name` (default `Clau
 Two hooks let the rest of your application follow an approved change:
 
 - **Link the change to its approval.** While your adapter's `execute()` runs, `ExecutionGuard::current()` returns the executing approval: its `requestId`, and whether a person approved it with a passkey (`userVerified()`) or a rule let it run. Write the request id onto the revision or record you create, in the same transaction, so a page can later show that this exact revision was approved, and link to the evidence.
-- **Work that must wait for the commit.** After the transaction commits, the bundle dispatches `VerifiedHumanApproval\Bundle\Event\ApprovalCompleted` with the completed state. Use it to purge caches, reindex or notify. Delivery is at least once, so make a listener tolerate a repeat. A listener that throws is logged and does not change the result the person sees. Services implementing `VerifiedHumanApproval\Core\ApprovalObserver` are registered automatically too.
+- **Work that must wait for the commit.** After the transaction commits, the bundle dispatches `VerifiedHumanApproval\Bundle\Event\ApprovalCompleted` with the completed state. Use it to purge caches, reindex or notify. Delivery is best effort: a process can stop after commit before dispatch, and recovery can deliver a repeat. Make listeners tolerate repeats; use a transactional outbox for work that requires durable delivery. A listener that throws is logged and does not change the result the person sees. Services implementing `VerifiedHumanApproval\Core\ApprovalObserver` are registered automatically too.
 
 ### Show that a change was approved
 
@@ -329,12 +371,16 @@ For history views, `PdoApprovalStore` and `DbalApprovalStore` also implement `Ve
 
 ## Stored receipts and later verification
 
-The signed receipt protects the historical proposal, proof and execution report against later alteration. It does not claim that today's live document still equals the document published then. A normal `approval_status` read does not perform full cryptographic verification.
+The signed receipt protects the historical proposal, proof and execution report against later alteration. It does not claim that today's live document still equals the document published then.
+
+The site checks its own records as it reads them. Every read through `ApprovalService`, a normal `approval_status` call and the review page included, first checks that the stored status and result agree with the execution record. With a `receipt_signer`, a completed request must also still carry the receipt signed as it committed, and that receipt must verify against the site's trusted keys: the signer's key and the ones listed under `receipt_keys.retired`. The read does not repeat the passkey signature check; the offline verifier and an audit page make that one, with a trusted credential record.
+
+A request that fails is answered with `record_integrity_error`. The review page says that the outcome cannot be confirmed (HTTP 409), the JSON routes answer `{"status": "integrity_error", …}` with the same code, and `approval_status` answers `integrity_error`. Your own tools get the same result from [`ApprovalFlow::errorResult()`](first-action.md#6-expose-the-action-through-mcp). Treat it as an outcome the site cannot vouch for, to be investigated against the signed evidence. It is not a refusal, and it does not mean that nothing happened: the action may have run.
 
 With a `receipt_signer`, the bundle gives the person their own copy, so a later change to the stored record would show:
 
 - **On the completed review page**, "Download your receipt" (route `verified_human_approval_evidence`, `GET /approval/{id}/evidence`) returns the evidence bundle (`verified-human-approval/evidence/v2`) as `receipt-<id>.json`: the frozen proposal, the person's passkey signature on it, the execution record and the original receipt. Only the signed-in owner gets it; a phone session opened by a one-time code is pointed back to the signed-in browser.
-- **Nothing is signed at download.** A request that has not run is refused (`not_completed`), and so is one whose original receipt is missing (`receipt_missing`); the page says when no receipt is recorded. Do not create a fresh signature over a record at download time to claim it was unchanged since approval.
+- **Nothing is signed at download.** A request that has not run is refused (`not_completed`). A completed one whose original receipt is missing is not offered at all: the review page and this route answer with the integrity error above, and the exporter, called directly, refuses it (`receipt_missing`). Do not create a fresh signature over a record at download time to claim it was unchanged since approval.
 - **In the agent's result**, a completed request carries `receipt` (the signed manifest, `keyId` and `signature`), `receipt_keys_url` (the key set, which still checks it after a rotation) and `receipt_key_url` (the current key), so a copy also lands in the conversation.
 - **The keys that check them** are public at `GET /approval/receipt-keys.json` (route `verified_human_approval_receipt_keys`): the key set (`verified-human-approval/receipt-keys/v2`), with `currentKeyId`, `keys`, each with its `keyId`, `publicKey`, `validFrom` and `validUntil`, then `rpId` and `origin`. It lists the keys a rotation retired, so a receipt signed before one still checks. The review page, the public verification page and the agent's `receipt_keys_url` link it. The earlier one-key file stays at `GET /approval/receipt-key.json` (route `verified_human_approval_receipt_key`, `verified-human-approval/receipt-key/v1`, the current key only), which the agent's `receipt_key_url` names. Both need the access-control rule above to be reachable without signing in. Anyone can save them and check later receipts against that copy.
 
@@ -346,9 +392,13 @@ vendor/bin/verify-evidence.php receipt-REQUEST_ID.json receipt-keys.json
 
 Add the approving passkey's trusted registration record as a third file to check the passkey signature as well; without it, the output says that signature was not checked.
 
+## Test your integration
+
+Install the [testing package](testing.md) as a development dependency. It supplies a software passkey with real signatures, a BrowserKit helper for the enrollment and review pages, and an in-process MCP HTTP client. Test your own application services and routes rather than copying this repository's private test fixtures. The guide covers test environment settings, isolated rate limits, and verifying the exported receipt.
+
 ## Before deployment
 
-Keep the application database and signing keys persistent across deploys. Restore and back up them deliberately; generating a replacement key on every boot breaks trust in earlier records. Protect your signing key separately from database write access. To replace the key on purpose, [rotate it](https://github.com/scottfalconer/verified-human-approval/blob/main/docs/evidence.md#rotate-the-signing-key): the old public key stays trusted for what it signed. Keep a checkpoint of the audit log's head outside the application on a schedule, with `verified-human-approval:audit-head`.
+Keep the application database and signing keys persistent across deploys. Restore and back up them deliberately; generating a replacement key on every boot breaks trust in earlier records. Protect your signing key separately from database write access. To replace the key on purpose, [rotate it](https://github.com/scottfalconer/verified-human-approval/blob/main/docs/evidence.md#rotate-the-signing-key): the old public key stays trusted for what it signed, as long as it is listed under `receipt_keys.retired`. A key replaced without being listed there leaves every request it completed reading as an integrity error. Keep a checkpoint of the audit log's head outside the application on a schedule, with `verified-human-approval:audit-head`.
 
 The browser rate limiter defaults to 30 attempts per person per minute. Override the `verified_human_approval` framework limiter or point `rate_limiter` to your own `RateLimiterFactoryInterface` service. The phone handoff uses `cache.app` and a lock; multiple web servers need a shared cache and a shared lock store configured through `lock_factory`. Its default file lock is local to one host.
 

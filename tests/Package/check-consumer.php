@@ -4,20 +4,20 @@ declare(strict_types=1);
 
 /*
  * The independent consumer check. It installs core and WebAuthn ("webauthn"), core, WebAuthn and MCP ("mcp"),
- * or core, WebAuthn and the Doctrine storage ("doctrine"), into a separate Composer project in a temporary
- * directory: from this checkout's src/, through a
- * path repository that copies the packages, at matching dev-main versions, with stable defaults. It then
- * checks them there with only that project's autoloader, and runs the installed evidence command on the
- * public synthetic fixture. "archives" instead checks what each package's archive would ship.
+ * core, WebAuthn and the Doctrine storage ("doctrine"), or core, WebAuthn and the testing package with a PSR-17
+ * implementation ("testing"), into a separate Composer project in a temporary directory: from this checkout's
+ * src/, through a path repository that copies the packages, at matching dev-main versions, with stable
+ * defaults. It then checks them there with only that project's autoloader, and runs the installed evidence
+ * command on the public synthetic fixture. "archives" instead checks what each package's archive would ship.
  *
  * A path install is not a published-package installation; it shows the packages work apart from this
- * monorepo. Usage: php tests/Package/check-consumer.php webauthn|mcp|doctrine|archives [--keep]
+ * monorepo. Usage: php tests/Package/check-consumer.php webauthn|mcp|doctrine|testing|archives [--keep]
  */
 
 $root = dirname(__DIR__, 2);
 $mode = $argv[1] ?? '';
-if (!in_array($mode, ['webauthn', 'mcp', 'doctrine', 'archives'], true)) {
-    fwrite(\STDERR, "Usage: php tests/Package/check-consumer.php webauthn|mcp|doctrine|archives [--keep]\n");
+if (!in_array($mode, ['webauthn', 'mcp', 'doctrine', 'testing', 'archives'], true)) {
+    fwrite(\STDERR, "Usage: php tests/Package/check-consumer.php webauthn|mcp|doctrine|testing|archives [--keep]\n");
     exit(2);
 }
 $keep = in_array('--keep', $argv, true);
@@ -56,9 +56,10 @@ try {
             'core' => ['composer.json', 'README.md', 'LICENSE', 'src/ApprovalService.php'],
             'webauthn' => ['composer.json', 'README.md', 'LICENSE', 'src/WebAuthnVerifier.php', 'bin/verify-evidence.php'],
             'mcp' => ['composer.json', 'README.md', 'LICENSE', 'src/ApprovalCard.php', 'resources/approval-card.html'],
-            'symfony-bundle' => ['composer.json', 'README.md', 'LICENSE', 'src/VerifiedHumanApprovalBundle.php', 'config/routes.php', 'public/approval.js', 'templates/review.html.twig', 'translations/VerifiedHumanApproval.en.xlf'],
+            'symfony-bundle' => ['composer.json', 'README.md', 'LICENSE', 'src/VerifiedHumanApprovalBundle.php', 'config/routes.php', 'public/approval.js', 'templates/review.html.twig', 'translations/VerifiedHumanApproval.en.xlf', 'docs/index.md', 'docs/first-action.md', 'docs/authentication.md', 'docs/enrollment.md', 'docs/testing.md'],
             'doctrine' => ['composer.json', 'README.md', 'LICENSE', 'src/DbalTransaction.php', 'src/ApprovalSchema.php', 'src/Orm/EntityAction.php'],
             'store-contracts' => ['composer.json', 'README.md', 'LICENSE', 'src/ApprovalStoreContract.php', 'src/Fixture/FixtureSchema.php', 'bin/store-worker.php', 'bin/audit-worker.php', 'resources/audit-v1-chain.json'],
+            'testing' => ['composer.json', 'README.md', 'LICENSE', 'src/VirtualAuthenticator.php', 'src/PasskeyPanel.php', 'src/PanelAnswer.php', 'src/KernelHttpClient.php'],
         ];
         foreach ($required as $package => $files) {
             $run([$composer, '--working-dir='.$root.'/src/'.$package, 'archive', '--format=tar', '--dir='.$directory, '--file='.$package, '--no-interaction'], 'Archive '.$package);
@@ -84,19 +85,26 @@ try {
     }
 
     $packages = ['verified-human-approval/core', 'verified-human-approval/webauthn'];
-    if ('mcp' === $mode || 'doctrine' === $mode) {
+    if ('mcp' === $mode || 'doctrine' === $mode || 'testing' === $mode) {
         $packages[] = 'verified-human-approval/'.$mode;
+    }
+    $requirements = array_fill_keys($packages, 'dev-main');
+    if ('testing' === $mode) {
+        // The kernel client takes any PSR-17 factories, so the application under test brings an implementation.
+        // An application requires the testing package for development; here one install without development
+        // packages serves every mode.
+        $requirements['nyholm/psr7'] = '^1.8';
     }
     $manifest = [
         'name' => 'verified-human-approval/consumer-check',
         'description' => 'A separate application that installs the packages, for the consumer check.',
         'type' => 'project',
         'license' => 'MIT',
-        'require' => ['php' => '^8.3', 'ext-sodium' => '*'] + array_fill_keys($packages, 'dev-main'),
+        'require' => ['php' => '^8.3', 'ext-sodium' => '*'] + $requirements,
         'repositories' => [[
             'type' => 'path',
             'url' => $root.'/src/*',
-            'options' => ['symlink' => false, 'versions' => array_fill_keys(['verified-human-approval/core', 'verified-human-approval/webauthn', 'verified-human-approval/mcp', 'verified-human-approval/symfony-bundle', 'verified-human-approval/doctrine', 'verified-human-approval/store-contracts'], 'dev-main')],
+            'options' => ['symlink' => false, 'versions' => array_fill_keys(['verified-human-approval/core', 'verified-human-approval/webauthn', 'verified-human-approval/mcp', 'verified-human-approval/symfony-bundle', 'verified-human-approval/doctrine', 'verified-human-approval/store-contracts', 'verified-human-approval/testing'], 'dev-main')],
         ]],
         'minimum-stability' => 'stable',
         'prefer-stable' => true,

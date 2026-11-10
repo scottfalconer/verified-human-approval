@@ -18,8 +18,13 @@ return static function (ContainerConfigurator $container): void {
             'cookie_secure' => 'auto', 'cookie_httponly' => true, 'cookie_samesite' => 'lax',
         ],
         'csrf_protection' => true,
+        // Explicit local locks also work where System V semaphores are unavailable (including sandboxed tests).
+        // Multiple web hosts need a shared lock store, configured by the host application.
+        'lock' => 'flock',
         'cache' => ['directory' => '%env(resolve:APP_STATE_DIR)%/pools'],
         'router' => ['utf8' => true],
+        // Symfony 8's default, as Symfony's recipe sets it, so 7.4 and 8 read types alike.
+        'property_info' => ['with_constructor_extractor' => true],
     ]);
     if ('test' === $container->env()) {
         $container->extension('framework', ['test' => true, 'session' => ['storage_factory_id' => 'session.storage.factory.mock_file']]);

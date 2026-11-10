@@ -271,7 +271,7 @@ Your existing authentication layer supplies these values from validated server-s
 
 `hasInteractiveSession()` describes how this request was authenticated. It is not a role the client can choose. The MCP authenticator validates the bearer, current account, grant and expiry on each request, then sets a validated `AccessToken` at the request attribute `AccessToken::class`. This example expects its `sub` claim to equal the principal's user ID and `grant_id` to equal its delegation ID. The SDK exposes that same token through `RequestContext::getAccessToken()`.
 
-Use the application's existing authentication code for that step. The demo's [personal token authenticator](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/src/Security/PersonalTokenAuthenticator.php) illustrates the SDK handoff; its token issuance and account model are demo-specific.
+Use the application's existing authentication code for that step. The demo's [resource-server authenticator](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/src/Security/AgentTokenAuthenticator.php) illustrates the SDK handoff; its token issuance and account model are demo-specific.
 
 The authorizer below reads current authority from the same database as the write. Its separate read check allows a person to read a denied result after publication permission is removed.
 
@@ -602,7 +602,6 @@ namespace App\Mcp;
 use App\Approval\CurrentAuthority;
 use Mcp\Capability\Attribute\McpTool;
 use Mcp\Capability\Attribute\Schema;
-use Mcp\Schema\Content\TextContent;
 use Mcp\Schema\Result\CallToolResult;
 use Mcp\Schema\Result\InputRequiredResult;
 use Mcp\Schema\ToolAnnotations;
@@ -658,37 +657,35 @@ final readonly class PublishDocumentTool
                     $actor, 'document.publish', ['document_id' => $document_id], $request_key,
                 ),
             );
-        } catch (ApprovalException|AccessDeniedException $error) {
-            $data = [
-                'status' => 'rejected',
-                'reason' => $error instanceof ApprovalException ? $error->reason : 'unauthenticated',
-                'message' => $error instanceof ApprovalException ? $error->getMessage() : 'Use an authenticated application account.',
-            ];
-
-            return new CallToolResult(
-                [new TextContent(json_encode($data, JSON_THROW_ON_ERROR))],
-                isError: true,
-                structuredContent: $data,
+        } catch (ApprovalException $error) {
+            return ApprovalFlow::errorResult($error);
+        } catch (AccessDeniedException) {
+            return ApprovalFlow::errorResult(
+                new ApprovalException('unauthenticated', 'Use an authenticated application account.'),
             );
         }
     }
 }
 ```
 
+`ApprovalFlow::errorResult()` builds the error result every tool should return: `status`, `reason` and `message`, as text and as structured content that fits `ApprovalFlow::OUTPUT_SCHEMA`. A refusal is `rejected`. A stored request that fails the [integrity check](index.md#stored-receipts-and-later-verification) is `integrity_error`: the site cannot vouch for its outcome, so the agent must not report it as refused or as not having happened.
+
 Register this class with the MCP configuration in the [integration guide](index.md#4-register-the-mcp-tools-and-card). Ask the tool to publish a real document belonging to the signed-in tenant. The caller needs an active account with publication permission and a personal grant containing `document.publish` and `approval.read`.
+
+The scope checks in this tool answer inside the tool's result. If `/mcp` is an OAuth protected resource, also register the [scope challenge](index.md#scope-challenges-over-http): a client whose token lacks `document.publish` or `approval.read` then gets HTTP 403 naming both and can ask the person for them. Keep the checks here either way.
 
 ## 7. Connect trusted passkey enrollment
 
 Use your existing trusted account flow to authorize enrollment. It must establish the human account independently of an ordinary agent bearer or a password-only takeover. The demo uses a one-time trusted link for the first passkey and an existing passkey for another registration; your account recovery process remains your responsibility.
 
-The low-level hooks are:
+The [enrollment walkthrough](enrollment.md) gives the registration panel, JSON protocol and an existing Doctrine reference implementation. The low-level hooks are:
 
 1. Call `ActorProvider::interactive()` and your enrollment authorization check. Apply CSRF protection and a short expiry.
 2. Call `WebAuthnVerifier::registrationOptions($actor, random_bytes(32), $displayName)`. Save the complete options in the authenticated user's server-side session and send them to the browser's `navigator.credentials.create()` flow.
 3. On completion, consume the saved options once. Check the same account, CSRF token and expiry. Never accept replacement registration options from request JSON.
-4. In one transaction on the shared PDO, call `WebAuthnVerifier::register($actor, $savedOptions, $browserResponse, $label)`. This validates and inserts the credential. Then call `AnchoredCredentialRepository::anchor($credential, $context)` before committing. The context records how enrollment was authorized. Roll back both operations on failure.
+4. In one transaction on the shared application connection, call `WebAuthnVerifier::register($actor, $savedOptions, $browserResponse, $label)`. This validates and inserts the credential. Then call `AnchoredCredentialRepository::anchor($credential, $context)` before committing. The context records how enrollment was authorized. Roll back both operations on failure.
 
-`AnchoredCredentialRepository::add()` does not create the signed enrollment record by itself. Without `anchor()`, the configured repository will not accept the new passkey for approval. In your trusted account flow, call its `revoke()` inside a transaction on the shared PDO, so the revocation and its signed audit entry commit together and a failure to sign or store the entry leaves the passkey active; the demo's [`PasskeyRevocation`](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/src/Account/PasskeyRevocation.php) shows it. The wrapper accepts any `RevocableCredentialRepository`, so the passkeys and the audit rows (`AuditStore`) can live in your own storage.
+`AnchoredCredentialRepository::add()` does not create the signed enrollment record by itself. Without `anchor()`, the configured repository will not accept the new passkey for approval. In your trusted account flow, call its `revoke()` inside a transaction on the shared application connection, so the revocation and its signed audit entry commit together and a failure to sign or store the entry leaves the passkey active; the demo's [`PasskeyRevocation`](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/src/Account/PasskeyRevocation.php) shows it. The wrapper accepts any `RevocableCredentialRepository`, so the passkeys and the audit rows (`AuditStore`) can live in your own storage.
 
 The [WebAuthn guide](https://github.com/scottfalconer/verified-human-approval/blob/main/src/webauthn/README.md#trusted-enrollment) explains the browser payload and adapter responsibilities. The bundle's review controller handles approval ceremonies once a credential is enrolled; it does not supply enrollment or recovery controllers.
 
@@ -696,7 +693,7 @@ WebAuthn requires user verification. A biometric or device PIN may satisfy it. T
 
 ## 8. Check the integration
 
-After copying the files, mapping your real account/grant records, configuring the bundle and importing its routes:
+For this PDO walkthrough, after copying the files, mapping your real account/grant records, configuring the bundle and importing its routes:
 
 ```bash
 php bin/console lint:container
@@ -704,6 +701,8 @@ php bin/console app:approval:install
 php bin/console assets:install
 php bin/console cache:clear
 ```
+
+On Doctrine, use `php bin/console verified-human-approval:install` for the package tables instead of the PDO walkthrough's `app:approval:install` command; the [Doctrine publishing example](https://github.com/scottfalconer/verified-human-approval/blob/main/examples/doctrine-publishing/README.md) gives its entity schema and setup.
 
 Apply your application schema through your normal migration process before making a request. The package installation command creates only the approval, credential and audit tables. Keep those tables, the document tables and the signing key persistent.
 

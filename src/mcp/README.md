@@ -9,7 +9,7 @@ Nothing here approves anything. The person approves on the application's own rev
 | Client | What it gets |
 | --- | --- |
 | Every client | The pending result at once: request ID, status, review URL, a message for the model, and the card's view under `approval` |
-| A host that renders MCP Apps (`io.modelcontextprotocol/ui`) | The approval card beside the result. Its button opens the review page through `ui/open-link`, and it polls the status tool until the application records an outcome: every 3 seconds at first, then every 10, then every 30, not while hidden, and for a quarter of an hour at most. It stops when the host cancels the call (`ui/notifications/tool-cancelled`) and answers `ui/resource-teardown` |
+| A host that renders MCP Apps (`io.modelcontextprotocol/ui`) | The approval card beside the result. Its button opens the review page through `ui/open-link`, and it polls the status tool until the application records an outcome. It makes each of those requests only where the host declares it allows them: see [what the card asks of the host](#what-the-card-asks-of-the-host) |
 | A client the application lists, on MCP 2026-07-28 or later, that declares `elicitation.url` | Also a URL-mode elicitation (`InputRequiredResult`) pointing at the review page |
 
 URL-mode elicitation is off by default and enabled per client by `clientInfo.name`. Some clients declare URL mode and then decline, drop or fail on the request, so a declaration alone is not enough. This knowingly departs from the specification's advice not to change server behaviour on `clientInfo`: it is an interoperability allowlist, not a security decision, since the card and the link are always there; `'*'` switches to capability-only gating. The card's link is in every protected tool's `_meta.ui`: under 2026-07-28 there is no handshake to learn a client's extensions first, and `tools/list` must not vary per connection, so hosts without MCP Apps simply ignore it. The URL prompt is never sent under the handshake-era revisions, where the server would hold the call open while the person approves: the SDK's `InputRequiredShim` is on by default and would turn the result into a blocking `elicitation/create` there.
@@ -21,7 +21,7 @@ URL-mode elicitation is off by default and enabled per client by `clientInfo.nam
 | Field | Meaning |
 | --- | --- |
 | `requestId` | The proposal |
-| `status` | `pending`, `completed`, `cancelled`, `expired`, `invalidated` or `denied`, as recorded |
+| `status` | `pending`, `completed`, `cancelled`, `expired`, `invalidated` or `denied`, as recorded. An [error result](#error-results) carries `rejected` or `integrity_error` instead |
 | `reviewUrl` | The application's review page |
 | `statusTool` | The read-only tool the card polls, called with `request_id` |
 | `statement` | The exact statement the person will approve |
@@ -30,9 +30,32 @@ URL-mode elicitation is off by default and enabled per client by `clientInfo.nam
 
 The card never runs WebAuthn. The verifier rejects embedded and cross-origin ceremonies, and the card runs on the host's sandbox origin, so no assertion it could obtain would pass the application's exact-origin check.
 
-When the host stops a call, the card stops polling. That does not establish whether the application completed or cancelled the request. Read the existing request's status before starting another action after an interruption.
+### What the card asks of the host
 
-When `handoffTool` is set and the review page is on HTTPS, the card also offers **Approve on your phone**, except inside Claude on a phone. It calls the tool with `request_id` and expects `structuredContent` with `requestId`, `expiresIn` (seconds) and `modules`: the QR code as one string of `0` and `1` per row, quiet zone included. The card draws those modules itself with SVG elements, so it never parses markup from the server, and takes the code down when it expires or the request leaves `pending`. The Symfony bundle supplies such a tool.
+The card sends only the requests the host allows in its answer to `ui/initialize` (`hostCapabilities`):
+
+| Host capability | With it | Without it |
+| --- | --- | --- |
+| `openLinks` | **Review and approve** opens the review page through `ui/open-link` | No button. The card points at the review link in the reply |
+| `serverTools` | The card polls `statusTool`, and can offer the phone code | The card says it cannot check the result in this app, and asks the person to ask for the status after approving. It does not go on saying that nothing has changed, since it could not know |
+
+A result without `statusTool` is treated like a host without `serverTools`.
+
+The card waits for the answer to `ui/initialize` with no deadline, so a slow host still gets a working card; after 15 seconds without one it points at the review link in the reply. Every later request has a 15-second deadline. A `ui/open-link` request that gets no answer in that time is reported as "if the page did not open", not as a refusal: the host may be asking the person to confirm the link. A refusal is reported as one.
+
+The card answers the host's `ping` and `ui/resource-teardown` requests, and refuses any other request with `-32601`.
+
+### How the card follows a request
+
+The card checks the status tool every 3 seconds for two minutes, every 10 seconds until five minutes, then every 30. It does not check while it is hidden, and checks at once when it comes back into view. A quarter of an hour after the result arrived or the person last used one of its buttons, it stops and says so; coming back into view checks once more, and using a button starts the quick checks again. A request lasts ten minutes unless the application's policy sets another lifetime, so the card usually reports `expired` before it stops. While a check fails, the card says it cannot confirm the current status.
+
+Only the status tool changes the outcome the card reports. A reply that arrives after the application recorded an outcome, after another request replaced this one, or after the host ended the card is dropped. An `integrity_error` is shown as an outcome the card cannot confirm, never as "nothing changed".
+
+When the host stops a call (`ui/notifications/tool-cancelled`), the card stops polling. That does not establish whether the application completed or cancelled the request. Read the existing request's status before starting another action after an interruption.
+
+### The phone code
+
+When `handoffTool` is set, the review page is on HTTPS and the host declares `serverTools`, the card also offers **Approve on your phone**, except inside Claude on a phone. It calls the tool with `request_id` and expects `structuredContent` with `requestId`, `expiresIn` (seconds) and `modules`: the QR code as one string of `0` and `1` per row, quiet zone included. The card draws those modules itself with SVG elements, so it never parses markup from the server, and takes the code down when it expires or the request leaves `pending`. The Symfony bundle supplies such a tool.
 
 ## The URL-mode elicitation and its retry
 
@@ -46,3 +69,12 @@ When `handoffTool` is set and the review page is on HTTPS, the card also offers 
 The SDK signs request state but does not encrypt it, and its expiry bounds replay without making it single-use. So the state carries only a reference. A keyless retry also reuses the pending proposal in the core, so a handler that is entered again never creates a second review URL.
 
 A platform supplies a `ResultPresenter`: its review URL, its normal tool result, and its status tool's name.
+
+## Error results
+
+`ApprovalFlow::errorResult()` turns an `ApprovalException` into the error result a protected tool returns: `status`, `reason` and `message`, as text and as structured content that fits `ApprovalFlow::OUTPUT_SCHEMA`. Pass the request ID as the second argument when the tool knows it.
+
+| `status` | When |
+| --- | --- |
+| `rejected` | The application refused: the reason says why |
+| `integrity_error` | The stored request failed the core's check (`record_integrity_error`). The application cannot vouch for the outcome, and the action may have run, so the model must not report it as refused or as not having happened |

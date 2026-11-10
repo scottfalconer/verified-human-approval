@@ -195,9 +195,11 @@ final readonly class ArticleTools
             return $this->flow->respond($context, $actor, $tool, $input + ['request_key' => $requestKey],
                 fn (): ApprovalState => $this->approvals->request($actor, $action, $input, $requestKey));
         } catch (ApprovalException $error) {
-            return self::refusal($error->reason, $error->getMessage());
+            // One shape for every refusal, and for a stored record that fails its integrity check, which is
+            // reported as integrity_error and never as a refusal.
+            return ApprovalFlow::errorResult($error);
         } catch (AccessDeniedException) {
-            return self::refusal('unauthenticated', 'Use your agent token.');
+            return ApprovalFlow::errorResult(new ApprovalException('unauthenticated', 'Use your agent token.'));
         }
     }
 
@@ -215,13 +217,5 @@ final readonly class ArticleTools
     private static function result(array $data): CallToolResult
     {
         return new CallToolResult([new TextContent(json_encode($data, \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_UNICODE))], structuredContent: $data);
-    }
-
-    /** A refusal in the shape ApprovalFlow::OUTPUT_SCHEMA declares for the approval tools. */
-    private static function refusal(string $reason, string $message): CallToolResult
-    {
-        $data = ['status' => 'rejected', 'reason' => $reason, 'message' => $message];
-
-        return new CallToolResult([new TextContent(json_encode($data, \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_UNICODE))], isError: true, structuredContent: $data);
     }
 }

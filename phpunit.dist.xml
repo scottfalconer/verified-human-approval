@@ -1,5 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<phpunit bootstrap="tests/bootstrap.php" colors="true" cacheDirectory=".phpunit.cache" failOnWarning="true" failOnRisky="true" displayDetailsOnTestsThatTriggerDeprecations="true">
-  <testsuites><testsuite name="core"><directory>tests/Core</directory></testsuite><testsuite name="webauthn"><directory>tests/WebAuthn</directory></testsuite><testsuite name="symfony"><directory>tests/Bundle</directory></testsuite><testsuite name="evidence"><directory>tests/Evidence</directory></testsuite><testsuite name="mcp"><directory>tests/Mcp</directory></testsuite><testsuite name="contract"><directory>tests/Contract</directory></testsuite><testsuite name="doctrine"><directory>tests/Doctrine</directory></testsuite><testsuite name="example"><directory>tests/Example</directory></testsuite></testsuites>
-  <source><include><directory>src</directory><directory>demo/src</directory></include></source>
+<!--
+  A deprecation fails the run, whoever triggers it: most of the ones this package can cause are raised inside a
+  dependency (a configuration default, a value handed to a serializer), so none is ignored by where it happens.
+  CI turns the failure off (do-not-fail-on-deprecation) only for the jobs whose dependencies are resolved as they run.
+-->
+<phpunit bootstrap="tests/bootstrap.php" colors="true" cacheDirectory=".phpunit.cache" failOnWarning="true" failOnRisky="true" failOnDeprecation="true" displayDetailsOnTestsThatTriggerDeprecations="true">
+  <php>
+    <!-- Doctrine reports its deprecations only in this mode, which Symfony's FrameworkBundle otherwise sets when a kernel first boots. -->
+    <server name="DOCTRINE_DEPRECATIONS" value="trigger"/>
+  </php>
+  <testsuites><testsuite name="core"><directory>tests/Core</directory></testsuite><testsuite name="webauthn"><directory>tests/WebAuthn</directory></testsuite><testsuite name="symfony"><directory>tests/Bundle</directory></testsuite><testsuite name="evidence"><directory>tests/Evidence</directory></testsuite><testsuite name="mcp"><directory>tests/Mcp</directory></testsuite><testsuite name="contract"><directory>tests/Contract</directory></testsuite><testsuite name="doctrine"><directory>tests/Doctrine</directory></testsuite><testsuite name="example"><directory>tests/Example</directory></testsuite><testsuite name="testing"><directory>tests/Testing</directory></testsuite></testsuites>
+  <!-- Symfony and Doctrine raise deprecations with the error silenced (@trigger_error), so the silencing is ignored here. -->
+  <source ignoreSuppressionOfDeprecations="true">
+    <include><directory>src</directory><directory>demo/src</directory><directory>examples</directory></include>
+    <!-- The helpers Symfony and Doctrine raise them through, named so a report gives the line that declared the deprecation, not a line inside the helper. -->
+    <deprecationTrigger>
+      <function>trigger_deprecation</function>
+      <method>Doctrine\Deprecations\Deprecation::trigger</method>
+      <method>Doctrine\Deprecations\Deprecation::triggerIfCalledFromOutside</method>
+    </deprecationTrigger>
+  </source>
 </phpunit>

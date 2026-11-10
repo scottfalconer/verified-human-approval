@@ -6,8 +6,11 @@ namespace VerifiedHumanApproval\Core;
 
 use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
+use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
 use VerifiedHumanApproval\Core\Evidence\EvidenceSigner;
 use VerifiedHumanApproval\Core\Evidence\Receipt;
+use VerifiedHumanApproval\Core\Evidence\ReceiptVerifier;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 
 /** Request -> frozen review -> user verification -> one local atomic execution. */
 final class ApprovalService
@@ -23,11 +26,16 @@ final class ApprovalService
         private readonly ClockInterface $clock,
         private readonly ExecutionGuard $guard,
         // Signs each execution's receipt inside the completing transaction. Without it, receipts are
-        // signed only when evidence is exported, which cannot show edits made in between.
+        // signed only when evidence is exported, which cannot show edits made in between. With it, a
+        // stored outcome is read back only while its receipt still verifies: see assertOwnedRecord().
         private readonly ?EvidenceSigner $receipts = null,
         /** @var iterable<ApprovalObserver> told about each executed action after its transaction commits */
         private readonly iterable $observers = [],
         private readonly ?LoggerInterface $logger = null,
+        // Every key this application has signed receipts with, each with the window it signed in. Pass
+        // them once a key has been rotated: without them only the signer's current key is trusted, and
+        // an outcome whose receipt an earlier key signed is refused as an integrity error.
+        private readonly ?TrustedKeys $trustedKeys = null,
     ) {
         $this->executionOwner = new \stdClass();
         $guard->bind($this->executionOwner);
@@ -54,7 +62,7 @@ final class ApprovalService
                 if (!hash_equals($existing['fingerprint'], $fingerprint)) {
                     throw new ApprovalException('idempotency_conflict', 'This request key already belongs to different arguments. Use a new key for a new action.');
                 }
-                $this->assertOwner($actor, $existing['state']);
+                $this->assertOwnedRecord($actor, $existing['state']);
                 $this->assertSameContent($existing['state'], $actor, $actionId, $input);
 
                 return $this->expire($existing['state']);
@@ -62,7 +70,7 @@ final class ApprovalService
             // A retry without a key (a client re-sending the call, or MCP re-entering the handler
             // after an elicitation) gets the same pending proposal instead of a second review URL.
             if (null === $idempotencyKey && ($pending = $this->store->findPending($actor, $fingerprint)) !== null) {
-                $this->assertOwner($actor, $pending);
+                $this->assertOwnedRecord($actor, $pending);
                 $pending = $this->eligible($pending);
                 if ('pending' === $pending->status) {
                     return $pending;
@@ -196,7 +204,7 @@ final class ApprovalService
                 throw new ApprovalException('execution_uncertain', 'The execution outcome could not be confirmed. Read its status before taking further action.', $recoveryError);
             }
             if (null !== $recovered) {
-                // The commit may have been this call's: observers hear about it, at least once.
+                // The commit may have been this call's: best-effort observers hear about the recovered state.
                 $this->notify($recovered);
 
                 return $recovered;
@@ -343,15 +351,46 @@ final class ApprovalService
     private function owned(Actor $actor, string $requestId): ApprovalState
     {
         $state = $this->store->get($requestId) ?? throw new ApprovalException('not_found', 'The approval request was not found.');
-        $this->assertOwner($actor, $state);
+        $this->assertOwnedRecord($actor, $state);
 
         return $state;
     }
 
-    private function assertOwner(Actor $actor, ApprovalState $state): void
+    /**
+     * Every stored record passes here before its outcome is reported, replayed for a request key, offered
+     * for approval or changed. First it must be this person's. Then its stored parts must agree: a status
+     * and a result are stored beside the execution record, and neither may contradict it.
+     *
+     * With a receipt signer, a completed record must also still carry the receipt signed as it committed,
+     * and that receipt must verify against the trusted keys. So a record edited in the database afterwards,
+     * or one whose receipt was deleted or replaced, is refused with record_integrity_error instead of being
+     * reported as what the application recorded. This is strict on purpose: a receipt naming a key the set
+     * does not list is refused, as is a completed record without a receipt, because otherwise renaming the
+     * key or deleting the receipt would switch the check off. An application that starts signing after it
+     * has executed actions therefore sees those earlier outcomes refused.
+     *
+     * Without a signer there is nothing to check a record against, and the application reads its own
+     * records as stored.
+     */
+    private function assertOwnedRecord(Actor $actor, ApprovalState $state): void
     {
         if (!$state->request->actor()->samePerson($actor)) {
             throw new ApprovalException('not_found', 'The approval request was not found.');
+        }
+        $state->assertConsistent();
+        if ('completed' !== $state->status || null === $this->receipts) {
+            return;
+        }
+        try {
+            $keys = $this->trustedKeys ?? TrustedKeys::single($this->receipts->keyId(), $this->receipts->publicKey());
+            // The exporter without a signer returns the stored receipt or nothing: it never signs one now.
+            $verified = (new ReceiptVerifier())->verify((new EvidenceExporter())->export($state), $keys);
+            // A receipt signed at export vouches for the record as it stood then, which may be after an edit.
+            if (Receipt::COMMIT !== $verified['receiptSignedAt']) {
+                throw new \UnexpectedValueException('The stored receipt was not signed as the action committed.');
+            }
+        } catch (\Throwable $error) {
+            throw new ApprovalException('record_integrity_error', 'The stored approval record does not verify against the application’s receipt keys. Its outcome cannot be trusted.', $error);
         }
     }
 

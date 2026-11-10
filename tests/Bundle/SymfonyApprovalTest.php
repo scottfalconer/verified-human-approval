@@ -6,6 +6,7 @@ namespace VerifiedHumanApproval\Tests\Bundle;
 
 use Mcp\Client;
 use Mcp\Client\Transport\HttpTransport;
+use Mcp\Exception\RequestException;
 use Mcp\Schema\Extension\Apps\McpApps;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use PHPUnit\Framework\TestCase;
@@ -30,7 +31,7 @@ use VerifiedHumanApproval\Demo\DemoKernel;
 use VerifiedHumanApproval\Demo\DemoSetup;
 use VerifiedHumanApproval\Mcp\ApprovalCard;
 use VerifiedHumanApproval\Mcp\UrlPrompt;
-use VerifiedHumanApproval\Tests\Support\VirtualAuthenticator;
+use VerifiedHumanApproval\Testing\VirtualAuthenticator;
 
 /** Actual Symfony kernel, firewall, forms, SDK HTTP transport and WebAuthn cryptography. */
 final class SymfonyApprovalTest extends TestCase
@@ -167,14 +168,18 @@ final class SymfonyApprovalTest extends TestCase
         $stranger->request('GET', self::ORIGIN.'/approval/'.$id.'/evidence');
         self::assertSame(302, $stranger->getResponse()->getStatusCode(), 'A stranger is sent to sign in.');
 
-        // A receipt deleted afterwards is not replaced: the page says there is none, and nothing is signed now.
+        // A receipt deleted afterwards is an integrity failure, never a new signature or a trusted outcome.
         $this->database->pdo->prepare('DELETE FROM verified_human_approval_receipts WHERE request_id = ?')->execute([$id]);
         $page = $editor->request('GET', self::ORIGIN.'/approval/'.$id);
+        self::assertSame(409, $editor->getResponse()->getStatusCode());
         self::assertCount(0, $page->filter('.receipt a.button'));
-        self::assertSame('This site has no receipt recorded for this request.', $page->filter('.approval-sheet .receipt')->text());
+        self::assertCount(0, $page->filter('[data-passkey-panel]'));
+        self::assertStringContainsString('We cannot confirm this approval’s outcome', $page->filter('[data-status="integrity_error"]')->text());
         $editor->request('GET', self::ORIGIN.'/approval/'.$id.'/evidence');
         self::assertSame(409, $editor->getResponse()->getStatusCode());
-        self::assertSame('receipt_missing', json_decode((string) $editor->getResponse()->getContent(), true)['reason']);
+        $error = json_decode((string) $editor->getResponse()->getContent(), true);
+        self::assertSame('record_integrity_error', $error['reason']);
+        self::assertSame('integrity_error', $error['status']);
         self::assertSame(0, (int) $this->database->pdo->query('SELECT COUNT(*) FROM verified_human_approval_receipts')->fetchColumn());
     }
 
@@ -251,8 +256,19 @@ final class SymfonyApprovalTest extends TestCase
 
     public function testAReadOnlyPersonsMcpCredentialCannotRequestPublication(): void
     {
+        // The reader's connection was never given the publishing scope, so the call is refused before any tool runs.
         $client = $this->mcp('reader');
-        self::assertFalse($client->callTool('read_alert', ['alert_id' => 'riverside-evacuation'])->isError);
+        try {
+            $client->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
+            self::fail('A read-only connection must be challenged for the scopes publishing needs.');
+        } catch (RequestException $error) {
+            self::assertSame('The access token lacks a required scope. This operation needs the scope "alert.publish approval.read".', $error->getMessage(), 'The SDK\'s client reports which scopes the call needs.');
+        }
+        self::assertFalse($client->callTool('read_alert', ['alert_id' => 'riverside-evacuation'])->isError, 'The refusal ends that call, not the connection.');
+
+        // With every scope, the person's own permission still decides: more scope would not help, so that is a tool result.
+        $this->database->pdo->prepare("UPDATE demo_grants SET scopes = ? WHERE id = 'reader-personal'")
+            ->execute([json_encode(['alert.read', 'alert.publish', 'approval.read'], \JSON_THROW_ON_ERROR)]);
         $response = $client->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
         self::assertTrue($response->isError);
         self::assertSame('permission_denied', $response->structuredContent['reason']);
@@ -451,6 +467,26 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame(404, $untrusting->getResponse()->getStatusCode());
     }
 
+    public function testACorruptStoredProposalRemovesTheBadgeWithoutBreakingThePublicContentPage(): void
+    {
+        $id = $this->requestAction();
+        $browser = $this->browser('editor');
+        self::assertSame('completed', $this->approveWith($browser, $id, $this->enroll($browser))['status']);
+        $public = new KernelBrowser(new DemoKernel($this->runtime, 'test'), ['HTTP_HOST' => 'localhost:8080']);
+        $this->browsers[] = $public;
+        $proposal = (string) $this->database->pdo->query("SELECT proposal FROM verified_human_approval_requests WHERE id = '".$id."'")->fetchColumn();
+
+        foreach ([$proposal.' ', '{'] as $corrupt) {
+            $this->database->pdo->prepare('UPDATE verified_human_approval_requests SET proposal = ? WHERE id = ?')->execute([$corrupt, $id]);
+            $page = $public->request('GET', self::ORIGIN.'/alerts');
+            self::assertSame(200, $public->getResponse()->getStatusCode(), 'An unverifiable record must not take the content page down.');
+            self::assertSame('Evacuation order: Riverside Road area', $page->filter('.rc-title')->text());
+            self::assertCount(0, $page->filter('.vha-badge'), 'A corrupt proposal is never presented as verified.');
+            $public->request('GET', self::ORIGIN.'/approval/'.$id.'/verified');
+            self::assertSame(404, $public->getResponse()->getStatusCode(), 'An invalid proposal is indistinguishable from an unknown public verification record.');
+        }
+    }
+
     public function testAnAlertARuleLetRunHasNoPasskeyBadge(): void
     {
         $issued = $this->mcp('manager')->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
@@ -486,13 +522,18 @@ final class SymfonyApprovalTest extends TestCase
         $id = $request->structuredContent['requestId'];
         $this->database->pdo->prepare("UPDATE demo_grants SET scopes = ? WHERE id = 'editor-personal'")
             ->execute([json_encode(['alert.read', 'alert.publish'], \JSON_THROW_ON_ERROR)]);
-        $status = $client->callTool('approval_status', ['request_id' => $id]);
-        self::assertTrue($status->isError);
-        self::assertNull($status->structuredContent);
-        $retry = $client->callTool('publish_alert', ['alert_id' => 'riverside-evacuation', 'request_key' => 'scope-test']);
-        self::assertTrue($retry->isError);
-        self::assertSame('result_read_denied', $retry->structuredContent['reason']);
-        self::assertArrayNotHasKey('result', $retry->structuredContent);
+        $calls = [
+            'approval_status' => [['request_id' => $id], 'approval.read'],
+            'publish_alert' => [['alert_id' => 'riverside-evacuation', 'request_key' => 'scope-test'], 'alert.publish approval.read'],
+        ];
+        foreach ($calls as $tool => [$arguments, $needed]) {
+            try {
+                $client->callTool($tool, $arguments);
+                self::fail('Removing the read scope must stop the connection reading the result, a retry included: '.$tool);
+            } catch (RequestException $error) {
+                self::assertSame('The access token lacks a required scope. This operation needs the scope "'.$needed.'".', $error->getMessage());
+            }
+        }
         self::assertSame(0, $this->mutationCount());
     }
 
@@ -631,6 +672,9 @@ final class SymfonyApprovalTest extends TestCase
         $staff = $this->mcp('editor')->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
         self::assertSame('pending', $staff->structuredContent['status'], 'County staff must verify each exact alert.');
         self::assertSame(0, $this->mutationCount());
+        // Even a connection with every scope cannot override the account's permission or the rule for its role.
+        $this->database->pdo->prepare("UPDATE demo_grants SET scopes = ? WHERE id = 'reader-personal'")
+            ->execute([json_encode(['alert.read', 'alert.publish', 'approval.read'], \JSON_THROW_ON_ERROR)]);
         $reader = $this->mcp('reader')->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
         self::assertTrue($reader->isError, 'A read-only colleague cannot issue alerts.');
         self::assertSame(0, $this->mutationCount());

@@ -10,6 +10,7 @@ use Doctrine\Persistence\ManagerRegistry;
 use VerifiedHumanApproval\Core\ActionAdapter;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\ExecutingApproval;
 use VerifiedHumanApproval\Core\ExecutionGuard;
 use VerifiedHumanApproval\Core\PreparedAction;
 use VerifiedHumanApproval\Doctrine\DbalTransaction;
@@ -68,6 +69,12 @@ abstract class EntityAction implements ActionAdapter
         $manager->flush();
 
         return $result;
+    }
+
+    /** The executing approval, for linking the written revision to its evidence in the same transaction. */
+    final protected function currentApproval(): ExecutingApproval
+    {
+        return $this->guard->current() ?? throw new \LogicException('Only an action executing under an approval has a current approval.');
     }
 
     /** Persists a new entity the approved change creates, permitted as one of its targets. */

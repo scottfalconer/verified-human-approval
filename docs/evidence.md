@@ -9,7 +9,9 @@ An action approved with a passkey and signed at commit has two signatures with d
 
 With a receipt signer configured, the application signs inside the transaction that commits the action. Changing a signed field afterwards makes verification fail. For example, someone cannot change a recorded result from `yes` to `no` and keep a valid receipt.
 
-This checks the original approval and execution record. A later, legitimate edit to the live resource does not change that historical record. Verification does not compare the receipt with today's content, prove who wrote the content, or independently observe the database effect.
+The application runs this check itself, every time `ApprovalService` reads a stored request: before it reports an outcome, returns one again for a request key, offers the request for approval or changes it. The status and the result are stored beside the execution record, so they must agree with it. With a receipt signer configured, a completed request must also still carry the receipt signed as it committed, and that receipt must verify against the application's [trusted keys](#rotate-the-signing-key). A request that fails is answered with `record_integrity_error`, never with its stored outcome: changing a status to `cancelled` cannot hide that the action ran, and an edited result is not reported as what happened. The bundle's review page says that the outcome cannot be confirmed, and its MCP tools answer `integrity_error`. The demo's audit page keeps such a request in its list, marked. Nothing repairs or re-signs it.
+
+Verification checks the original approval and execution record. A later, legitimate edit to the live resource does not change that historical record. Verification does not compare the receipt with today's content, prove who wrote the content, or independently observe the database effect.
 
 The Symfony bundle hands this record to the person as their receipt, from the completed review page, and publishes the application's public keys at `/approval/receipt-keys.json`: every key it has signed with, and when each one signed. The agent's result carries the same signed receipt. A person who keeps their copy can check it later without trusting the application's stored records, including after the application [changes its signing key](#rotate-the-signing-key).
 
@@ -104,9 +106,9 @@ php src/webauthn/bin/verify-evidence.php \
   var/evidence-check/receipt-keys.json
 ```
 
-Expected result: `Verification failed: ...` and exit code `1`. The original file still verifies. Changes to the proposal, assertion, nonce or execution result also invalidate the evidence. Changing a field directly in the stored execution record has the same effect when that record is next exported and verified.
+Expected result: `Verification failed: ...` and exit code `1`. The original file still verifies. Changes to the proposal, assertion, nonce or execution result also invalidate the evidence. Changing a field directly in the stored execution record has the same effect: the site answers `record_integrity_error` the next time it reads that request, and the record no longer verifies against its receipt.
 
-Deleting the original receipt does not reset this protection. The default exporter refuses a completed record with a missing receipt (`receipt_missing`); it does not create a fresh signature over possibly altered data. A receipt the person already downloaded stays valid on its own.
+Deleting the original receipt does not reset this protection. The site answers `record_integrity_error` for a completed request whose receipt is gone, and the exporter, called directly, refuses it (`receipt_missing`). Neither creates a fresh signature over possibly altered data. A receipt the person already downloaded stays valid on its own.
 
 ### 5. Optional: check the passkey signature too
 
@@ -175,6 +177,8 @@ Now the output reports `"credentialApprovedExactProposal": true`, and its qualif
 
 Configure the bundle's `receipt_signer` so that receipts are signed at commit. See the [Symfony integration guide](../src/symfony-bundle/docs/index.md#stored-receipts-and-later-verification), which also covers the person's receipt download and the published keys. Preserve the original receipt with its proposal, proof and execution record, and keep the signing key outside the database. Exporting or verifying evidence does not execute the action again.
 
+Configure the signer before the first action runs. Once `ApprovalService` has a signer, it reads a completed request only while its commit receipt verifies, so a request that completed earlier, without a receipt, is answered with `record_integrity_error` from then on. This is deliberate: if a missing receipt were accepted, deleting one would switch the check off. The stored rows are not changed, and a page that reads the store directly, as the demo's audit page does, can still list them.
+
 The trust files use these fields:
 
 | File | Required fields | Trusted source |
@@ -199,7 +203,7 @@ The evidence proves approval by the enrolled credential and preserves the applic
 
 ### Optional signing at export
 
-Serving original receipts needs no signing key: construct the exporter without a signer (`new EvidenceExporter()`), and it returns each receipt exactly as it was signed at commit. An application that has **never** signed receipts at commit can explicitly use `new EvidenceExporter($signer, signAtExport: true)`. Its receipt says `export`, and the CLI reports `applicationReportSignedAt: "export"`. That only protects the record from the time it was exported; it cannot detect edits made earlier. Do not enable this option to replace a missing commit receipt.
+Serving original receipts needs no signing key: construct the exporter without a signer (`new EvidenceExporter()`), and it returns each receipt exactly as it was signed at commit. An application that has **never** signed receipts at commit can explicitly use `new EvidenceExporter($signer, signAtExport: true)`. Its receipt says `export`, and the CLI reports `applicationReportSignedAt: "export"`. That only protects the record from the time it was exported; it cannot detect edits made earlier. Do not enable this option to replace a missing commit receipt. Such an application gives `ApprovalService` no signer, so the service's own reads check only that the stored status and result agree with the execution record.
 
 ## Rotate the signing key
 
@@ -242,6 +246,8 @@ One Ed25519 key signs new receipts and new audit log entries. Rotating it replac
 
    A key's window must cover everything it legitimately signs: the new key's `valid_from` no later than its first signature, the old key's `valid_until` no earlier than its last. On one host, both are the moment of the switch. When hosts switch one at a time, let the windows overlap for the length of the rollout, and keep that overlap short: until its window closes, a stolen copy of the old key can sign records that verify. The retired list holds public keys only, so it can live in your repository; an environment variable read with `%env(json:...)%` also works. Your `AuditLog` must check entries against the same keys, through the bundle's `VerifiedHumanApproval\Core\Evidence\TrustedKeys` service, as the first-action guide wires it.
 
+   The approval service reads stored receipts against these keys too. Leave the old key out of `retired`, or set a window that does not cover what it signed, and every request that key completed is answered with `record_integrity_error` until the list is corrected. Nothing is lost: the stored receipts are untouched and verify again once their key is listed.
+
 3. **Deploy to every host.** `/approval/receipt-keys.json` now lists both keys.
 
 4. **Record the rotation** in the signed audit log once every host signs with the new key:
@@ -262,7 +268,7 @@ The commands use the application's `AuditLog` service: the bundle's `audit_log` 
 
 ### Without the bundle
 
-Build an `Evidence\TrustedKeys` from `Evidence\TrustedKey` values (key id, public key, and the window, as `DateTimeImmutable` or `null`). Pass it to `Audit\AuditLog` and to `Evidence\ReceiptVerifier::verify()`, call `AuditLog::recordRotation($oldKeyId, $reason)` once the new signer is in place, and publish `TrustedKeys::toArray()` as the `keys` of a key-set file. The [integration contracts](integration-contract.md) list the methods.
+Build an `Evidence\TrustedKeys` from `Evidence\TrustedKey` values (key id, public key, and the window, as `DateTimeImmutable` or `null`). Pass it to `ApprovalService` as `$trustedKeys`, to `Audit\AuditLog` and to `Evidence\ReceiptVerifier::verify()`. Without it, the service trusts only its signer's current key and answers `record_integrity_error` for every request an earlier key completed. Then call `AuditLog::recordRotation($oldKeyId, $reason)` once the new signer is in place, and publish `TrustedKeys::toArray()` as the `keys` of a key-set file. The [integration contracts](integration-contract.md) list the methods.
 
 ## Keep checkpoints of the audit log
 
@@ -313,10 +319,18 @@ composer test -- --filter 'testReceiptsSignedAtCommitExposeEditsMadeAfterwards|t
 
 These tests in [ApprovalEvidenceTest](../tests/Evidence/ApprovalEvidenceTest.php) cover a database edit after commit, deletion of the receipt, and an attempt to relabel an export-time signature as a commit-time signature. The evidence suite also checks modified proposals, substituted credentials and the separation between the application's signature and the user's signature.
 
+The check the service runs on every read:
+
+```sh
+composer test -- --filter 'StoredApprovalIntegrityTest|StoredApprovalAuditTest'
+```
+
+[StoredApprovalIntegrityTest](../tests/Evidence/StoredApprovalIntegrityTest.php) edits a stored status and a stored result, and checks that the service will not report, export or retry that request and that the action still ran once. It also checks that a deleted or replaced receipt is refused even when the edited parts agree with each other, and that an application without a signer still reads its own completions. [StoredApprovalAuditTest](../tests/Bundle/StoredApprovalAuditTest.php) checks that the demo's audit page keeps such a request in its list, marked as untrusted.
+
 Key rotation:
 
 ```sh
 composer test -- --filter 'KeyRotationTest|TrustedKeysTest|ReceiptKeysConfigurationTest'
 ```
 
-[ReceiptKeyRotationTest](../tests/Evidence/ReceiptKeyRotationTest.php) checks receipts signed before a rotation, receipts dated outside their key's window and unknown key ids, in code and with the command and both key files. [AuditKeyRotationTest](../tests/Core/AuditKeyRotationTest.php) checks a chain across a rotation, a retired key's backdated entry after it, and the rotation's own rules; [AnchoredKeyRotationTest](../tests/WebAuthn/AnchoredKeyRotationTest.php) does the same for passkey enrollment. [KeyRotationTest](../tests/Bundle/KeyRotationTest.php) runs the demo through `demo:rotate-receipt-key`, the published key set, the audit page and the checkpoint command.
+[ReceiptKeyRotationTest](../tests/Evidence/ReceiptKeyRotationTest.php) checks receipts signed before a rotation, receipts dated outside their key's window and unknown key ids, in code and with the command and both key files. It also checks that the approval service reads an outcome an earlier key signed only once it is given its trusted keys, and holds a stored receipt to its key's window. [AuditKeyRotationTest](../tests/Core/AuditKeyRotationTest.php) checks a chain across a rotation, a retired key's backdated entry after it, and the rotation's own rules; [AnchoredKeyRotationTest](../tests/WebAuthn/AnchoredKeyRotationTest.php) does the same for passkey enrollment. [KeyRotationTest](../tests/Bundle/KeyRotationTest.php) runs the demo through `demo:rotate-receipt-key`, the published key set, the audit page and the checkpoint command.

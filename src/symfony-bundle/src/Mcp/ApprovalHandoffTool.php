@@ -16,6 +16,7 @@ use VerifiedHumanApproval\Bundle\Handoff\ApprovalHandoff;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalService;
 use VerifiedHumanApproval\Mcp\ApprovalCard;
+use VerifiedHumanApproval\Mcp\ApprovalFlow;
 
 /**
  * "Approve on your phone": a one-time QR code that opens one pending approval on the person's phone.
@@ -36,8 +37,16 @@ final readonly class ApprovalHandoffTool
             'expiresAt' => ['type' => 'integer', 'description' => 'Unix time after which the code no longer works.'],
             'expiresIn' => ['type' => 'integer', 'description' => 'Seconds until then.'],
             'modules' => ['type' => 'array', 'items' => ['type' => 'string', 'pattern' => '^[01]+$'], 'description' => 'The QR code: one row of 0 and 1 per entry, quiet zone included. The card draws it itself.'],
+            'status' => ['type' => 'string', 'enum' => ['integrity_error'], 'description' => 'Sent in an error result, instead of a code, when the stored record fails its integrity check. It does not establish whether the action ran.'],
+            'reason' => ['type' => 'string'],
+            'message' => ['type' => 'string'],
         ],
-        'required' => ['requestId', 'url', 'expiresAt', 'expiresIn', 'modules'],
+        'required' => ['requestId'],
+        // A code, or the reason there is none: a client that checks error results against this schema accepts both.
+        'anyOf' => [
+            ['required' => ['url', 'expiresAt', 'expiresIn', 'modules']],
+            ['required' => ['status', 'reason', 'message']],
+        ],
         'additionalProperties' => false,
     ];
 
@@ -81,6 +90,11 @@ final readonly class ApprovalHandoffTool
 
             return new CallToolResult([new TextContent('Scan this code with your phone to approve there. It works once and expires in two minutes.')], structuredContent: $data);
         } catch (ApprovalException $error) {
+            // A damaged record gets no code, and the card is told why in a form it can read.
+            if ('record_integrity_error' === $error->reason) {
+                return ApprovalFlow::errorResult($error, $request_id);
+            }
+
             return CallToolResult::error([new TextContent($error->getMessage())]);
         } catch (AccessDeniedException) {
             return CallToolResult::error([new TextContent('This connection is not allowed to read this approval.')]);

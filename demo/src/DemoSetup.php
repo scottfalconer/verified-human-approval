@@ -19,8 +19,8 @@ use VerifiedHumanApproval\WebAuthn\PdoCredentialRepository;
 
 final class DemoSetup
 {
-    /** The runtime layout this code expects; an older runtime has to be reset. */
-    public const SCHEMA = 4;
+    /** The runtime layout this code expects; older deployments need an explicit migration or separate runtime. */
+    public const SCHEMA = 6;
     private const LINK_SECONDS = 7 * 86400;
 
     /** Returns credentials once. No plaintext account password or token is stored. */
@@ -85,11 +85,19 @@ final class DemoSetup
         foreach (['manager' => 'direct', 'staff' => 'approval', 'reader' => 'denied'] as $role => $mode) {
             $database->pdo->prepare('INSERT INTO demo_role_policies (action_id, role, mode) VALUES (?, ?, ?)')->execute(['alert.publish', $role, $mode]);
         }
+        // The OAuth server (league/oauth2-server) signs access tokens with this RSA key, and encrypts its codes.
+        $oauthKey = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => \OPENSSL_KEYTYPE_RSA]);
+        if (false === $oauthKey || !openssl_pkey_export($oauthKey, $oauthPrivateKey) || !\is_array($oauthDetails = openssl_pkey_get_details($oauthKey))) {
+            throw new \RuntimeException('Could not make the OAuth signing key.');
+        }
         $settings = [
             'schema' => self::SCHEMA, 'origin' => $origin, 'rp_id' => $rpId, 'app_secret' => ChallengeBinding::encode(random_bytes(48)),
             'receipt_key_id' => 'demo-application-1',
             'receipt_secret_key' => ChallengeBinding::encode(sodium_crypto_sign_secretkey($keypair)),
             'receipt_public_key' => ChallengeBinding::encode(sodium_crypto_sign_publickey($keypair)),
+            'oauth_private_key' => $oauthPrivateKey,
+            'oauth_public_key' => $oauthDetails['key'],
+            'oauth_encryption_key' => ChallengeBinding::encode(random_bytes(32)),
             // When that key began signing, and the public keys it replaced, each with the window it signed in.
             'receipt_key_valid_from' => $validFrom,
             'retired_receipt_keys' => [],

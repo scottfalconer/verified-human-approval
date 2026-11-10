@@ -14,7 +14,7 @@ use VerifiedHumanApproval\Core\CanonicalJson;
 use VerifiedHumanApproval\Demo\DemoDatabase;
 use VerifiedHumanApproval\Demo\DemoKernel;
 use VerifiedHumanApproval\Demo\DemoSetup;
-use VerifiedHumanApproval\Tests\Support\VirtualAuthenticator;
+use VerifiedHumanApproval\Testing\VirtualAuthenticator;
 
 /**
  * The root of trust and the administrator's view: who may add a passkey, what revoking does, and how

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace VerifiedHumanApproval\Tests\Support;
+namespace VerifiedHumanApproval\Testing;
 
 use CBOR\ByteStringObject;
 use CBOR\MapObject;
@@ -12,8 +12,13 @@ use CBOR\UnsignedIntegerObject;
 use ParagonIE\ConstantTime\Base64UrlSafe;
 
 /**
- * TEST ONLY: synthetic ES256 authenticator. Real signatures exercise the production
- * WebAuthn parser and validator; these tests do not prove physical biometric interaction.
+ * A software passkey for tests: a synthetic ES256 authenticator, with a new key each time one is constructed.
+ *
+ * Its signatures are real, so a test goes through the production WebAuthn parser and validator. It proves nothing
+ * about a person, a device or a biometric: keep it in development dependencies, and never register one where real
+ * accounts live.
+ *
+ * Construct it with the origin your application verifies against (the bundle's public_origin).
  */
 final class VirtualAuthenticator
 {
@@ -38,7 +43,15 @@ final class VirtualAuthenticator
         return Base64UrlSafe::encodeUnpadded($this->rawId);
     }
 
-    /** @param array<string, mixed> $changes Signed test variations, never application overrides. */
+    /**
+     * Answers a registration ceremony as navigator.credentials.create() would, in the JSON form a page posts.
+     *
+     * @param array<string, mixed> $options the ceremony's publicKey options
+     * @param array<string, mixed> $changes Signed test variations, never application overrides: flags, rpId, counter,
+     *                                      type, challenge, origin, crossOrigin, topOrigin
+     *
+     * @return array<string, mixed>
+     */
     public function registration(array $options, array $changes = []): array
     {
         $this->rpId = $options['rp']['id'];
@@ -66,7 +79,15 @@ final class VirtualAuthenticator
         ];
     }
 
-    /** @param array<string, mixed> $changes Signed test variations, never application overrides. */
+    /**
+     * Answers an approval ceremony as navigator.credentials.get() would, in the JSON form a page posts.
+     *
+     * @param array<string, mixed> $options the ceremony's publicKey options
+     * @param array<string, mixed> $changes Signed test variations, never application overrides: flags, rpId, counter,
+     *                                      type, challenge, origin, crossOrigin, topOrigin, userHandle
+     *
+     * @return array<string, mixed>
+     */
     public function assertion(array $options, array $changes = []): array
     {
         $clientData = $this->clientData('webauthn.get', $options, $changes);
@@ -93,6 +114,10 @@ final class VirtualAuthenticator
         ];
     }
 
+    /**
+     * @param array<string, mixed> $options
+     * @param array<string, mixed> $changes
+     */
     private function clientData(string $type, array $options, array $changes): string
     {
         $data = [

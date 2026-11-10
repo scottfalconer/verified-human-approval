@@ -33,20 +33,31 @@ CREATE TABLE IF NOT EXISTS demo_users (
     enabled INTEGER NOT NULL DEFAULT 1, can_publish INTEGER NOT NULL DEFAULT 0, is_admin INTEGER NOT NULL DEFAULT 0,
     role TEXT NOT NULL DEFAULT 'reader'
 );
+-- An agent connection: a personal token (token_hash), or an OAuth client a person allowed (client_id).
+-- Its id is the delegation an approval request records, and revoking it stops that agent at once.
 CREATE TABLE IF NOT EXISTS demo_grants (
-    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, tenant_id TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE,
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, tenant_id TEXT NOT NULL, token_hash TEXT UNIQUE,
     active INTEGER NOT NULL DEFAULT 1, scopes TEXT NOT NULL,
-    expires_at INTEGER, client_id TEXT, refresh_hash TEXT UNIQUE,
+    expires_at INTEGER, client_id TEXT,
     client_name TEXT, created_at INTEGER
 );
--- OAuth for remote MCP clients: registered public clients and single-use PKCE authorization codes.
-CREATE TABLE IF NOT EXISTS demo_oauth_clients (
-    client_id TEXT PRIMARY KEY, client_name TEXT NOT NULL, redirect_uris TEXT NOT NULL, created_at INTEGER NOT NULL
+-- The OAuth server's own records, kept by league/oauth2-server-bundle through demo/src/OAuth/Storage on this connection.
+CREATE TABLE IF NOT EXISTS oauth2_clients (
+    identifier TEXT PRIMARY KEY, name TEXT NOT NULL, secret TEXT, redirect_uris TEXT NOT NULL, grants TEXT NOT NULL,
+    scopes TEXT NOT NULL, active INTEGER NOT NULL, allow_plain_text_pkce INTEGER NOT NULL
 );
-CREATE TABLE IF NOT EXISTS demo_oauth_codes (
-    code_hash TEXT PRIMARY KEY, client_id TEXT NOT NULL, redirect_uri TEXT NOT NULL, user_id TEXT NOT NULL, tenant_id TEXT NOT NULL,
-    scopes TEXT NOT NULL, code_challenge TEXT NOT NULL, expires_at INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0,
-    client_name TEXT
+CREATE TABLE IF NOT EXISTS oauth2_authorization_codes (
+    identifier TEXT PRIMARY KEY, expiry INTEGER NOT NULL, user_identifier TEXT, client TEXT NOT NULL, scopes TEXT NOT NULL, revoked INTEGER NOT NULL,
+    grant_id TEXT NOT NULL REFERENCES demo_grants(id)
+);
+CREATE TABLE IF NOT EXISTS oauth2_access_tokens (
+    identifier TEXT PRIMARY KEY, expiry INTEGER NOT NULL, user_identifier TEXT, client TEXT NOT NULL, scopes TEXT NOT NULL, revoked INTEGER NOT NULL,
+    grant_id TEXT NOT NULL REFERENCES demo_grants(id)
+);
+CREATE INDEX IF NOT EXISTS oauth2_access_tokens_holder ON oauth2_access_tokens (client, user_identifier);
+CREATE TABLE IF NOT EXISTS oauth2_refresh_tokens (
+    identifier TEXT PRIMARY KEY, expiry INTEGER NOT NULL, access_token TEXT, revoked INTEGER NOT NULL,
+    grant_id TEXT NOT NULL REFERENCES demo_grants(id)
 );
 CREATE TABLE IF NOT EXISTS demo_alerts (
     id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, revision INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,
@@ -147,7 +158,7 @@ SQL);
     /** Ends an agent connection: its access and refresh tokens stop working at once. */
     public function revokeGrant(string $id, string $tenantId, ?string $userId = null): bool
     {
-        $query = $this->pdo->prepare('UPDATE demo_grants SET active = 0, refresh_hash = NULL WHERE id = ? AND tenant_id = ? AND active = 1'.(null === $userId ? '' : ' AND user_id = ?'));
+        $query = $this->pdo->prepare('UPDATE demo_grants SET active = 0 WHERE id = ? AND tenant_id = ? AND active = 1'.(null === $userId ? '' : ' AND user_id = ?'));
         $query->execute(null === $userId ? [$id, $tenantId] : [$id, $tenantId, $userId]);
 
         return 1 === $query->rowCount();

@@ -71,4 +71,4 @@ The verifier combines that check with the application's signed execution report 
 
 ## Verification
 
-The tests use synthetic ES256 authenticators with real OpenSSL signatures and CBOR registration data. They exercise the actual upstream parser and validator, including rejection cases and transaction rollback. They do not simulate a human fingerprint or establish physical-device compatibility. Test helpers live exclusively under the root `tests/` development autoload namespace.
+The tests use synthetic ES256 authenticators with real OpenSSL signatures and CBOR registration data. They exercise the actual upstream parser and validator, including rejection cases and transaction rollback. They do not simulate a human fingerprint or establish physical-device compatibility. Install the development-only [`verified-human-approval/testing`](../testing/README.md) package for the software authenticator and application test helpers. The [Symfony testing guide](../symfony-bundle/docs/testing.md) shows how to test your own enrollment, approval and MCP integration; the production verifier has no dependency on these helpers.

@@ -53,7 +53,11 @@ final readonly class ApprovalController
     {
         try {
             $state = $this->approvals->get($this->reviewer($request, $id), $id);
-        } catch (ApprovalException) {
+        } catch (ApprovalException $error) {
+            // The person's own record, damaged: "not found" would read as "nothing happened".
+            if ('record_integrity_error' === $error->reason) {
+                return new Response($this->twig->render('@VerifiedHumanApproval/integrity_error.html.twig', ['id' => $id]), 409);
+            }
             throw new NotFoundHttpException('This request is unavailable for your account.');
         }
 
@@ -94,13 +98,16 @@ final readonly class ApprovalController
         }
         try {
             $state = $this->approvals->get($this->actors->interactive(), $id);
-        } catch (ApprovalException) {
+        } catch (ApprovalException $error) {
+            if ('record_integrity_error' === $error->reason) {
+                return self::refusal($error->reason, $error->getMessage(), 409);
+            }
             throw new NotFoundHttpException('This request is unavailable for your account.');
         }
         try {
             $receipt = $this->receipts->export($state);
         } catch (ApprovalException $error) {
-            // Not run yet, or its receipt is gone: nothing is signed now to stand in for one.
+            // Not run yet: nothing is signed now to stand in for a receipt.
             return self::refusal($error->reason, $error->getMessage(), 409);
         }
         // A file for a person to keep and open, so readable JSON. Layout does not matter: checking recomputes the canonical form.
@@ -294,9 +301,14 @@ final readonly class ApprovalController
         try {
             return new JsonResponse($operation());
         } catch (ApprovalException $error) {
-            $refusal = ['status' => 'rejected', 'reason' => $error->reason, 'message' => $error->getMessage()];
-            if (null !== $reviewer && null !== $id && null !== ($current = $this->currentStatus($reviewer, $id))) {
-                $refusal['request_status'] = $current;
+            $refusal = self::refused($error->reason, $error->getMessage());
+            if (null !== $reviewer && null !== $id) {
+                // A record that fails its integrity check has no status to report. Naming that as the request's
+                // state makes the page reload, and the reloaded page says the outcome cannot be confirmed.
+                $current = 'record_integrity_error' === $error->reason ? 'integrity_error' : $this->currentStatus($reviewer, $id);
+                if (null !== $current) {
+                    $refusal['request_status'] = $current;
+                }
             }
 
             return new JsonResponse($refusal, 409);
@@ -314,7 +326,19 @@ final readonly class ApprovalController
 
     private static function refusal(string $reason, string $message, int $status): JsonResponse
     {
-        return new JsonResponse(['status' => 'rejected', 'reason' => $reason, 'message' => $message], $status);
+        return new JsonResponse(self::refused($reason, $message), $status);
+    }
+
+    /**
+     * What a JSON route answers when the application would not do something. A stored record that fails its
+     * integrity check is not a refusal: corrupt state is not evidence that nothing happened, so it is reported
+     * as `integrity_error` and never as `rejected`.
+     *
+     * @return array{status: string, reason: string, message: string}
+     */
+    private static function refused(string $reason, string $message): array
+    {
+        return ['status' => 'record_integrity_error' === $reason ? 'integrity_error' : 'rejected', 'reason' => $reason, 'message' => $message];
     }
 
     private function limit(Actor $actor): ?JsonResponse

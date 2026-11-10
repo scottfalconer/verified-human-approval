@@ -33,14 +33,19 @@ use VerifiedHumanApproval\Example\Publishing\Entity\Article;
 use VerifiedHumanApproval\Example\Publishing\PublishingKernel;
 use VerifiedHumanApproval\Example\Publishing\Security\ApprovalActors;
 use VerifiedHumanApproval\Example\Publishing\Setup\Installer;
+use VerifiedHumanApproval\Testing\KernelHttpClient;
+use VerifiedHumanApproval\Testing\PasskeyPanel;
+use VerifiedHumanApproval\Testing\VirtualAuthenticator;
 use VerifiedHumanApproval\Tests\Support\TestDatabase;
-use VerifiedHumanApproval\Tests\Support\VirtualAuthenticator;
 
 /**
  * The publishing example end to end, on one database: its own kernel, firewalls, forms, MCP tools and the real WebAuthn
  * verification (with a synthetic authenticator). Each of the four changes to what visitors see is asked for from the
  * editor's browser and from their agent, approved with the editor's passkey, and checked against what the database
  * holds afterwards, row for row.
+ *
+ * The passkey, the approval page's requests and the agent's connection come from the testing package (src/testing),
+ * as they would in the tests of an application that copies this example.
  */
 abstract class PublishingTestCase extends TestCase
 {
@@ -538,23 +543,24 @@ abstract class PublishingTestCase extends TestCase
     private function approve(string $id, ?\Closure $between = null): array
     {
         $browser = $this->editor();
-        $crawler = $browser->request('GET', self::ORIGIN.'/approval/'.$id);
+        $browser->request('GET', self::ORIGIN.'/approval/'.$id);
         self::assertSame(200, $browser->getResponse()->getStatusCode());
-        $panel = $crawler->filter('[data-passkey-panel]');
-        if (0 === $panel->count()) {
+        // The review page shows the panel only while the request waits for the person.
+        $panel = PasskeyPanel::find($browser);
+        if (null === $panel) {
             return ['status' => 'rejected', 'reason' => 'not_pending'];
         }
-        $csrf = (string) $panel->attr('data-csrf');
-        $ceremony = $this->post($browser, '/approval/'.$id.'/options', $csrf, []);
-        if (200 !== $browser->getResponse()->getStatusCode()) {
-            return $ceremony;
+        $ceremony = $panel->begin();
+        if ($ceremony->refused()) {
+            return $ceremony->data;
         }
         if (null !== $between) {
+            // The same browser may go elsewhere meanwhile, as another tab of the person's would: the panel keeps
+            // what its page held.
             $between();
         }
-        $browser = $this->editor();
 
-        return $this->post($browser, '/approval/'.$id.'/complete', $csrf, ['ceremony_id' => $ceremony['ceremony_id'], 'credential' => $this->passkey->assertion($ceremony['publicKey'])]);
+        return $panel->complete($ceremony->data['ceremony_id'], $this->passkey->assertion($ceremony->data['publicKey']))->data;
     }
 
     private function review(string $id): Crawler
@@ -624,23 +630,11 @@ abstract class PublishingTestCase extends TestCase
     {
         $browser->request('GET', $this->accounts[$user]['passkey_link']);
         self::assertSame(302, $browser->getResponse()->getStatusCode(), 'The one-time link lets the signed-in person add a passkey.');
-        $csrf = (string) $browser->request('GET', self::ORIGIN.'/account/passkey')->filter('[data-passkey-panel]')->attr('data-csrf');
-        $options = $this->post($browser, '/account/passkey/options', $csrf, []);
-        self::assertSame(200, $browser->getResponse()->getStatusCode(), json_encode($options, \JSON_THROW_ON_ERROR));
         $authenticator = new VirtualAuthenticator(self::ORIGIN);
-        $registered = $this->post($browser, '/account/passkey/complete', $csrf, ['ceremony_id' => $options['ceremony_id'], 'credential' => $authenticator->registration($options['publicKey'])]);
-        self::assertSame('registered', $registered['status'] ?? null, json_encode($registered, \JSON_THROW_ON_ERROR));
+        $registered = PasskeyPanel::open($browser, self::ORIGIN.'/account/passkey')->register($authenticator);
+        self::assertSame('registered', $registered->status, (string) $registered);
 
         return $authenticator;
-    }
-
-    /** @return array<string, mixed> */
-    private function post(KernelBrowser $browser, string $path, string $csrf, array $body): array
-    {
-        $browser->request('POST', self::ORIGIN.$path, server: ['CONTENT_TYPE' => 'application/json', 'HTTP_X_CSRF_TOKEN' => $csrf, 'HTTP_ACCEPT' => 'application/json'], content: json_encode((object) $body, \JSON_THROW_ON_ERROR));
-        $value = json_decode((string) $browser->getResponse()->getContent(), true);
-
-        return \is_array($value) ? $value : [];
     }
 
     private function mcp(string $user = 'editor'): Client
@@ -650,7 +644,7 @@ abstract class PublishingTestCase extends TestCase
         $client->connect(new HttpTransport(
             endpoint: self::ORIGIN.'/mcp',
             headers: ['Authorization' => 'Bearer '.$this->accounts[$user]['agent_token']],
-            httpClient: new KernelHttpClient($this->kernel(...)), requestFactory: $factory, streamFactory: $factory,
+            httpClient: new KernelHttpClient($this->kernel(...), $factory, $factory), requestFactory: $factory, streamFactory: $factory,
         ));
         $this->clients[] = $client;
 

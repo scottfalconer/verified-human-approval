@@ -34,7 +34,7 @@ abstract class ArticleAction extends EntityAction
 
     public function __construct(
         ManagerRegistry $doctrine,
-        private readonly ExecutionGuard $guard,
+        ExecutionGuard $guard,
         DbalTransaction $transaction,
         ProtectedEntityListener $protection,
         #[Autowire('%kernel.environment%')]
@@ -89,7 +89,7 @@ abstract class ArticleAction extends EntityAction
     /** The approval this change runs under, which the article records so the public page can check it. */
     protected function approvalId(): string
     {
-        return $this->guard->current()->requestId ?? throw new \LogicException('Only an approval that is executing has a request id.');
+        return $this->currentApproval()->requestId;
     }
 
     /**

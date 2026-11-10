@@ -52,6 +52,8 @@ final readonly class DemoUser implements UserInterface, PasswordAuthenticatedUse
         return $this->passwordHash;
     }
 
+    /** Nothing to erase: only the password's hash is kept. Marked so, Symfony 7.3 and later skip it; Symfony 8 drops it. */
+    #[\Deprecated]
     public function eraseCredentials(): void
     {
     }

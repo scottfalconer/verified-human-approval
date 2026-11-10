@@ -11,9 +11,9 @@ use VerifiedHumanApproval\Core\ApprovalState;
  * rule let it run (see `$state->execution['approval']`). Use it for work that must wait for a durable change, such
  * as purging a cache or reindexing.
  *
- * Delivery is at least once: a request that recovers from an ambiguous commit reports what it reads, so a
- * listener can see the same request twice and must treat a repeat as harmless. A listener that throws is logged;
- * it cannot change the result.
+ * Delivery is synchronous and best effort: a process can stop after commit before dispatch, and recovery can
+ * report a completion again. Listeners must tolerate repeats. Use a host-owned transactional outbox for durable
+ * delivery. A listener that throws is logged; it cannot change the result.
  */
 final readonly class ApprovalCompleted
 {
