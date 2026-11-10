@@ -84,6 +84,12 @@ A first pass to let a non-Symfony host, such as a Drupal module, use core and We
 
 No Drupal kernel, MySQL or PostgreSQL adapter has been run; none is claimed. A Drupal adapter must own the root transaction (Drupal's `commitOrRelease()` releases a nested savepoint instead of committing) and pass the contract before it is relied on.
 
+## After the 9 November review
+
+A further review on 2026-11-09 reproduced gaps the acceptance suite had missed. Each fix has a regression test:
+
+- **A stored outcome must agree with its signed execution.** Someone with database access could change a completed request's status to `cancelled`, or edit its result, and the status tool, the review page and a retry with the same request key reported the edited value. Every read through `ApprovalService` now checks that the stored status and result agree with the execution record. With a receipt signer, a completed request must also carry the receipt signed as it committed, verified against the application's trusted keys, so a deleted or replaced receipt is caught as well. A failure is `record_integrity_error`; the review page, the JSON routes and the MCP tools answer `integrity_error`, never `rejected`, because a damaged record is not evidence that nothing happened. The demo's audit page keeps such a request in its list, marked. See [`StoredApprovalIntegrityTest.php`](../tests/Evidence/StoredApprovalIntegrityTest.php) and [`StoredApprovalAuditTest.php`](../tests/Bundle/StoredApprovalAuditTest.php). The cost is strictness about history: turn signing on before the first action runs, and list every retired key, as the [evidence guide](evidence.md#use-verification-in-your-application) explains.
+
 ## Still open
 
 There is no published Flex recipe. The bundle needs application-specific identity, policy, authorization, storage and verifier services before it can boot. The [integration guide](../src/symfony-bundle/docs/index.md) gives the current installation and configuration steps. Two recorded upstream suggestions are a public `RequestContext::getClientInfo()` in the SDK (the implementation reads the SDK's internal session key), and `annotations`/`outputSchema` parameters on `#[AsMcpAppTool]`, which would remove the plain-tool workaround above.

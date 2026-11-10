@@ -167,14 +167,18 @@ final class SymfonyApprovalTest extends TestCase
         $stranger->request('GET', self::ORIGIN.'/approval/'.$id.'/evidence');
         self::assertSame(302, $stranger->getResponse()->getStatusCode(), 'A stranger is sent to sign in.');
 
-        // A receipt deleted afterwards is not replaced: the page says there is none, and nothing is signed now.
+        // A receipt deleted afterwards is an integrity failure, never a new signature or a trusted outcome.
         $this->database->pdo->prepare('DELETE FROM verified_human_approval_receipts WHERE request_id = ?')->execute([$id]);
         $page = $editor->request('GET', self::ORIGIN.'/approval/'.$id);
+        self::assertSame(409, $editor->getResponse()->getStatusCode());
         self::assertCount(0, $page->filter('.receipt a.button'));
-        self::assertSame('This site has no receipt recorded for this request.', $page->filter('.approval-sheet .receipt')->text());
+        self::assertCount(0, $page->filter('[data-passkey-panel]'));
+        self::assertStringContainsString('We cannot confirm this approval’s outcome', $page->filter('[data-status="integrity_error"]')->text());
         $editor->request('GET', self::ORIGIN.'/approval/'.$id.'/evidence');
         self::assertSame(409, $editor->getResponse()->getStatusCode());
-        self::assertSame('receipt_missing', json_decode((string) $editor->getResponse()->getContent(), true)['reason']);
+        $error = json_decode((string) $editor->getResponse()->getContent(), true);
+        self::assertSame('record_integrity_error', $error['reason']);
+        self::assertSame('integrity_error', $error['status']);
         self::assertSame(0, (int) $this->database->pdo->query('SELECT COUNT(*) FROM verified_human_approval_receipts')->fetchColumn());
     }
 

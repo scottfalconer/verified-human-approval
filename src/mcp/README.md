@@ -46,3 +46,12 @@ When `handoffTool` is set and the review page is on HTTPS, the card also offers 
 The SDK signs request state but does not encrypt it, and its expiry bounds replay without making it single-use. So the state carries only a reference. A keyless retry also reuses the pending proposal in the core, so a handler that is entered again never creates a second review URL.
 
 A platform supplies a `ResultPresenter`: its review URL, its normal tool result, and its status tool's name.
+
+## Error results
+
+`ApprovalFlow::errorResult()` turns an `ApprovalException` into the error result a protected tool returns: `status`, `reason` and `message`, as text and as structured content that fits `ApprovalFlow::OUTPUT_SCHEMA`. Pass the request ID as the second argument when the tool knows it.
+
+| `status` | When |
+| --- | --- |
+| `rejected` | The application refused: the reason says why |
+| `integrity_error` | The stored request failed the core's check (`record_integrity_error`). The application cannot vouch for the outcome, and the action may have run, so the model must not report it as refused or as not having happened |

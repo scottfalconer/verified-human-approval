@@ -238,6 +238,9 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             null === $config['receipt_signer'] ? null : service($config['receipt_signer']),
             tagged_iterator('verified_human_approval.observer'),
             service('logger')->nullOnInvalid(),
+            // A stored outcome is read back only while its receipt verifies against these: the signer's key and,
+            // from receipt_keys.retired, every key it replaced.
+            null === $config['receipt_signer'] ? null : service('verified_human_approval.trusted_keys'),
         ]);
         $services->alias(ApprovalService::class, 'verified_human_approval.approval_service');
         // After commit, each executed action is also a Symfony event: ApprovalCompleted.

@@ -602,7 +602,6 @@ namespace App\Mcp;
 use App\Approval\CurrentAuthority;
 use Mcp\Capability\Attribute\McpTool;
 use Mcp\Capability\Attribute\Schema;
-use Mcp\Schema\Content\TextContent;
 use Mcp\Schema\Result\CallToolResult;
 use Mcp\Schema\Result\InputRequiredResult;
 use Mcp\Schema\ToolAnnotations;
@@ -658,22 +657,18 @@ final readonly class PublishDocumentTool
                     $actor, 'document.publish', ['document_id' => $document_id], $request_key,
                 ),
             );
-        } catch (ApprovalException|AccessDeniedException $error) {
-            $data = [
-                'status' => 'rejected',
-                'reason' => $error instanceof ApprovalException ? $error->reason : 'unauthenticated',
-                'message' => $error instanceof ApprovalException ? $error->getMessage() : 'Use an authenticated application account.',
-            ];
-
-            return new CallToolResult(
-                [new TextContent(json_encode($data, JSON_THROW_ON_ERROR))],
-                isError: true,
-                structuredContent: $data,
+        } catch (ApprovalException $error) {
+            return ApprovalFlow::errorResult($error);
+        } catch (AccessDeniedException) {
+            return ApprovalFlow::errorResult(
+                new ApprovalException('unauthenticated', 'Use an authenticated application account.'),
             );
         }
     }
 }
 ```
+
+`ApprovalFlow::errorResult()` builds the error result every tool should return: `status`, `reason` and `message`, as text and as structured content that fits `ApprovalFlow::OUTPUT_SCHEMA`. A refusal is `rejected`. A stored request that fails the [integrity check](index.md#stored-receipts-and-later-verification) is `integrity_error`: the site cannot vouch for its outcome, so the agent must not report it as refused or as not having happened.
 
 Register this class with the MCP configuration in the [integration guide](index.md#4-register-the-mcp-tools-and-card). Ask the tool to publish a real document belonging to the signed-in tenant. The caller needs an active account with publication permission and a personal grant containing `document.publish` and `approval.read`.
 

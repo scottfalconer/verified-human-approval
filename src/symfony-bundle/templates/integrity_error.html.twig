@@ -1,0 +1,15 @@
+{% extends '@VerifiedHumanApproval/base.html.twig' %}
+{% trans_default_domain 'VerifiedHumanApproval' %}
+{% block title %}{{ 'Approval record needs investigation'|trans }}{% endblock %}
+{% block body %}
+{# The stored record failed its integrity check, so nothing here says whether the action ran. The page offers no
+   approve button, no receipt and no outcome, and never says that nothing happened. #}
+<section class="card" data-status="integrity_error">
+    <h1>{{ 'We cannot confirm this approval’s outcome'|trans }}</h1>
+    <div class="notice error stopped">
+        <p>{{ 'The stored record of this request did not pass its integrity checks. It may have been changed or damaged since it was written, so this page cannot say whether the action ran.'|trans }}</p>
+    </div>
+    <p>{{ 'Ask the site’s administrator to investigate before you request the action again. Keep any receipt you already downloaded.'|trans }}</p>
+    <p class="small muted">{{ 'Request'|trans }} <code>{{ id }}</code> · {{ 'Reason code: %reason%'|trans({'%reason%': 'record_integrity_error'}) }}</p>
+</section>
+{% endblock %}

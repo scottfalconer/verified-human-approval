@@ -37,6 +37,8 @@ final readonly class EvidenceExporter
      */
     public function export(ApprovalState $state): array
     {
+        // Nothing is exported, and nothing signed, over a record whose stored parts contradict each other.
+        $state->assertConsistent();
         if ('completed' !== $state->status || null === $state->execution) {
             throw new ApprovalException('not_completed', 'Only a committed action has execution evidence.');
         }

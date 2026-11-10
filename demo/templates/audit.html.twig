@@ -20,6 +20,7 @@
         {% if action.approval %}<br><span class="small">Approved with {{ action.approval.label ?? 'a passkey' }} · {{ action.approval.authenticator }}{% if action.approval.verifiedAt %} at {{ action.approval.verifiedAt|date('H:i:s T') }}{% endif %}</span>{% endif %}
         {% if action.executedAt %}<br><span class="muted small">Executed {{ action.executedAt|date('H:i:s T') }}</span>{% endif %}</td>
       <td class="checks">
+        {% if action.integrity_problem %}<span class="error">✗ Record integrity: {{ action.integrity_problem }}</span><br><span class="small">Stored outcome: {{ action.stored_status }}. Request <code>{{ action.id }}</code>.</span><br>{% endif %}
         {% if action.receipt %}<span class="{{ action.receipt.valid ? 'ok' : 'error' }}">{{ action.receipt.valid ? '✓ Receipt signed at commit matches the record' : '✗ Receipt check: ' ~ action.receipt.problem }}</span>{% endif %}
         {% if action.passkey %}<br><span class="{{ action.passkey.valid ? 'ok' : 'error' }}">{{ action.passkey.valid ? '✓ Passkey signed this exact proposal' : '✗ Passkey check: ' ~ action.passkey.problem }}</span>{% endif %}
         {% if action.status == 'completed' %}<br><a class="small" href="{{ path('demo_audit_evidence', {id: action.id}) }}">Evidence</a>{% endif %}

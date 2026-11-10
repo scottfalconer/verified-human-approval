@@ -177,8 +177,19 @@ final readonly class AuditController
             'rule' => str_starts_with((string) $payload['policy']->version, 'fixed') ? 'Built-in rule' : 'Version '.$payload['policy']->version,
             'verificationRequired' => $payload['policy']->required,
             'executedAt' => $state->execution['recordedAt'] ?? null, 'approval' => null, 'receipt' => null, 'passkey' => null,
+            'integrity_problem' => null, 'stored_status' => $state->status,
         ];
-        if ('completed' !== $state->status) {
+        // This page reads the store directly, so it runs the check the approval service runs on every read. A
+        // record whose parts contradict each other stays in the list, but its stored outcome is not shown as
+        // what happened: an edited "cancelled" must not pass for an action that never ran.
+        try {
+            $state->assertConsistent();
+        } catch (ApprovalException $error) {
+            $row['status'] = 'integrity error';
+            $row['reason'] = null;
+            $row['integrity_problem'] = $error->getMessage();
+        }
+        if ('completed' !== $state->status && null === $state->execution && null === $state->receipt && null === $state->proof) {
             return $row;
         }
         // The receipt signed as the action committed must be there, and still match the record. A missing one
@@ -189,11 +200,19 @@ final readonly class AuditController
                 ? ['valid' => true, 'problem' => null]
                 : ['valid' => false, 'problem' => 'it was not signed as the action committed'];
         } catch (ApprovalException $error) {
-            $row['receipt'] = ['valid' => false, 'problem' => 'receipt_missing' === $error->reason
-                ? 'there is no receipt signed as the action committed; the record may have been edited and its receipt deleted'
-                : 'the record no longer matches its receipt signed as the action committed'];
+            $row['receipt'] = ['valid' => false, 'problem' => match ($error->reason) {
+                'receipt_missing' => 'there is no receipt signed as the action committed; the record may have been edited and its receipt deleted',
+                'record_integrity_error' => 'the stored outcome or result contradicts its execution evidence',
+                default => 'the record no longer matches its receipt signed as the action committed',
+            }];
         } catch (\Throwable) {
             $row['receipt'] = ['valid' => false, 'problem' => 'the receipt could not be checked'];
+        }
+        if (!$row['receipt']['valid']) {
+            // Without a valid receipt signed at commit, nothing vouches for the outcome the record states.
+            $row['status'] = 'integrity error';
+            $row['reason'] = null;
+            $row['integrity_problem'] ??= 'The stored execution has no valid receipt signed as it committed. Its outcome cannot be trusted.';
         }
         if (null !== $state->proof) {
             $credentialId = (string) $state->proof['credentialId'];
