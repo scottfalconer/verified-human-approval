@@ -53,6 +53,13 @@ jobs:
         if: matrix.dependencies == 'locked'
       - run: composer cs
         if: matrix.dependencies == 'locked' && matrix.php == '8.3'
+      # The approval card's own script, run against a scripted host: no browser and no npm install.
+      - uses: actions/setup-node@v4
+        if: matrix.dependencies == 'locked' && matrix.php == '8.3'
+        with:
+          node-version: '22'
+      - run: node --test tests/card_lifecycle.mjs
+        if: matrix.dependencies == 'locked' && matrix.php == '8.3'
       - run: PHP_BIN=php python3 tests/http_smoke.py
   consumer:
     # Core, WebAuthn and MCP installed into a separate project, the way a Drupal module or any other host

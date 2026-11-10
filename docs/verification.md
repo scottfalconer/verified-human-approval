@@ -10,7 +10,7 @@ The [GitHub Actions run for that commit](https://github.com/scottfalconer/verifi
 
 | Dependency set | PHP | Checks |
 | --- | --- | --- |
-| Locked dependencies | 8.3 | Composer validation, PHPUnit, PHPStan, coding standard and real HTTP smoke test. |
+| Locked dependencies | 8.3 | Composer validation, PHPUnit, PHPStan, coding standard, the card lifecycle check and real HTTP smoke test. |
 | Locked dependencies | 8.4 | Composer validation, PHPUnit, PHPStan and real HTTP smoke test. |
 | Lowest allowed dependencies | 8.3 | Composer validation, PHPUnit and real HTTP smoke test. The job raises the test-only `symfony/error-handler` floor as explained in the workflow. |
 | Symfony 8 | 8.4 | Composer validation, PHPUnit and real HTTP smoke test. |
@@ -31,6 +31,7 @@ This is a dated baseline, not a claim that every later commit has passed. Use th
 | Historical evidence | Real approval and receipt signatures, later record edits, missing receipts, wrong trust keys and the separately installed verifier in [`ApprovalEvidenceTest.php`](../tests/Evidence/ApprovalEvidenceTest.php). |
 | Stored outcome consistency | [`StoredApprovalIntegrityTest.php`](../tests/Evidence/StoredApprovalIntegrityTest.php) edits a stored status and a stored result: the service will not report, export or retry that request, and the action still ran once. With a signer, a deleted or replaced receipt is refused even when the edited parts agree; without one, an application still reads its own completions. [`StoredApprovalAuditTest.php`](../tests/Bundle/StoredApprovalAuditTest.php) makes the same edits in the demo: the review page, its JSON routes and the three MCP tools answer `integrity_error`, the audit page keeps the request listed and marked untrusted while still checking its passkey signature, no route replaces the original receipt, and the alert changed once. |
 | Separate consumer | [`check-consumer.php`](../tests/Package/check-consumer.php), a CI job on PHP 8.3 and 8.4, installs core and WebAuthn, then core, WebAuthn and MCP, into a separate Composer project from `src/` (copied, matching `dev-main`, stable defaults), and checks them with only that project's autoloader: no framework bundle installed, WebAuthn options built, the MCP card loaded, and the installed `verify-evidence.php` verifying the [synthetic commit receipt](../tests/fixtures/evidence/commit-v2). It also checks what each package archive ships. A path install is not a published-package installation. |
+| MCP card lifecycle | [`card_lifecycle.mjs`](../tests/card_lifecycle.mjs) runs the card's real script in Node against a scripted host with a controlled clock. A reply that arrives after the site recorded an outcome, after another request replaced this one, or after the host stopped or tore down the card changes nothing; an unanswered request times out; a host that declares no `openLinks` or `serverTools` is sent neither request and the card says what it cannot do; status checks back off, pause while hidden, stop after a quarter of an hour and say so; an integrity error is never shown as "nothing changed". CI runs it in the locked PHP 8.3 job. It is a state-machine test: layout and a real hosted client are outside it. |
 | HTTP and Symfony AI | [`http_smoke.py`](../tests/http_smoke.py) starts the application and calls it over TCP using the real SDK. It also runs Symfony AI's real `Agent` and `McpToolbox` with scripted model responses. |
 
 Core lifecycle tests use a test-only verifier where cryptography is not the subject. WebAuthn, evidence and Symfony integration tests exercise the production WebAuthn bridge. Synthetic authenticators test signatures and protocol behavior; they do not establish physical biometric behavior.
@@ -61,9 +62,10 @@ composer test
 composer analyse
 composer cs
 PHP_BIN=php python3 tests/http_smoke.py
+node --test tests/card_lifecycle.mjs
 ```
 
-The Python HTTP check uses the standard library. The optional browser checks need Python Playwright and Chromium. The card check also needs PHP's `gd` extension to decode its QR code. Install the Python dependencies in a virtual environment:
+The Python HTTP check uses the standard library. The card lifecycle check needs Node.js 22 or later and installs nothing. The optional browser checks need Python Playwright and Chromium. The card check also needs PHP's `gd` extension to decode its QR code. Install the Python dependencies in a virtual environment:
 
 ```bash
 python3 -m venv var/browser-checks
