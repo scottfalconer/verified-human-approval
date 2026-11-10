@@ -1,0 +1,16 @@
+{% extends 'base.html.twig' %}
+{% block title %}Sign in · Editorial Desk{% endblock %}
+{% block body %}
+<section class="card narrow">
+    <p class="eyebrow">Your account</p>
+    <h1>Sign in</h1>
+    <p>Write drafts, review proposed changes, and manage your passkey.</p>
+    {% if error %}<p class="notice error" role="alert">{{ error.messageKey|trans(error.messageData, 'security') }}</p>{% endif %}
+    <form method="post" action="{{ path('login') }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token('authenticate') }}">
+        <label>Account<input name="_username" value="{{ last_username }}" autocomplete="username" required></label>
+        <label>Password<input type="password" name="_password" autocomplete="current-password" required></label>
+        <button type="submit">Sign in</button>
+    </form>
+</section>
+{% endblock %}

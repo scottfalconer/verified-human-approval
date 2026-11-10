@@ -618,6 +618,7 @@ abstract class PublishingTestCase extends TestCase
         $browser = new KernelBrowser($this->kernel(), ['HTTP_HOST' => 'localhost:47213']);
         $this->browsers[] = $browser;
         $crawler = $browser->request('GET', self::ORIGIN.'/login');
+        self::assertSame(200, $browser->getResponse()->getStatusCode(), (string) $browser->getResponse()->getContent());
         $browser->submit($crawler->selectButton('Sign in')->form(['_username' => $user, '_password' => $this->accounts[$user]['password']]));
         self::assertSame(302, $browser->getResponse()->getStatusCode());
         $browser->followRedirect();

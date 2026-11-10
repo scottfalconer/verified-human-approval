@@ -323,9 +323,17 @@
                 <target>The device request was cancelled or timed out. Nothing was approved.</target>
             </trans-unit>
             <trans-unit id="script.no_answer">
-                <source>The site did not answer, so nothing changed. Try again.</source>
-                <target>The site did not answer, so nothing changed. Try again.</target>
-                <note>The connection dropped before the passkey response was sent, so nothing can have been approved.</note>
+                <source>The site did not return a readable answer. Reload this page to check the request.</source>
+                <target>The site did not return a readable answer. Reload this page to check the request.</target>
+                <note>The options answer was unreadable. Check the existing request rather than assuming its current status.</note>
+            </trans-unit>
+            <trans-unit id="script.authentication_required">
+                <source>Your sign-in expired. Sign in, then reload this same page to check the request.</source>
+                <target>Your sign-in expired. Sign in, then reload this same page to check the request.</target>
+            </trans-unit>
+            <trans-unit id="script.sign_in_and_check">
+                <source>Sign in and check this page</source>
+                <target>Sign in and check this page</target>
             </trans-unit>
             <trans-unit id="script.failed">
                 <source>This request could not be completed. Reload the page and try again.</source>

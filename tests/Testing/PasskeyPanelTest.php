@@ -50,7 +50,7 @@ final class PasskeyPanelTest extends TestCase
             self::assertSame([], $post->getParameters(), 'The body is JSON, not form fields.');
             self::assertSame([
                 'CONTENT_TYPE' => 'application/json',
-                'HTTP_ACCEPT' => '*/*',
+                'HTTP_ACCEPT' => 'application/json',
                 'HTTP_ORIGIN' => 'https://app.test',
                 'HTTP_REFERER' => self::PAGE,
                 'HTTP_SEC_FETCH_DEST' => 'empty',

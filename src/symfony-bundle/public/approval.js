@@ -15,7 +15,9 @@ const ENGLISH = {
     registered: 'Passkey registered.',
     loading: 'Loading the result…',
     deviceCancelled: 'The device request was cancelled or timed out. Nothing was approved.',
-    noAnswer: 'The site did not answer, so nothing changed. Try again.',
+    noAnswer: 'The site did not return a readable answer. Reload this page to check the request.',
+    authenticationRequired: 'Your sign-in expired. Sign in, then reload this same page to check the request.',
+    signInAndCheck: 'Sign in and check this page',
     failed: 'This request could not be completed. Reload the page and try again.',
     // What a dropped connection means depends on how far the call got. Before the passkey response is sent, nothing
     // can have been approved; after it, only the site knows, and this page does not guess.
@@ -74,10 +76,11 @@ function serializeCredential(credential) {
  * connection dropped, or the site itself could not confirm the outcome.
  */
 class Refusal extends Error {
-    constructor(message, {uncertain = false, requestStatus = null} = {}) {
+    constructor(message, {uncertain = false, requestStatus = null, authenticationRequired = false} = {}) {
         super(message);
         this.uncertain = uncertain;
         this.requestStatus = requestStatus;
+        this.authenticationRequired = authenticationRequired;
     }
 }
 
@@ -86,13 +89,17 @@ async function post(url, csrf, body = {}, failed = ENGLISH.failed) {
     try {
         response = await fetch(url, {
             method: 'POST', credentials: 'same-origin',
-            headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf},
+            headers: {'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-Token': csrf},
             body: JSON.stringify(body),
         });
         value = await response.json();
     } catch {
         // A dropped connection, or an answer that is not the site's JSON: the call may have reached the site.
         throw new Refusal(null, {uncertain: true});
+    }
+    if (response.status === 401 && value?.status === 'authentication_required') {
+        // The host owns sign-in. This marker never establishes the operation's outcome.
+        throw new Refusal(null, {authenticationRequired: true, uncertain: true});
     }
     if (!response.ok) {
         // Only the site's own refusal is definite. Any other error, such as a gateway's or a server error, means
@@ -118,7 +125,28 @@ for (const panel of document.querySelectorAll('[data-passkey-panel]')) {
         history.scrollRestoration = 'manual';
         window.location.reload();
     };
+    let recoveringAuthentication = false;
+    const showAuthenticationRecovery = (uncertainMessage = null) => {
+        recoveringAuthentication = true;
+        message.textContent = [text.authenticationRequired, uncertainMessage].filter(Boolean).join(' ');
+        if (button) button.disabled = true;
+        const cancel = panel.querySelector('[data-cancel]');
+        if (cancel) cancel.disabled = true;
+        // A user-initiated GET of the existing page lets the host sign in and return here. Never replay a POST.
+        if (!panel.querySelector('[data-authentication-recovery]')) {
+            const link = document.createElement('a');
+            link.href = window.location.href;
+            link.dataset.authenticationRecovery = '';
+            link.textContent = text.signInAndCheck;
+            link.addEventListener('click', event => {
+                event.preventDefault();
+                window.location.reload();
+            });
+            message.after(link);
+        }
+    };
     button?.addEventListener('click', async () => {
+        if (recoveringAuthentication) return;
         button.disabled = true;
         message.textContent = text.waiting;
         let sent = false;
@@ -126,8 +154,10 @@ for (const panel of document.querySelectorAll('[data-passkey-panel]')) {
             if (!window.PublicKeyCredential || !window.isSecureContext) throw new Error(text.unsupported);
             const registration = mode === 'registration';
             const ceremony = await post(panel.dataset.optionsUrl, panel.dataset.csrf, {}, text.failed);
+            if (recoveringAuthentication) return;
             const options = {publicKey: publicKeyOptions(ceremony.publicKey, registration)};
             const credential = registration ? await navigator.credentials.create(options) : await navigator.credentials.get(options);
+            if (recoveringAuthentication) return;
             if (!credential) throw new Error(text.approvalCancelled);
             message.textContent = text.sending;
             sent = true;
@@ -138,6 +168,11 @@ for (const panel of document.querySelectorAll('[data-passkey-panel]')) {
             message.textContent = result.message ?? (registration ? text.registered : text.loading);
             return showFinalState();
         } catch (error) {
+            if (recoveringAuthentication) return;
+            if (error.authenticationRequired) {
+                showAuthenticationRecovery(sent ? (Object.hasOwn(unconfirmed, mode) ? unconfirmed[mode] : unconfirmed.approval) : null);
+                return;
+            }
             if (error.requestStatus && error.requestStatus !== 'pending') return showFinalState();
             message.textContent = error.name === 'NotAllowedError'
                 ? text.deviceCancelled
@@ -148,6 +183,7 @@ for (const panel of document.querySelectorAll('[data-passkey-panel]')) {
         button.disabled = false;
     });
     panel.querySelector('[data-cancel]')?.addEventListener('click', async event => {
+        if (recoveringAuthentication) return;
         event.target.disabled = true;
         try {
             const result = await post(panel.dataset.cancelUrl, panel.dataset.csrf, {}, text.failed);
@@ -155,6 +191,11 @@ for (const panel of document.querySelectorAll('[data-passkey-panel]')) {
             message.textContent = result.status === 'cancelled' ? text.requestCancelled : text.loading;
             return showFinalState();
         } catch (error) {
+            if (recoveringAuthentication) return;
+            if (error.authenticationRequired) {
+                showAuthenticationRecovery(text.cancelUnconfirmed);
+                return;
+            }
             if (error.requestStatus && error.requestStatus !== 'pending') return showFinalState();
             message.textContent = error.uncertain ? text.cancelUnconfirmed : error.message;
             event.target.disabled = false;

@@ -316,7 +316,7 @@ final readonly class PasskeyPanel
     {
         $this->browser->request('POST', $url, [], [], [
             'CONTENT_TYPE' => 'application/json',
-            'HTTP_ACCEPT' => '*/*',
+            'HTTP_ACCEPT' => 'application/json',
             'HTTP_ORIGIN' => $this->origin,
             'HTTP_REFERER' => $this->referrer,
             'HTTP_SEC_FETCH_DEST' => 'empty',

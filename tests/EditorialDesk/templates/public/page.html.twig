@@ -1,0 +1,7 @@
+{% extends 'base.html.twig' %}
+{% block title %}{{ page.liveTitle }}{% endblock %}
+{% block body %}<a class="back" href="{{ path('home') }}">← All published pages</a>
+<article class="card public-page reading-width" data-page-id="{{ page.id }}"><p class="eyebrow">PUBLISHED · REVISION {{ page.liveRevision }}</p>
+{% include 'partials/content.html.twig' with {title:page.liveTitle,body:page.liveBody} only %}
+<div class="approval-note">{{ verified_human_approval_badge(page.liveRequestId,page.id,{title:page.liveTitle,body:page.liveBody}) }}</div>
+</article>{% endblock %}

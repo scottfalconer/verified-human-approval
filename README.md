@@ -108,6 +108,7 @@ The [integration guide](src/symfony-bundle/docs/index.md) is the canonical insta
 | [`verified-human-approval/symfony-bundle`](src/symfony-bundle/README.md) | Symfony services, review routes, CSRF, rate limits, status tool and scoped phone handoff. |
 | [`verified-human-approval/doctrine`](src/doctrine/README.md) | The approval store, signed audit log and passkey storage on a Doctrine DBAL connection, the ORM schema listener, an entity action base and a flush check for protected entities. |
 | [`verified-human-approval/store-contracts`](src/store-contracts/README.md) | The storage contract tests, with the fixture application and process races, to check an adapter of your own. |
+| [`verified-human-approval/testing`](src/testing/README.md) | Development helpers: a software authenticator, rendered passkey panels and an in-process MCP HTTP client for host integration tests. |
 
 The engine is independent of Symfony. The worked Symfony example uses a single SQLite transaction; the Doctrine storage passes the same contract on SQLite, PostgreSQL and MySQL. External effects, such as an email or another service's API, are outside the transaction and need their own design.
 

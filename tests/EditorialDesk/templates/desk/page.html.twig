@@ -1,0 +1,25 @@
+{% extends 'base.html.twig' %}
+{% block title %}{{ page.draftTitle }}{% endblock %}
+{% block body %}<a class="back" href="{{ path('desk') }}">← Workspace</a>
+<div class="page-heading compact"><p class="eyebrow">{{ page.status ?? 'draft' }} · WORKING DRAFT {{ page.draftRevision }}</p><h1>{{ page.draftTitle }}</h1>
+<a href="{{ path('desk_history',{id:page.id}) }}">Approval history</a>{% if page.status == 'published' %} · <a href="{{ path('public_page',{id:page.id}) }}">View public page ↗</a>{% endif %}</div>
+{% set can_write = is_granted('ROLE_EDITOR') or is_granted('ROLE_PUBLISHER') %}
+<div class="two-up"><section class="card"><p class="eyebrow">PRIVATE WORKING COPY</p><h2>Your next version</h2>
+<p class="muted">Saving here leaves the public version and its approval badge unchanged.</p>
+{% if can_write %}<form method="post" action="{{ path('desk_draft',{id:page.id}) }}"><input type="hidden" name="_token" value="{{ csrf_token('desk') }}">
+<label>Title<input name="title" value="{{ page.draftTitle }}" required maxlength="200"></label><label>Body<textarea name="body" rows="10" required>{{ page.draftBody }}</textarea></label><button class="secondary">Save working draft</button></form>
+<hr><form method="post" action="{{ path('desk_action',{id:page.id,operation:'publish'}) }}"><input type="hidden" name="_token" value="{{ csrf_token('desk') }}"><input type="hidden" name="request_key" value="publish-{{ request_key }}"><button>{{ is_granted('ROLE_PUBLISHER') ? 'Publish saved draft' : 'Review saved draft for publication' }}</button></form>
+<p class="small muted">The saved version is used. Save your edits before requesting publication.</p>
+{% else %}{% include 'partials/content.html.twig' with {title:page.draftTitle,body:page.draftBody} only %}{% endif %}</section>
+<section class="card live-preview"><p class="eyebrow">{{ page.status == 'published' ? 'WHAT VISITORS SEE' : 'PUBLICATION STATUS' }}</p>
+{% if page.status == 'published' %}<p class="status published">Published · revision {{ page.liveRevision }}</p>{% include 'partials/content.html.twig' with {title:page.liveTitle,body:page.liveBody} only %}
+<div class="approval-note">{{ verified_human_approval_badge(page.liveRequestId,page.id,{title:page.liveTitle,body:page.liveBody}) }}</div>
+{% elseif page.status == 'archived' %}<h2>Archived</h2><p>The page is no longer public. Its working draft and approval history remain available.</p>{% include 'partials/content.html.twig' with {title:page.liveTitle,body:page.liveBody} only %}
+{% else %}<h2>Still private.</h2><p>This page has never been published. Its working draft becomes public only after publication completes.</p>{% endif %}</section></div>
+{% if can_write %}<div class="two-up actions-grid">
+{% if page.status == 'published' %}<details class="card"><summary>Make a direct live edit</summary><p class="muted">Request a change to the published text. Your separate working draft is preserved.</p>
+<form method="post" action="{{ path('desk_action',{id:page.id,operation:'edit-live'}) }}"><input type="hidden" name="_token" value="{{ csrf_token('desk') }}"><input type="hidden" name="request_key" value="edit-{{ request_key }}">
+<label>Published title<input name="title" value="{{ page.liveTitle }}" maxlength="200" required></label><label>Published body<textarea name="body" rows="6" required>{{ page.liveBody }}</textarea></label><button>Request live edit</button></form></details>{% endif %}
+<section class="card"><h2>Publication controls</h2>{% if page.status == 'published' %}<p>Archive to remove the page from public view while keeping its working draft.</p><form method="post" action="{{ path('desk_action',{id:page.id,operation:'archive'}) }}"><input type="hidden" name="_token" value="{{ csrf_token('desk') }}"><input type="hidden" name="request_key" value="archive-{{ request_key }}"><button class="secondary">Request archive</button></form><hr>{% endif %}
+<p>Delete removes the page and its working draft. Its approval records remain in the history.</p><form method="post" action="{{ path('desk_action',{id:page.id,operation:'delete'}) }}"><input type="hidden" name="_token" value="{{ csrf_token('desk') }}"><input type="hidden" name="request_key" value="delete-{{ request_key }}"><button class="danger">Request permanent deletion</button></form></section></div>{% endif %}
+{% endblock %}

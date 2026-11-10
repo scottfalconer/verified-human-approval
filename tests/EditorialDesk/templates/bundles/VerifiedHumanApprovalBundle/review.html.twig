@@ -1,0 +1,12 @@
+{% extends '@!VerifiedHumanApproval/review.html.twig' %}
+{% block preview %}
+{% if prepared.display.operation in ['publish','edit_live'] %}
+<p>The text below is frozen with this request. Any later conflicting change stops this approval.</p>
+{% if prepared.display.before.title is defined and prepared.display.before.title %}<details><summary>Previously published text</summary>{% include 'partials/content.html.twig' with {title:prepared.display.before.title,body:prepared.display.before.body} only %}</details>{% endif %}
+<h3>Proposed public version</h3>{% include 'partials/content.html.twig' with {title:prepared.effect.title,body:prepared.effect.body} only %}
+{% elseif prepared.display.operation == 'archive' %}<p>This published version will stop being public:</p>{% include 'partials/content.html.twig' with {title:prepared.display.before.title,body:prepared.display.before.body} only %}
+{% elseif prepared.display.operation == 'delete' %}<p>The page and its working draft will be permanently removed. Approval records remain.</p>
+{% if prepared.display.before.live %}<h3>Published or archived version</h3>{% include 'partials/content.html.twig' with {title:prepared.display.before.live.title,body:prepared.display.before.live.body} only %}{% endif %}
+<h3>Working draft</h3>{% include 'partials/content.html.twig' with {title:prepared.display.before.draft.title,body:prepared.display.before.draft.body} only %}
+{% else %}{{ parent() }}{% endif %}
+{% endblock %}

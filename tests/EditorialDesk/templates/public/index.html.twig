@@ -1,0 +1,11 @@
+{% extends 'base.html.twig' %}
+{% block title %}Published pages{% endblock %}
+{% block body %}
+<div class="page-heading"><p class="eyebrow">PUBLIC EDITION</p><h1>Published pages</h1><p class="lead">The current edition, with approval evidence attached to each verified change.</p></div>
+<div class="page-grid">
+{% for page in pages %}<article class="card public-page" data-page-id="{{ page.id }}">
+<p class="eyebrow">REVISION {{ page.liveRevision }}</p><h2><a href="{{ path('public_page',{id:page.id}) }}">{{ page.liveTitle }}</a></h2>
+<div class="page-body">{{ page.liveBody }}</div>
+<div class="approval-note">{{ verified_human_approval_badge(page.liveRequestId,page.id,{title:page.liveTitle,body:page.liveBody}) }}</div>
+</article>{% else %}<section class="card empty"><h2>No pages are published yet.</h2><p>Working drafts stay in the workspace until their publication completes.</p><a class="button" href="{{ path('desk') }}">Open workspace</a></section>{% endfor %}
+</div>{% endblock %}

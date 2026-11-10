@@ -2,6 +2,8 @@
 
 Add passkey approval to selected actions in your Symfony application. An agent requests an action through MCP. Your application freezes the proposal, lets the person review and approve it on your site, checks their current permissions, and applies the stored change once.
 
+For an existing CMS, the [adoption cookbook](docs/adoption.md) covers completed retries with generated revisions, non-null workflow columns and a tested host enrollment flow.
+
 This is a development preview. The packages are not on Packagist yet. Start with the [integration guide](docs/index.md) for installation from this repository, including the WebAuthn package, and a complete first action.
 
 The bundle supplies service configuration, review routes, CSRF checks, rate limits, the MCP approval card, status tool, scoped phone handoff, the person's receipt download and the public key that checks receipts. Your application supplies accounts, current permissions, trusted enrollment and the guarded business action. The supported example uses SQLite and a single shared PDO connection.

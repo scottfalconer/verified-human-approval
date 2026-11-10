@@ -1,0 +1,7 @@
+/vendor/
+/node_modules/
+/var/
+/evidence/
+/public/bundles/
+/config/reference.php
+/composer.lock

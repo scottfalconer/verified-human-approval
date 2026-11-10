@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Editorial Desk{% endblock %} · Editorial Desk</title>
+<link rel="stylesheet" href="{{ asset('app.css') }}">
+<script type="module" src="{{ asset('bundles/verifiedhumanapproval/approval.js') }}"></script>
+</head><body>
+<header class="site-header"><a class="brand" href="{{ path('home') }}"><span class="brand-mark">E</span> Editorial Desk</a>
+<nav aria-label="Main"><a href="{{ path('home') }}">Published pages</a><a href="{{ path('desk') }}">Workspace</a>
+{% if app.user %}<a href="{{ path('passkeys') }}">Passkeys</a><span class="account-name">{{ app.user.displayName }}</span>
+<form class="inline" method="post" action="{{ path('logout') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token('logout') }}"><button class="link-button">Sign out</button></form>
+{% else %}<a href="{{ path('login') }}">Sign in</a>{% endif %}</nav></header>
+<main class="container">
+{% for type,messages in app.flashes %}{% for message in messages %}<p class="notice {{ type }}">{{ message }}</p>{% endfor %}{% endfor %}
+{% block body %}{% endblock %}
+</main><footer>Editorial Desk · Published content and its approval record stay connected.</footer>
+</body></html>
