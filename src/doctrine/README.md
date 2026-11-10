@@ -153,6 +153,8 @@ class Article
 
 `ProtectedEntityListener` then refuses, on every flush of that connection's entity manager, a change to a marked entity or field, with `ApprovalException('approval_required')`, unless the flush happens while an approved action executes and that action permitted the entity. An `EntityAction` permits the targets it locks and the entities it creates with `persist()`; another adapter calls `permit()` itself. On a field, inserting or deleting the entity while the field holds a value other than null counts as a change too, so keep the approved state in nullable fields beside the draft, as above. The `protected_entities` setting does the same as the attribute, for entities you cannot annotate.
 
+For an existing non-null `draft`/`published`/`archived` column, keep status protected and use a constrained, explicitly policy-exempt draft-creation action through `ApprovalService`. The [adoption cookbook](../symfony-bundle/docs/adoption.md#a-non-null-draftpublishedarchived-column) includes the executable adapter and regression tests; a draft value is not an automatic exemption from the guard.
+
 The check covers the unit of work. DQL `UPDATE` and `DELETE`, and plain SQL, do not pass through it: keep those away from protected rows, as you keep every other write path behind the approval service.
 
 ## Without Symfony

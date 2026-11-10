@@ -68,7 +68,7 @@ jobs:
         if: matrix.dependencies == 'locked' && matrix.php == '8.3'
         with:
           node-version: '22'
-      - run: node --test tests/card_lifecycle.mjs
+      - run: node --test tests/card_lifecycle.mjs tests/approval_recovery.mjs
         if: matrix.dependencies == 'locked' && matrix.php == '8.3'
       - run: PHP_BIN=php python3 tests/http_smoke.py
       - run: PHP_BIN=php python3 tests/oauth_http_smoke.py
@@ -101,6 +101,25 @@ jobs:
         run: php tests/Package/check-symfony-consumer.php
       - name: Package archives
         run: php tests/Package/check-consumer.php archives
+  editorial-consumer:
+    # A separately authored application's own domain model, security and workflows. Current packages are copied by
+    # Composer into a fresh project; neither root replacements nor the publishing-example autoloader can help it.
+    name: Independent Editorial Desk consumer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_sqlite, openssl, sodium, mbstring, dom
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install the pinned virtual-WebAuthn browser
+        run: npm exec --yes --package=playwright@1.62.1 -- playwright install --with-deps chromium
+      - name: Fresh independent consumer, HTTP and production browser JavaScript
+        run: php tests/Package/check-editorial-consumer.php --browser
   postgresql:
     # The storage contracts, the approval transaction, the schema, the ORM helpers and the publishing example on a
     # PostgreSQL server. Only the PostgreSQL test classes run, and a skipped one fails the job, so a missing server

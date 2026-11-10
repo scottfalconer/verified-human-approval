@@ -1,0 +1,22 @@
+{% extends 'base.html.twig' %}
+{% block title %}Your passkey · Editorial Desk{% endblock %}
+{% block body %}
+<p class="eyebrow">Your account</p>
+<h1>Your approval passkey</h1>
+<p>Use a passkey to approve the exact published change you review. Your device may offer Touch ID, another biometric, or its PIN.</p>
+<section class="card">
+    <h2>Registered passkeys</h2>
+    {% if passkeys %}
+    <ul>{% for passkey in passkeys %}<li><strong>{{ passkey.label }}</strong> <span class="muted">{{ passkey.id|slice(0,12) }}…</span></li>{% endfor %}</ul>
+    {% else %}<p>No passkey has been registered for this account.</p>{% endif %}
+    {% if can_register %}
+    <div data-passkey-panel data-mode="registration" data-csrf="{{ csrf_token(csrf_id) }}" data-options-url="{{ path('passkey_options') }}" data-complete-url="{{ path('passkey_complete') }}">
+        <p>Your registration link has been accepted. Register one passkey now.</p>
+        <button type="button" data-approve>Register a passkey</button>
+        <p data-message role="status" aria-live="polite"></p>
+    </div>
+    {% else %}
+    <p class="muted">To add a passkey, open your registration link while signed in. Ask the site operator for a new link if it has expired.</p>
+    {% endif %}
+</section>
+{% endblock %}

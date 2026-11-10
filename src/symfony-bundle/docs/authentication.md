@@ -45,3 +45,11 @@ Use the [HTTP scope challenge adapter](index.md#scope-challenges-over-http) when
 ## Acceptance checks
 
 Test an absent credential, wrong audience, expired/revoked credential, insufficient scopes, wrong account/tenant, and a revoked initiating delegation while approval is pending. Confirm a valid browser approval never widens the original grant. A token for reading stored results must not execute the operation, and an agent token must not enroll or act as the interactive approver.
+
+## Recover an expired browser session
+
+The browser script sends `Accept: application/json`. Configure the host's browser authentication entry point to return **HTTP 401** with `{"status":"authentication_required"}` when authentication is needed for that JSON request. Keep normal HTML navigation on the host's existing login flow. The [publishing example entry point](../../../examples/doctrine-publishing/src/Security/BrowserEntryPoint.php) and its [firewall configuration](../../../examples/doctrine-publishing/config/packages/security.php) show this using Symfony Security's `AuthenticationEntryPointInterface`; the bundle does not authenticate the person or select a login route.
+
+The exact marker displays sign-in recovery and a link to the **current page**. Following that link makes a new GET; the host should save its target and return the signed-in person to this existing request. It never repeats the approval POST or creates a new operation. If the passkey response was already submitted, the page retains the unconfirmed-outcome warning until the host reports the recorded state. Cancellation and enrollment follow the same rule. A plain 401, HTML login redirect, gateway failure or unreadable response cannot establish either session expiry or an operation's outcome.
+
+Test session loss before options, while the device prompt is open, and a lost response after execution commits. Check that signing back in shows the original request, no second execution occurs, and an authenticated permission denial remains a normal domain refusal. `node --test tests/approval_recovery.mjs` exercises the shipped script's response handling; the independent Editorial Desk consumer also exercises host login and recovery in a real browser.

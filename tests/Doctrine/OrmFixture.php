@@ -11,6 +11,7 @@ use Doctrine\ORM\Events;
 use Doctrine\ORM\ORMSetup;
 use Doctrine\ORM\Tools\SchemaTool;
 use Symfony\Component\Clock\MockClock;
+use VerifiedHumanApproval\Core\ActionAdapter;
 use VerifiedHumanApproval\Core\ActionRegistry;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalService;
@@ -27,6 +28,7 @@ use VerifiedHumanApproval\StoreContracts\Fixture\FixturePolicies;
 use VerifiedHumanApproval\StoreContracts\Fixture\FixtureSchema;
 use VerifiedHumanApproval\StoreContracts\Fixture\TestProofVerifier;
 use VerifiedHumanApproval\Tests\Doctrine\Fixture\Document;
+use VerifiedHumanApproval\Tests\Doctrine\Fixture\LegacyPage;
 use VerifiedHumanApproval\Tests\Doctrine\Fixture\Memo;
 use VerifiedHumanApproval\Tests\Doctrine\Fixture\Notice;
 use VerifiedHumanApproval\Tests\Doctrine\Fixture\PublishDocument;
@@ -44,31 +46,37 @@ final class OrmFixture
     public readonly DbalTransaction $transaction;
     public readonly TestManagerRegistry $doctrine;
     public readonly ProtectedEntityListener $protection;
+    public readonly ExecutionGuard $guard;
     public readonly PublishDocument $action;
     public readonly ApprovalService $service;
     public readonly SodiumEvidenceSigner $signer;
     public readonly Actor $actor;
     public readonly Actor $reviewer;
 
-    /** @param array<class-string, list<string>|null> $protected */
-    public function __construct(public readonly string $kind, public readonly string $location, array $protected = [Memo::class => ['signedOff']])
+    /**
+     * @param array<class-string, list<string>|null>     $protected
+     * @param (\Closure(self): list<ActionAdapter>)|null $additionalActions
+     */
+    public function __construct(public readonly string $kind, public readonly string $location, array $protected = [Memo::class => ['signedOff']], ?\Closure $additionalActions = null)
     {
         $this->connection = TestDatabase::connect($kind, $location);
         $this->transaction = new DbalTransaction($this->connection);
-        $guard = new ExecutionGuard();
+        $guard = $this->guard = new ExecutionGuard();
         $this->protection = new ProtectedEntityListener($guard, $protected);
         $this->doctrine = new TestManagerRegistry($this->connection, $this->entityManager(...));
-        $database = new DbalFixtureDatabase($this->transaction);
         $this->action = new PublishDocument($this->doctrine, $guard, $this->transaction, $this->protection);
         $this->signer = new SodiumEvidenceSigner('orm-key', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
+        $actions = [$this->action, ...($additionalActions?->__invoke($this) ?? [])];
+        $database = new DbalFixtureDatabase($this->transaction);
+
         $this->service = new ApprovalService(
-            new ActionRegistry([$this->action]),
+            new ActionRegistry($actions),
             new FixturePolicies($database),
             new FixtureAuthorizer($database),
             new DbalApprovalStore($this->transaction),
             new TestProofVerifier($database),
             new MockClock('2026-11-08T10:00:00+00:00'),
-            $guard,
+            $this->guard,
             $this->signer,
         );
         $this->actor = new Actor('alice', 'tenant-a', 'agent-1');
@@ -82,7 +90,7 @@ final class OrmFixture
         $fixture = new self($kind, $location);
         // The ORM's schema includes the approval tables, through the schema listener; installing then finds them.
         $manager = $fixture->manager();
-        (new SchemaTool($manager))->createSchema(array_map($manager->getClassMetadata(...), [Document::class, Notice::class, Memo::class]));
+        (new SchemaTool($manager))->createSchema(array_map($manager->getClassMetadata(...), [Document::class, Notice::class, Memo::class, LegacyPage::class]));
         ApprovalSchema::install($fixture->connection);
         foreach (FixtureSchema::statements(TestDatabase::platform($kind)) as $statement) {
             $fixture->connection->executeStatement($statement);

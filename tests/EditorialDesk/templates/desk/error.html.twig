@@ -1,0 +1,3 @@
+{% extends 'base.html.twig' %}
+{% block title %}Request stopped{% endblock %}
+{% block body %}<section class="card narrow"><p class="eyebrow">REQUEST STOPPED</p><h1>This change could not be requested.</h1><p>{{ message }}</p><p class="small muted">Reason: {{ reason }}</p><a class="button" href="{{ path('desk') }}">Return to workspace</a></section>{% endblock %}

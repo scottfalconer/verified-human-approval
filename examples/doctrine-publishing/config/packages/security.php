@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use VerifiedHumanApproval\Example\Publishing\Entity\User;
 use VerifiedHumanApproval\Example\Publishing\Security\AgentTokenAuthenticator;
+use VerifiedHumanApproval\Example\Publishing\Security\BrowserEntryPoint;
 
 return static function (ContainerConfigurator $container): void {
     $container->extension('security', [
@@ -19,6 +20,7 @@ return static function (ContainerConfigurator $container): void {
             ],
             // The person, in their own browser. The review pages need this session: only there does their passkey approve.
             'main' => [
+                'entry_point' => BrowserEntryPoint::class,
                 'provider' => 'accounts',
                 'form_login' => ['login_path' => 'login', 'check_path' => 'login', 'enable_csrf' => true, 'default_target_path' => 'editor'],
                 'login_throttling' => ['max_attempts' => 5, 'interval' => '1 minute'],

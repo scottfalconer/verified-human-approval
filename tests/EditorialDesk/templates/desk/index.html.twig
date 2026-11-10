@@ -1,0 +1,12 @@
+{% extends 'base.html.twig' %}
+{% block title %}Workspace{% endblock %}
+{% block body %}<div class="page-heading"><p class="eyebrow">EDITORIAL WORKSPACE</p><h1>Work in progress.</h1>
+<p class="lead">Save a working draft freely. Publish the exact version you want visitors to see.</p></div>
+{% if is_granted('ROLE_PUBLISHER') %}<p class="notice">Your publisher role is exempt from passkey approval. Its changes are recorded without a human-approval badge.</p>
+{% elseif is_granted('ROLE_EDITOR') %}<p class="notice">Your editor role requires a passkey for publishing, live edits, archiving and deletion.</p>{% endif %}
+<div class="workspace-grid"><section><h2>All pages</h2><div class="page-list">
+{% for page in pages %}<a class="card page-row" href="{{ path('desk_page',{id:page.id}) }}"><div><h3>{{ page.draftTitle }}</h3><p class="muted">Working draft {{ page.draftRevision }}{% if page.liveRevision %} · Live revision {{ page.liveRevision }}{% endif %}</p></div><span class="status {{ page.status ?? 'draft' }}">{{ page.status ?? 'draft' }}</span></a>
+{% else %}<div class="card"><p>No pages yet. Start with a private working draft.</p></div>{% endfor %}</div></section>
+{% if is_granted('ROLE_EDITOR') or is_granted('ROLE_PUBLISHER') %}<section class="card"><p class="eyebrow">START SOMETHING</p><h2>New working draft</h2>
+<form method="post" action="{{ path('desk_create') }}"><input type="hidden" name="_token" value="{{ csrf_token('desk') }}">
+<label>Title<input name="title" required maxlength="200"></label><label>Body<textarea name="body" required rows="7"></textarea></label><button>Create draft</button></form></section>{% endif %}</div>{% endblock %}
