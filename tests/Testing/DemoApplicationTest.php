@@ -270,6 +270,44 @@ final class DemoApplicationTest extends TestCase
         self::assertSame(0, $this->mutationCount());
     }
 
+    public function testSignedOutCeremoniesAskForAuthenticationWithoutChangingTheApproval(): void
+    {
+        $agent = $this->agent('editor');
+        $id = $this->askedFor($agent);
+        $reviewUrl = self::ORIGIN.'/approval/'.$id;
+        $browser = $this->signedIn('editor');
+        PasskeyPanel::open($browser, $reviewUrl);
+        $browser->getCookieJar()->clear();
+
+        foreach ([
+            $reviewUrl.'/options',
+            $reviewUrl.'/complete',
+            $reviewUrl.'/cancel',
+            self::ORIGIN.'/account/passkeys/options',
+            self::ORIGIN.'/account/passkeys/complete',
+            self::ORIGIN.'/account/passkeys/confirm/options',
+            self::ORIGIN.'/account/passkeys/confirm/complete',
+        ] as $url) {
+            $browser->jsonRequest('POST', $url, []);
+            $response = $browser->getResponse();
+            self::assertSame(401, $response->getStatusCode(), $url);
+            self::assertSame(['status' => 'authentication_required'], json_decode((string) $response->getContent(), true, 8, \JSON_THROW_ON_ERROR), $url);
+            self::assertFalse($response->headers->has('Location'), $url);
+        }
+
+        $browser->request('GET', $reviewUrl);
+        self::assertSame(302, $browser->getResponse()->getStatusCode());
+        self::assertSame(self::ORIGIN.'/login', $browser->getResponse()->headers->get('Location'));
+        $login = $browser->followRedirect();
+        $browser->submit($login->selectButton('Sign in')->form(['_username' => 'editor', '_password' => $this->accounts['editor']['password']]));
+        self::assertSame(302, $browser->getResponse()->getStatusCode());
+        self::assertSame($reviewUrl, $browser->getResponse()->headers->get('Location'));
+        $browser->followRedirect();
+        self::assertSame('approval', PasskeyPanel::on($browser)->mode());
+        self::assertSame('pending', $agent->callTool('approval_status', ['request_id' => $id])->structuredContent['status']);
+        self::assertSame(0, $this->mutationCount());
+    }
+
     public function testAPhoneThatCameThroughACodeApprovesAndCannotCancel(): void
     {
         [, $passkey] = $this->withAPasskey('editor');

@@ -89,6 +89,24 @@ def main():
                 page.locator("[data-approve]").click()
                 expect(page.get_by_text("Personal passkey", exact=True)).to_be_visible(timeout=15000)
 
+                # An expired browser session asks for sign-in, then returns to this existing request.
+                page.goto(initial["review_url"] + "#return=claude-web")
+                page.context.clear_cookies()
+                page.locator("[data-approve]").click()
+                expect(page.locator("[data-message]")).to_contain_text("Your sign-in expired.")
+                expect(page.locator("[data-authentication-recovery]")).to_have_attribute("href", initial["review_url"] + "#return=claude-web")
+                assert row()["mutation_count"] == 0
+                page.locator("[data-authentication-recovery]").click()
+                page.wait_for_url(lambda url: url.split("#", 1)[0] == origin + "/login")
+                page.locator("#username").fill("editor")
+                page.locator("#password").fill(credentials["editor"]["password"])
+                page.get_by_role("button", name="Sign in", exact=True).click()
+                page.wait_for_url(lambda url: url.split("#", 1)[0] == initial["review_url"])
+                expect(page.locator("[data-approve]")).to_be_visible()
+                assert row()["mutation_count"] == 0
+                recovered = mcp("status", initial["requestId"])["structuredContent"]
+                assert recovered["status"] == "pending"
+
                 # Opened the way Claude Desktop's card opens it, so the page offers the way back.
                 page.goto(initial["review_url"] + "#return=claude-desktop")
                 expect(page.locator(".statement")).to_contain_text("Evacuation order")
@@ -180,7 +198,7 @@ def main():
                 "passed": True,
                 "mcp_transport": "official PHP SDK over real HTTP to Symfony MCP Bundle",
                 "browser": "Chromium, headless; native WebAuthn API with CDP virtual authenticator",
-                "checks": ["tool discovery", "pending before approval", "human login", "passkey enrollment", "exact content review", "verified approval commits once", "MCP status", "idempotent request replay", "stale proposal refuses execution and shows as stopped", "a lost answer is reported as unconfirmed, not guessed", "a gateway error after sending is unconfirmed, not a refusal", "Symfony AI scripted runner uses real MCP"],
+                "checks": ["tool discovery", "pending before approval", "human login", "passkey enrollment", "expired session offers sign-in recovery", "sign-in returns to the existing pending request without execution", "exact content review", "verified approval commits once", "MCP status", "idempotent request replay", "stale proposal refuses execution and shows as stopped", "a lost answer is reported as unconfirmed, not guessed", "a gateway error after sending is unconfirmed, not a refusal", "Symfony AI scripted runner uses real MCP"],
                 "committed_effects": 3,
                 "physical_biometrics_tested": False,
                 "external_hosted_clients_tested": False,
