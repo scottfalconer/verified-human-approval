@@ -119,12 +119,14 @@ final class OAuthTest extends TestCase
         $browser = $this->client();
         $browser->disableReboot();
         $browser->getKernel()->boot();
-        $fetched = new MockHttpClient(new MockResponse(json_encode(['client_id' => self::CLAUDE, 'client_name' => 'Claude', 'redirect_uris' => [self::CALLBACK]])));
+        $metadata = new MockResponse(json_encode(['client_id' => self::CLAUDE, 'client_name' => 'Claude', 'redirect_uris' => [self::CALLBACK]]));
+        $fetched = new MockHttpClient($metadata);
         $browser->getContainer()->get('test.service_container')->set(ClientMetadataHttpClient::class, new ClientMetadataHttpClient($fetched));
         [$code, $verifier] = $this->consentIn($this->signIn($browser, 'editor'), self::CLAUDE, $resource);
         $tokens = $this->token($browser, ['grant_type' => 'authorization_code', 'code' => $code, 'redirect_uri' => self::CALLBACK, 'client_id' => self::CLAUDE, 'code_verifier' => $verifier] + (null === $resource ? [] : ['resource' => $resource]));
         self::assertSame('Bearer', $tokens['token_type'] ?? null, json_encode($tokens));
         self::assertGreaterThanOrEqual(1, $fetched->getRequestsCount(), 'The document was fetched from claude.ai’s URL.');
+        self::assertSame(0, $metadata->getRequestOptions()['max_redirects'], 'The metadata fetch stays at the URL checked by the resolver.');
 
         $result = $this->mcp($tokens['access_token'])->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
         self::assertSame('pending', $result->structuredContent['status']);

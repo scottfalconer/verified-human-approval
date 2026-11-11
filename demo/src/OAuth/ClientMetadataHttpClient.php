@@ -13,8 +13,8 @@ use Symfony\Contracts\HttpClient\ResponseInterface;
 
 /**
  * The HTTP client omouren/mcp-oauth-bundle fetches client ID metadata documents with. Anyone can name a client
- * ID URL, so on top of that bundle's own host checks the fetch never reaches this server's own network (checked
- * on the address actually connected to), stops reading at MAX_BYTES while it downloads, and ends after 10 seconds.
+ * ID URL, so each fetch stays at the checked URL, blocks connections to private networks, stops reading at
+ * MAX_BYTES while it downloads, and ends after 10 seconds.
  */
 final class ClientMetadataHttpClient implements HttpClientInterface
 {
@@ -29,6 +29,8 @@ final class ClientMetadataHttpClient implements HttpClientInterface
 
     public function request(string $method, string $url, array $options = []): ResponseInterface
     {
+        // The resolver checks the requested host before fetching, so do not follow redirects.
+        $options['max_redirects'] = 0;
         $onProgress = $options['on_progress'] ?? null;
         $options['on_progress'] = static function (int $downloaded, int $size, array $info) use ($onProgress): void {
             if ($downloaded > self::MAX_BYTES || $size > self::MAX_BYTES) {

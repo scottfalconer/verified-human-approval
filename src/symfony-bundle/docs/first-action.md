@@ -152,7 +152,6 @@ services:
     VerifiedHumanApproval\Core\Storage\PdoApprovalStore: ~
     VerifiedHumanApproval\Core\Storage\PdoAuditStore: ~
     VerifiedHumanApproval\WebAuthn\PdoCredentialRepository: ~
-    VerifiedHumanApproval\Core\Storage\PdoAuditStore: ~
     VerifiedHumanApproval\Core\Audit\AuditStore:
         alias: VerifiedHumanApproval\Core\Storage\PdoAuditStore
 

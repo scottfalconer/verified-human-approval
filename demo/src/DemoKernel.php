@@ -52,6 +52,7 @@ use VerifiedHumanApproval\Demo\OAuth\Storage\PdoCredentialsRevoker;
 use VerifiedHumanApproval\Demo\OAuth\Storage\PdoRefreshTokenManager;
 use VerifiedHumanApproval\Demo\OAuth\TokenExchangeContext;
 use VerifiedHumanApproval\Demo\Security\AgentTokenAuthenticator;
+use VerifiedHumanApproval\Demo\Security\BrowserEntryPoint;
 use VerifiedHumanApproval\Demo\Security\DemoActorProvider;
 use VerifiedHumanApproval\Demo\Security\DemoRequesterLabel;
 use VerifiedHumanApproval\Demo\Security\DemoUser;
@@ -190,6 +191,7 @@ final class DemoKernel extends Kernel
                 ],
                 'main' => [
                     'provider' => 'demo',
+                    'entry_point' => BrowserEntryPoint::class,
                     'form_login' => ['login_path' => 'demo_login', 'check_path' => 'demo_login', 'enable_csrf' => true, 'default_target_path' => '/'],
                     'login_throttling' => ['max_attempts' => 5, 'interval' => '1 minute'],
                     'logout' => ['path' => 'demo_logout', 'target' => 'demo_login', 'enable_csrf' => true],
