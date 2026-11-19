@@ -128,8 +128,8 @@ try {
             .(Receipt::EXPORT === $verified['receiptSignedAt'] ? ' The report was signed when it was exported, not when the action committed.' : ''),
     ], \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_THROW_ON_ERROR), "\n";
 } catch (Throwable $error) {
-    // The verifier's own refusals say what did not match, such as a key the trusted file does not list.
-    $reason = $error->getPrevious() instanceof UnexpectedValueException ? ' '.$error->getPrevious()->getMessage() : '';
-    fwrite(\STDERR, 'Verification failed: '.$error->getMessage().$reason."\n");
+    // The verifier's refusals carry what did not match, such as a changed record or a key the trusted file does not list.
+    $why = $error->getPrevious() instanceof UnexpectedValueException ? $error->getPrevious() : $error;
+    fwrite(\STDERR, 'Verification failed: '.$why->getMessage()."\n");
     exit(1);
 }

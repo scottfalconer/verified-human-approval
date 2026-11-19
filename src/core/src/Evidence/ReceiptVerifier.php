@@ -48,21 +48,28 @@ final class ReceiptVerifier
             }
             $proof = null === $bundle['proof'] ? null : CanonicalJson::map($bundle['proof']);
             $execution = CanonicalJson::map($bundle['execution']);
+            $signed = \is_string($receipt['manifest'] ?? null) ? CanonicalJson::map(CanonicalJson::decode($receipt['manifest'])) : [];
             // When it was signed is part of what was signed: it cannot be changed without breaking the signature.
-            $signedAt = \is_string($receipt['manifest'] ?? null) ? (CanonicalJson::map(CanonicalJson::decode($receipt['manifest']))['signedAt'] ?? null) : null;
+            $signedAt = $signed['signedAt'] ?? null;
             if (!\in_array($signedAt, [Receipt::COMMIT, Receipt::EXPORT], true)) {
                 throw new \UnexpectedValueException('The receipt does not say when it was signed.');
             }
             // The receipt names its key; only a key the verifier was given out of band can vouch for it.
             $keyId = \is_string($receipt['keyId'] ?? null) ? $receipt['keyId'] : '';
             $key = $keys->get($keyId) ?? throw new \UnexpectedValueException(\sprintf('The receipt is signed with key "%s", which the trusted keys do not list.', $keyId));
-            $expected = CanonicalJson::encode([
+            // Checked before the record is compared with the manifest: a manifest the key did not sign says nothing of the record.
+            if (!\is_string($receipt['signature'] ?? null) || !$key->signed($receipt['manifest'], $receipt['signature'])) {
+                throw new \UnexpectedValueException(\sprintf('The trusted key "%s" did not sign this receipt.', $key->keyId));
+            }
+            $expected = [
                 'format' => Receipt::FORMAT, 'keyId' => $key->keyId, 'signedAt' => $signedAt, 'proposalDigest' => $digest,
                 'proofDigest' => hash('sha256', CanonicalJson::encode($bundle['proof'])),
                 'executionDigest' => hash('sha256', CanonicalJson::encode($bundle['execution'])),
-            ]);
-            if (!hash_equals($expected, $receipt['manifest'])
-                || 'verified-human-approval/execution/v1' !== $execution['format']
+            ];
+            if (!hash_equals(CanonicalJson::encode($expected), $receipt['manifest'])) {
+                throw new \UnexpectedValueException(self::notSigned($signed, $expected));
+            }
+            if ('verified-human-approval/execution/v1' !== $execution['format']
                 || $execution['requestId'] !== $request->id || !hash_equals($digest, $execution['proposalDigest'])
                 || CanonicalJson::encode($execution['actor']) !== CanonicalJson::encode((object) $request->actor()->toArray())
                 || $execution['actionId'] !== $request->prepared()->actionId || $execution['actionVersion'] !== $request->prepared()->version
@@ -82,9 +89,6 @@ final class ReceiptVerifier
                     throw new \UnexpectedValueException('The proof is not bound to the proposal.');
                 }
             }
-            if (!\is_string($receipt['signature'] ?? null) || !$key->signed($receipt['manifest'], $receipt['signature'])) {
-                throw new \UnexpectedValueException('The trusted application signature is invalid.');
-            }
             // The time it claims is signed too, through the execution digest: it must fall inside its key's window.
             if (!self::withinWindow($key, $signedAt, $execution['recordedAt'] ?? null)) {
                 throw new \UnexpectedValueException(\sprintf('The receipt claims a time outside the window of its key "%s".', $key->keyId));
@@ -92,8 +96,33 @@ final class ReceiptVerifier
 
             return ['request' => $request, 'proof' => $proof, 'execution' => $execution, 'applicationSignatureValid' => true, 'receiptSignedAt' => $signedAt, 'keyId' => $key->keyId];
         } catch (\Throwable $error) {
-            throw new ApprovalException('invalid_evidence', 'The evidence does not verify with the supplied trusted application key.', $error);
+            throw new ApprovalException('invalid_evidence', 'The evidence does not verify.', $error);
         }
+    }
+
+    /**
+     * Why a receipt its key signed does not vouch for this record, named by the parts whose digests differ from the
+     * ones it signed.
+     *
+     * @param array<string, mixed>  $signed the manifest the receipt carries
+     * @param array<string, string> $record the manifest the receipt would carry for this record
+     */
+    private static function notSigned(array $signed, array $record): string
+    {
+        $parts = [];
+        foreach (['proposalDigest' => 'proposal', 'proofDigest' => 'approval proof', 'executionDigest' => 'execution record'] as $digest => $part) {
+            if (($signed[$digest] ?? null) !== $record[$digest]) {
+                $parts[] = $part;
+            }
+        }
+        if ([] === $parts) {
+            // A manifest the application signed for this record differs from it only in the key it names: the receipt
+            // was given another name for the same public key, as a key set may list one under two.
+            return \sprintf('The receipt names key "%s", but it was signed as key "%s".', $record['keyId'], \is_string($signed['keyId'] ?? null) ? $signed['keyId'] : '');
+        }
+        $last = array_pop($parts);
+
+        return \sprintf('The record is not what the application signed: its receipt does not match its %s.', ([] === $parts ? '' : implode(', ', $parts).' and ').$last);
     }
 
     /** @param Receipt::COMMIT|Receipt::EXPORT $signedAt */

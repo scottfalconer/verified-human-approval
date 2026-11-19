@@ -94,7 +94,7 @@ final class ApprovalEvidenceTest extends TestCase
     }
 
     #[DataProvider('tamperingCases')]
-    public function testTamperedEvidenceCannotBeVerified(string $field): void
+    public function testTamperedEvidenceCannotBeVerified(string $field, string $why): void
     {
         $bundle = $this->exportPersisted($this->complete());
         switch ($field) {
@@ -117,11 +117,29 @@ final class ApprovalEvidenceTest extends TestCase
             case 'nonce':
                 $bundle['proof']->nonce = ChallengeBinding::encode(random_bytes(32));
                 break;
+            case 'every-part':
+                $proposal = CanonicalJson::decode($bundle['proposal']);
+                $proposal->statement .= '!';
+                $bundle['proposal'] = CanonicalJson::encode($proposal);
+                $bundle['proof']->nonce = ChallengeBinding::encode(random_bytes(32));
+                $bundle['execution']->result->result_revision = 999;
+                break;
             case 'key-id':
                 $bundle['receipt']->keyId = 'attacker';
                 break;
             case 'signature':
                 $bundle['receipt']->signature = ChallengeBinding::encode(random_bytes(64));
+                break;
+            case 'manifest':
+                // The record is left as it was; only the receipt's own copy of a digest changes.
+                $manifest = CanonicalJson::decode($bundle['receipt']->manifest);
+                $manifest->proposalDigest = str_repeat('0', 64);
+                $bundle['receipt']->manifest = CanonicalJson::encode($manifest);
+                break;
+            case 'another-key':
+                // Another site's key with the same name, as two installations of one application have.
+                $other = new SodiumEvidenceSigner($this->signer->keyId(), sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
+                $bundle['receipt']->signature = $other->sign($bundle['receipt']->manifest);
                 break;
             case 'added-field':
                 $bundle['approvedBy'] = 'the board';
@@ -135,18 +153,48 @@ final class ApprovalEvidenceTest extends TestCase
             self::fail('Altered evidence was accepted.');
         } catch (ApprovalException $exception) {
             self::assertSame('invalid_evidence', $exception->reason);
+            self::assertSame($why, $exception->getPrevious()?->getMessage());
         }
         [$exit, $stdout, $stderr] = $this->runVerifier($bundle);
         self::assertSame(1, $exit);
         self::assertSame('', $stdout);
-        self::assertStringContainsString('Verification failed', $stderr);
+        self::assertSame("Verification failed: $why\n", $stderr, 'The command says what did not match, and nothing else.');
         self::assertSame(1, $this->fixture->effectCount());
     }
 
     public static function tamperingCases(): iterable
     {
-        foreach (['statement', 'effect', 'execution', 'assertion', 'nonce', 'key-id', 'signature', 'added-field', 'added-receipt-field'] as $case) {
-            yield $case => [$case];
+        // A changed record says so, and does not blame the key; a key the trusted keys do not cover says that instead.
+        $changed = static fn (string $part): string => 'The record is not what the application signed: its receipt does not match its '.$part.'.';
+        yield 'statement' => ['statement', $changed('proposal')];
+        yield 'effect' => ['effect', $changed('proposal')];
+        yield 'execution' => ['execution', $changed('execution record')];
+        yield 'assertion' => ['assertion', $changed('approval proof')];
+        yield 'nonce' => ['nonce', $changed('approval proof')];
+        yield 'every-part' => ['every-part', $changed('proposal, approval proof and execution record')];
+        yield 'key-id' => ['key-id', 'The receipt is signed with key "attacker", which the trusted keys do not list.'];
+        yield 'signature' => ['signature', 'The trusted key "test-application-key" did not sign this receipt.'];
+        // A changed receipt is not taken for a changed record: what its key did not sign says nothing of the record.
+        yield 'manifest' => ['manifest', 'The trusted key "test-application-key" did not sign this receipt.'];
+        yield 'another-key' => ['another-key', 'The trusted key "test-application-key" did not sign this receipt.'];
+        yield 'added-field' => ['added-field', 'The evidence holds fields that nothing in it signs.'];
+        yield 'added-receipt-field' => ['added-receipt-field', 'The evidence holds fields that nothing in it signs.'];
+    }
+
+    public function testEvidenceWhosePartsDescribeDifferentActionsFailsEvenWhenTheApplicationSignedIt(): void
+    {
+        // An execution record of another request, signed at export as if it were this one's.
+        $bundle = $this->exportPersisted($this->complete());
+        $bundle['execution']->requestId = 'apr_'.str_repeat('0', 32);
+        $manifest = CanonicalJson::decode($bundle['receipt']->manifest);
+        $manifest->executionDigest = hash('sha256', CanonicalJson::encode($bundle['execution']));
+        $bundle['receipt']->manifest = CanonicalJson::encode($manifest);
+        $bundle['receipt']->signature = $this->signer->sign($bundle['receipt']->manifest);
+        try {
+            (new ReceiptVerifier())->verify($bundle, TrustedKeys::single($this->signer->keyId(), $this->signer->publicKey()));
+            self::fail('Evidence of two actions verified.');
+        } catch (ApprovalException $exception) {
+            self::assertSame('Evidence components do not describe the same action.', $exception->getPrevious()?->getMessage());
         }
     }
 
@@ -385,11 +433,11 @@ final class ApprovalEvidenceTest extends TestCase
         self::assertTrue($result['applicationSignedExecutionReport']);
         self::assertStringStartsWith('Verifies the application report. The passkey signature was not checked', $result['qualification'], 'It claims only what it checked.');
 
-        // The site's key alone still catches a record edited after the receipt.
+        // The site's key alone still catches a record edited after the receipt, and says so rather than doubt the key.
         $bundle['execution']->recordedAt = '2020-01-01T00:00:00.000000Z';
         [$exit, , $stderr] = $this->runVerifier($bundle, withCredential: false);
         self::assertSame(1, $exit);
-        self::assertStringContainsString('Verification failed', $stderr);
+        self::assertSame("Verification failed: The record is not what the application signed: its receipt does not match its execution record.\n", $stderr);
     }
 
     public function testWhenAReceiptWasSignedIsPartOfWhatIsSigned(): void
