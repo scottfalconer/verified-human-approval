@@ -42,6 +42,10 @@ abstract class DbalTransactionTestCase extends TestCase
 
     protected function tearDown(): void
     {
+        // Closed before the drop, which a transaction a failed test left open on it would otherwise hold up.
+        if (isset($this->connection)) {
+            $this->connection->close();
+        }
         if (null !== $this->location) {
             TestDatabase::drop(static::KIND, $this->location);
         }
