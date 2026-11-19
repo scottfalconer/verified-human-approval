@@ -6,8 +6,9 @@ namespace VerifiedHumanApproval\Core;
 
 /**
  * Durable storage for proposals, ceremonies and their outcomes, and the transaction boundary of an approval.
- * A new adapter (another database, a framework's own storage) must keep every rule below; the shared
- * contract tests in tests/Contract show what each one means in practice.
+ * A new adapter (another database, a framework's own storage) must keep every rule below; the storage
+ * contract tests (ApprovalStoreContract, in verified-human-approval/store-contracts) show what each one
+ * means in practice.
  *
  * 1. Own the root transaction. transaction() refuses, with a LogicException, to start inside an unrelated
  *    transaction, and a normal return means the root transaction committed durably: not that the callback
