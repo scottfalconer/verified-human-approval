@@ -57,7 +57,7 @@ When the host stops a call (`ui/notifications/tool-cancelled`), the card stops p
 
 ### The phone code
 
-When the card was written with a `handoffTool`, the result names the same one, the review page is on HTTPS and the host declares `serverTools`, the card also offers **Approve on your phone**, except in a host that is on a phone already. It calls the tool with `request_id` and expects `structuredContent` with `requestId`, `expiresIn` (seconds) and `modules`: the QR code as one string of `0` and `1` per row, quiet zone included. The card draws those modules itself with SVG elements, so it never parses markup from the server, and takes the code down when it expires or the request leaves `pending`. The Symfony bundle supplies such a tool.
+When the card was written with a `handoffTool`, the result names the same one, the review page is on HTTPS and the host declares `serverTools`, the card also offers **Approve on your phone**, except in a host that is on a phone already. It calls the tool with `request_id` and expects `structuredContent` with `requestId`, `expiresIn` (seconds) and `modules`: the QR code as one string of `0` and `1` per row, quiet zone included. The card draws those modules itself with SVG elements, so it never parses markup from the server, and takes the code down when it expires or the request leaves `pending`. The Symfony bundle supplies such a tool, `ApprovalHandoffTool`. While its `phone_handoff` key is on, a container in which an MCP server serves the card without that tool does not build.
 
 ## The URL-mode elicitation and its retry
 
