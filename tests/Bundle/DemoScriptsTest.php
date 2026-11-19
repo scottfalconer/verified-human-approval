@@ -32,6 +32,64 @@ final class DemoScriptsTest extends TestCase
         }
     }
 
+    public function testPublicStartAsksBeforeReplacingADemoSetUpForAnotherAddress(): void
+    {
+        $root = $this->publicDemo('https://old-tunnel-name.trycloudflare.com', 'https://new-tunnel-name.trycloudflare.com');
+        [$status, $output] = self::publicStart($root);
+        self::assertSame(1, $status, $output);
+        self::assertStringContainsString('The public demo was set up for https://old-tunnel-name.trycloudflare.com, and the tunnel now answers at https://new-tunnel-name.trycloudflare.com.', $output);
+        self::assertStringContainsString('its accounts, passkeys, connections, records and signing key', $output);
+        self::assertStringContainsString('Nothing was replaced.', $output, 'With nobody at a terminal to answer, it replaces nothing.');
+        self::assertFileDoesNotExist($root.'/calls.log', 'Nothing was stopped, set up or started.');
+
+        [$status, $output] = self::publicStart($root, '--yes');
+        self::assertSame(0, $status, $output);
+        self::assertSame(['server stop', 'setup --reset for https://new-tunnel-name.trycloudflare.com, registration 0', 'server start'], file($root.'/calls.log', \FILE_IGNORE_NEW_LINES));
+    }
+
+    public function testPublicStartKeepsADemoSetUpForTheTunnelAndSetsUpAMissingOneWithoutAsking(): void
+    {
+        $same = $this->publicDemo('https://tunnel-name.trycloudflare.com', 'https://tunnel-name.trycloudflare.com');
+        [$status, $output] = self::publicStart($same);
+        self::assertSame(0, $status, $output);
+        self::assertSame(['server start'], file($same.'/calls.log', \FILE_IGNORE_NEW_LINES));
+
+        $none = $this->publicDemo(null, 'https://tunnel-name.trycloudflare.com');
+        [$status, $output] = self::publicStart($none);
+        self::assertSame(0, $status, $output);
+        self::assertSame(['server stop', 'setup --reset for https://tunnel-name.trycloudflare.com, registration 0', 'server start'], file($none.'/calls.log', \FILE_IGNORE_NEW_LINES));
+    }
+
+    /** @return array{int, string} */
+    private static function publicStart(string $root, string ...$arguments): array
+    {
+        return self::script([$root.'/demo/bin/public', 'start', ...$arguments], ['PATH' => $root.'/stand-ins:'.\dirname(\PHP_BINARY).':/usr/bin:/bin']);
+    }
+
+    /**
+     * A copy of demo/bin/public in a tree of its own, beside stand-ins for launchd, the server script and setup
+     * that only record what they are asked to do, with a tunnel already answering at $tunnel.
+     *
+     * @return string the tree's root
+     */
+    private function publicDemo(?string $setUpFor, string $tunnel): string
+    {
+        $root = $this->directory.'/'.bin2hex(random_bytes(4));
+        $filesystem = new Filesystem();
+        $filesystem->copy(\dirname(__DIR__, 2).'/demo/bin/public', $root.'/demo/bin/public');
+        $filesystem->chmod($root.'/demo/bin/public', 0755);
+        $filesystem->dumpFile($root.'/demo/bin/server', "#!/bin/sh\necho \"server \$1\" >> '$root/calls.log'\n");
+        $filesystem->dumpFile($root.'/demo/bin/setup.php', "<?php\nfile_put_contents('$root/calls.log', 'setup '.\$argv[1].' for '.getenv('VERIFIED_HUMAN_APPROVAL_ORIGIN').', registration '.getenv('VERIFIED_HUMAN_APPROVAL_DYNAMIC_CLIENT_REGISTRATION').\"\\n\", \\FILE_APPEND);\n");
+        $filesystem->dumpFile($root.'/stand-ins/launchctl', "#!/bin/sh\nexit 0\n");
+        $filesystem->chmod([$root.'/demo/bin/server', $root.'/stand-ins/launchctl'], 0755);
+        $filesystem->dumpFile($root.'/var/public-tunnel.log', "Your quick Tunnel has been created! Visit it at:\n$tunnel\n");
+        if (null !== $setUpFor) {
+            $filesystem->dumpFile($root.'/var/public-demo/settings.json', json_encode(['origin' => $setUpFor], \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES));
+        }
+
+        return $root;
+    }
+
     /** @return array<string, mixed> */
     private static function settings(string $runtime): array
     {

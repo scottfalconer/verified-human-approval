@@ -1,6 +1,6 @@
 #!/bin/sh
-# Runs the demo site under launchd on macOS, so it keeps running when Claude or the terminal that
-# started it quits. Usage: server start | stop | restart | status
+# Runs the demo site under launchd on macOS, so it keeps running after the terminal that started it
+# closes. Usage: server start | stop | restart | status
 # PORT (default 8080) and VERIFIED_HUMAN_APPROVAL_RUNTIME (default var/demo) select another copy, such as the public one.
 set -eu
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
