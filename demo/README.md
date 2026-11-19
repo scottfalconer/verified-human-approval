@@ -4,7 +4,7 @@ This Symfony application runs a fictional council's public alerts site. An agent
 
 The walkthrough uses the real MCP SDK client supplied in this repository. You do not need Claude, a model API key, or a paid model. You will request an alert, review the exact proposal, approve it, and check the recorded result.
 
-The accounts, alert pages, administrator screens, and OAuth wiring are reference application code. The OAuth protocol is supplied by `league/oauth2-server-bundle` and `omouren/mcp-oauth-bundle`; the approval packages do not implement or require an OAuth issuer. See [Authentication ownership](authentication.md) for the connection lifecycle and the reference-only dependency compatibility alias. For your own application, start with the [Symfony bundle guide](../src/symfony-bundle/README.md).
+The accounts, alert pages, administrator screens, and OAuth wiring are reference application code. The OAuth protocol is supplied by `league/oauth2-server-bundle` and `omouren/mcp-oauth-bundle`; the approval packages do not implement or require an OAuth issuer. See [Authentication ownership](authentication.md) for the consent step, the connection lifecycle and the reference-only dependency compatibility alias. For your own application, start with the [Symfony bundle guide](../src/symfony-bundle/README.md).
 
 ## Run the demo
 
