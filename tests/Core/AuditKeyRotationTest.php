@@ -200,6 +200,29 @@ final class AuditKeyRotationTest extends TestCase
         self::assertTrue($log->verify()['intact']);
     }
 
+    public function testARotationHiddenFromTheStoresLookupStillEndsTheOldKeysEntries(): void
+    {
+        $this->before()->append('tenant-a', 'passkey.enrolled', 'cred-1', ['userId' => 'alice']);
+        // A rollout: the rotation is recorded while the old key's window stays open an hour longer.
+        $overlap = new TrustedKeys([
+            new TrustedKey('application-2', $this->new->publicKey(), TrustedKey::time(self::ROTATED)),
+            new TrustedKey('application-1', $this->old->publicKey(), TrustedKey::time(self::OPENED), TrustedKey::time('2026-11-09T13:00:00Z')),
+        ]);
+        $this->clock->modify('2026-11-09T12:30:00Z');
+        $log = new AuditLog($this->store, $this->new, $overlap, $this->clock);
+        $log->recordRotation('application-1');
+
+        // Someone holding the old private key and the database stores the rotation's type as a BLOB, which keeps
+        // what was signed but hides the row from the lookup, then enrolls their own passkey inside the old window.
+        $this->pdo->exec("UPDATE verified_human_approval_audit SET type = CAST(type AS BLOB) WHERE type = 'signing_key.rotated'");
+        $thief = new AuditLog($this->store, $this->old, TrustedKeys::single('application-1', $this->old->publicKey()), new MockClock('2026-11-09T12:40:00Z'));
+        $thief->append('tenant-a', 'passkey.enrolled', 'cred-thief', ['userId' => 'alice']);
+
+        self::assertNull($log->find('passkey.enrolled', 'cred-thief'), 'The chain had moved trust away from that key.');
+        self::assertNotNull($log->find('passkey.enrolled', 'cred-1'));
+        self::assertSame('it is signed with key "application-1", which entry 2 rotated away from', $log->verify()['entries'][2]['problem']);
+    }
+
     public function testARecordClaimingATimeOutsideItsKeysWindowFails(): void
     {
         $this->before()->append('tenant-a', 'passkey.enrolled', 'cred-1', ['userId' => 'alice']);

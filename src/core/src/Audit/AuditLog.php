@@ -30,8 +30,9 @@ use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
  * moved.
  *
  * This class builds, signs and checks entries; an AuditStore keeps the rows. One chain spans every tenant. The
- * store's lookup only finds entries: that one is absent, such as a revocation, is read from the whole chain
- * (unrecorded()), since an edited index or storage class can hide a row from a lookup.
+ * store's lookup only finds entries: that one is absent, such as a revocation (unrecorded()) or the rotation away
+ * from a key being retired (find()), is read from the whole chain, since an edited index or storage class can
+ * hide a row from a lookup.
  *
  * @phpstan-import-type AuditHead from AuditStore
  * @phpstan-import-type AuditRecord from AuditStore
@@ -136,11 +137,12 @@ final readonly class AuditLog
 
     /**
      * The newest entry of a type for a subject that the trusted keys vouch for, or null. Its own hash, signature
-     * and key must verify. If its key's window has closed, as after a rotation, verify() must accept it too:
-     * a later entry signed with a key in use vouches for it, and every entry from the first through that one is
-     * kept as it was written. So once the new key has signed anything, such as the rotation entry, a stolen copy
-     * of the old key cannot swap in an entry of its own from before then, nor add one at the end, even after
-     * damaging the rotation entry.
+     * and key must verify. If its key has an end, as a key being retired has, verify() must accept it too, and
+     * verify() reads the rotations from the whole chain: an entry after the rotation away from its key never
+     * counts, and once that key's window has closed, a later entry signed with a key in use must vouch for it,
+     * with every entry from the first through that one kept as it was written. So once the new key has signed
+     * anything, such as the rotation entry, a stolen copy of the old key cannot swap in an entry of its own from
+     * before then, nor add one at the end, even after damaging the rotation entry or hiding it from the lookup.
      *
      * @return array<string, mixed>|null
      */
@@ -154,7 +156,7 @@ final readonly class AuditLog
             if (null === $entry || null !== $problem || $this->signedAfterRotation($row['key_id'], (int) $row['seq'])) {
                 continue;
             }
-            if ($this->inUse($row['key_id'], $now)) {
+            if ($this->inUse($row['key_id'], $now) && null === $this->keys->get($row['key_id'])?->validUntil) {
                 return $entry;
             }
             // Each stored hash is the hash of its entry, which names its sequence: equal hashes are the same entry.
