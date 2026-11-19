@@ -116,7 +116,7 @@ These are the initial account rules:
 | `reader` | Read-only colleague | Refused |
 | `other` | Another organization | Cannot see this organization's alerts |
 
-To try a policy change, enroll the manager's passkey using its own setup link, then open **Administrator settings**. Changing the rule requires the manager's passkey approval. Requests still waiting under the previous rule cannot be approved under the new one.
+To try a policy change, enroll the manager's passkey using its own setup link, then open **Alert rule**. Changing the rule requires the manager's passkey approval. Requests still waiting under the previous rule cannot be approved under the new one.
 
 ## Run it again
 
@@ -166,12 +166,12 @@ The phone code works once for two minutes. It opens only that review, without gr
 | Path | Purpose |
 | --- | --- |
 | [`src/DemoKernel.php`](src/DemoKernel.php) | Bundle configuration, firewalls, routes, service wiring, and the scopes each tool needs, which a token lacking one is told with HTTP 403 |
-| [`src/Mcp/DemoTools.php`](src/Mcp/DemoTools.php) | Read and publish tools, which check the connection's scopes again for themselves |
+| [`src/Mcp/DemoTools.php`](src/Mcp/DemoTools.php) | Read and publish tools. Reading checks the connection's `alert.read` scope; publishing checks `approval.read`, because a retry can return a result, and the authorizer checks `alert.publish` |
 | [`src/Action/PublishAlert.php`](src/Action/PublishAlert.php) | Frozen proposal, version, preconditions, and postconditions |
 | [`src/Action/AlertPublisher.php`](src/Action/AlertPublisher.php) | The guarded database mutation |
 | [`src/Action/DemoPolicyProvider.php`](src/Action/DemoPolicyProvider.php) | The administrator's rules |
 | [`src/Controller/AccountController.php`](src/Controller/AccountController.php) | Passkey enrollment and confirmation |
 | [`src/Controller/AuditController.php`](src/Controller/AuditController.php) | Receipt and passkey checks in the administrator view |
 | [`src/OAuth`](src/OAuth) | Application storage, connection lifecycle, bounded metadata fetching, and the consent step bound to the exact authorization request, for the maintained OAuth providers |
-| [`src/Security/AgentTokenAuthenticator.php`](src/Security/AgentTokenAuthenticator.php) | Host firewall: validate the bearer token with League, resolve the actual local user, and pass verified scopes to the MCP SDK |
+| [`src/Security/AgentTokenAuthenticator.php`](src/Security/AgentTokenAuthenticator.php) | Host firewall: validate an OAuth access token with League or look up a personal token by its hash, resolve the actual local user, and pass verified scopes to the MCP SDK |
 | [`../examples/README.md`](../examples/README.md) | SDK and Symfony AI clients |

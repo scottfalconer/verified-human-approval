@@ -33,11 +33,11 @@ Dynamic client registration (RFC 7591), which the MCP specification deprecates i
 
 ## Reference-only dependency compatibility
 
-The root project pins `symfony/mcp-bundle` to `1.0.0-BETA1` and aliases it as `0.13.99`, because `omouren/mcp-oauth-bundle` 1.2 still declares `^0.13`. This is an explicit compatibility override in this reference application, not upstream's declaration of Symfony MCP 1.0 support. None of the reusable package manifests imposes the OAuth providers or this alias on consumers. Remove the override when the provider supports the MCP 1.0 constraint and rerun the acceptance suite.
+The root project pins `symfony/mcp-bundle` to `1.0.0-BETA1` and aliases it as `0.13.99`, because `omouren/mcp-oauth-bundle` 1.2 still declares `^0.13`. This is an explicit compatibility override in this reference application, not upstream's declaration of Symfony MCP 1.0 support. None of the reusable package manifests imposes the OAuth providers or this alias on consumers. The override is needed only until the provider declares support for Symfony MCP 1.0.
 
 `tests/Bundle/OAuthTest.php` exercises real League code issuance, S256 exchange, access validation, refresh, revocation, reconnection binding, rollback, expiry during passkey approval, two independent PHP processes racing to consume the same code or refresh token, and consent that approves only the request it showed. Browser requests run through the real Symfony kernel; client metadata download responses are controlled fixtures. `tests/oauth_http_smoke.py` separately starts the real PHP HTTP server on an ephemeral port and exercises browser-session login and consent, S256 exchange, issued JWTs used by the SDK, refresh rotation, and connection revocation through the account page. Neither test connects to a hosted Claude account or tests a physical passkey device.
 
-The OAuth replacement uses runtime schema 6 and fresh isolated test runtimes. It does not migrate or reset existing deployed demo accounts, signing keys, passkeys or grants. Keep an existing demo running on its matching code until an explicit migration or replacement-runtime deployment is arranged; never reset a public demo merely to update this library.
+This OAuth server needs runtime schema 6. The kernel refuses a runtime with an older schema instead of migrating it, and nothing upgrades or resets a runtime's accounts, signing keys, passkeys or grants on its own: an older runtime keeps working only on the code that made it, or is replaced with `php demo/bin/setup.php --reset`, which removes all of them.
 
 Run the focused checks from the repository root:
 
