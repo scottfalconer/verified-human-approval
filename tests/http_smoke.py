@@ -56,7 +56,13 @@ with tempfile.TemporaryDirectory(prefix="verified-human-approval-http-") as temp
             agent = subprocess.run([PHP, str(ROOT / "examples/agent.php"), "--scripted"], env=env, capture_output=True, text=True, timeout=30)
             if agent.returncode:
                 raise AssertionError(agent.stderr)
-            assert "pending" in agent.stdout and "review_url" in agent.stdout, agent.stdout
+            # The tool result prints as indented JSON, and its review link on a line of its own, usable as printed.
+            printed = json.loads(agent.stdout[agent.stdout.index("{"):agent.stdout.rindex("}") + 1])
+            links = [line.removeprefix("Review and approve: ") for line in agent.stdout.splitlines() if line.startswith("Review and approve: ")]
+            assert printed["status"] == "pending" and links == [printed["review_url"]], agent.stdout
+            assert '\n    "status": "pending",' in agent.stdout and "\\/" not in agent.stdout, agent.stdout
+            with urllib.request.urlopen(links[0], timeout=5) as response:
+                assert response.status == 200 and response.url == origin + "/login", response.url
             with sqlite3.connect(runtime / "application.sqlite") as db:
                 assert db.execute("SELECT mutation_count FROM demo_alerts WHERE id='riverside-evacuation'").fetchone()[0] == 0
                 assert db.execute("SELECT COUNT(*) FROM verified_human_approval_executions").fetchone()[0] == 0
