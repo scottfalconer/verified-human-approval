@@ -14,7 +14,7 @@ This is an application boundary, not a sandbox. Whoever can change the applicati
 
 ## Transaction boundary
 
-The PDO implementation supports SQLite and uses `BEGIN IMMEDIATE`. The Doctrine adapter supports SQLite, PostgreSQL, MySQL and MariaDB using its database-specific locking and isolation rules. Both own the outer transaction. Business state, current authorization data, credentials, proposals and execution records must use the **same application connection**. The [Doctrine guide](../src/doctrine/README.md) documents the supported configurations and ORM boundary.
+The PDO implementation supports SQLite: it begins through `PDO::beginTransaction()` and takes the database's write reservation at once, as `BEGIN IMMEDIATE` would, so the audit store and the application's own code on the connection join it. The Doctrine adapter supports SQLite, PostgreSQL, MySQL and MariaDB using its database-specific locking and isolation rules. Both own the outer transaction. Business state, current authorization data, credentials, proposals and execution records must use the **same application connection**. The [Doctrine guide](../src/doctrine/README.md) documents the supported configurations and ORM boundary.
 
 The initiating user and approving browser user must be the same account in the same tenant. Completion rechecks the original delegation's current permissions; the browser's broader privileges do not replace them. The adapter checks current resource versions before writing and checks the resulting business state before commit.
 
@@ -40,7 +40,7 @@ The core rejects mutation of the frozen data around adapter callbacks. The adapt
 
 ## Protection after storage
 
-With a receipt signer configured, `ApprovalService` signs the proposal, passkey proof and execution report inside the completing transaction. If signing fails, that transaction rolls back. Keep the signing key outside the database. [Verify a receipt](evidence.md) explains the two signatures and walks through a verification.
+With a receipt signer configured, `ApprovalService` signs the proposal, passkey proof and execution report inside the completing transaction. If signing fails, or the application's trusted keys would not accept the signer at the time the execution is recorded, that transaction rolls back. Keep the signing key outside the database. [Verify a receipt](evidence.md) explains the two signatures and walks through a verification.
 
 The demo also records passkey enrollment and revocation in a signed audit log. `AnchoredCredentialRepository` accepts a current credential only if its identity matches a valid signed enrollment and no signed revocation is found. Inserting a new credential row or replacing its public key in the database does not supply that enrollment proof. Hosts must wire this repository and record enrollment events to get this protection; a plain credential repository alone does not provide it. The wrapper accepts any `RevocableCredentialRepository`, and the log keeps its rows through an `AuditStore`, so a host can use its own storage. A revocation and its signed entry must commit in one transaction: the demo's owner and administrator routes both do, and a failure to sign or store the entry leaves the passkey active.
 
