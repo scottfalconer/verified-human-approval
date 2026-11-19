@@ -61,9 +61,9 @@ Only `completed` confirms that the action ran. Save the request ID and use statu
 php examples/agent.php --scripted
 ```
 
-This runs Symfony AI's real `Agent` and `McpToolbox`, discovers tools from the server, and sends a real publication request. Only the model responses are scripted. The script always requests the `riverside-evacuation` alert with a fresh request key, then prints the tool result.
+This runs Symfony AI's real `Agent` and `McpToolbox`, discovers tools from the server, and sends a real publication request. Only the model responses are scripted. The script always requests the `riverside-evacuation` alert with a fresh request key, then prints the tool result, with the review link on a line of its own.
 
-No model API key is needed. Human approval is not simulated: with the editor's initial policy, the initial result is pending. Approval still happens on the site, and the request can expire or be cancelled. Use the returned review URL and check status with `mcp.php` as above. This mode checks the integration flow; it is not a language-model benchmark.
+No model API key is needed. Human approval is not simulated: with the editor's initial policy, the initial result is pending. Approval still happens on the site, and the request can expire or be cancelled. Open the review link it prints, and check status with `mcp.php` as above. This mode checks the integration flow; it is not a language-model benchmark.
 
 If you already issued the alert in the earlier example, follow [Run it again](../demo/README.md#run-it-again) before demonstrating another publication.
 
@@ -82,7 +82,7 @@ php examples/agent.php 'Issue the riverside-evacuation alert. If approval is nee
 
 It uses `gpt-4.1-mini`. To use another model your API account offers, set `VERIFIED_HUMAN_APPROVAL_MODEL` to its ID first.
 
-This mode makes a live model request and may incur API charges. Its instructions tell the agent to show the application's review URL and stop while approval is pending. The application enforces approval regardless of the model's response. Check the application's recorded status before treating an action as complete.
+This mode makes a live model request and may incur API charges. No run of it is recorded. Its instructions tell the agent to show the application's review URL and stop while approval is pending. The application enforces approval regardless of the model's response. After the model's reply, the script prints `Review and approve:` with the review link from the application's tool result, whatever the reply said. Check the application's recorded status before treating an action as complete.
 
 ## Source map
 

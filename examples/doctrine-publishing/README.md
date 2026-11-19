@@ -92,6 +92,7 @@ Read it in this order. Everything is in `src/`, `config/` and `templates/`.
 | A batch is all or nothing | One article of a batch changes after the request: none is archived. Approved, all of them are, under one request id |
 | Delete removes only what was frozen | Only the named article disappears; a changed draft is not deleted; its approvals stay on record |
 | The tripwire | Changing live text, archiving, deleting or inserting a live article through the ORM, outside an approval: `approval_required`, nothing written; a draft still saves |
+| The tripwire's limit | A DQL `UPDATE` of an article's live text and a DQL `DELETE` of a live article, through the entity manager outside an approval: neither is refused, and the edited article loses its badge |
 | The badge | Shown for approved live text; gone after a plain SQL edit of the live text, after archiving, and for an article put back live by SQL |
 | The locks | While an approval's checks are open, another connection cannot change the role, the connection or the article it read |
 | One path | The browser and the agent make the identical proposal; a retry with the same key returns the same request and publishes once; the agent reads the signed receipt; a reader's token, and a reader with a write scope by mistake, ask for nothing |
@@ -113,7 +114,7 @@ This is an example to learn from and copy, not a finished newsroom:
 - **Permissions.** One role per account, editor or reader, and one tenant. A multi-tenant application keeps the tenant on the article and checks it.
 - **Drafts.** Not versioned. A live article's text changes only through an approved live edit, which also updates its draft; there is no forward draft of a live article.
 - **Deleting a draft that was never published.** It still asks for approval here. The tripwire guards what holds approved state, so plain ORM code could delete such a draft, as it could edit it: it holds nothing a visitor saw or a person approved.
-- **What the tripwire sees.** It checks ORM flushes. Plain SQL and DQL `UPDATE` or `DELETE` go around it, as the tests show with the badge; keep those away from the protected columns. The badge still tells visitors when live text no longer matches its approval.
+- **What the tripwire sees.** It checks ORM flushes. Plain SQL and DQL `UPDATE` or `DELETE` go around it, as the tests show; keep those away from the protected columns. The badge still tells visitors when live text no longer matches its approval.
 - **Deployment.** Local HTTP on `localhost` only. Before you deploy: an HTTPS origin chosen before anyone enrolls a passkey, `framework.trusted_hosts`, a shared cache and lock store if several servers run it, the receipt key in your secret store with its public key kept separately, migrations instead of setup's schema creation, and checkpoints of the audit log's head (`verified-human-approval:audit-head`). See [Before deployment](../../src/symfony-bundle/docs/index.md#before-deployment).
 - **What a passkey proves.** That the enrolled passkey approved this exact proposal, with user verification. Not who wrote the text, nor that the person read it; see the [security model](../../docs/security-model.md).
 
