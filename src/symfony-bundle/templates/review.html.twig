@@ -18,9 +18,10 @@
         <div class="done">
             {# Only a recorded passkey proof means a person approved it; under a rule that needs none, say so. #}
             <p class="notice outcome"><span>{% if state.proof %}<strong>{{ 'Approved with your passkey.'|trans }}</strong> {{ 'This request is completed.'|trans }}{% else %}<strong>{{ 'Completed without a passkey:'|trans }}</strong> {{ "the application's rule did not require one for this request."|trans }}{% endif %}</span></p>
-            {# The way back: to the page on this site the request came from, or to the agent that asked. The
-               approval card adds #return=claude-desktop, claude-mobile or claude-web to an agent's review link, and
-               approval.js shows the matching button and wording. Only an agent's request mentions the agent. #}
+            {# The way back: to the page on this site the request came from, or to the agent that asked. In a host
+               that names itself Claude, the approval card adds #return=claude-desktop, claude-mobile or claude-web to
+               an agent's review link, and approval.js shows the matching button and wording; any other host gets the
+               line below. Only an agent's request mentions the agent. #}
             {% block return %}
             {% if return_path %}<div class="actions sheet-back"><a class="button" href="{{ return_path }}">{{ 'Back to %application%'|trans({'%application%': application}) }}</a></div>{% endif %}
             {% if agent %}

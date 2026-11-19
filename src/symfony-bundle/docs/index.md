@@ -341,7 +341,7 @@ Keep placeholders such as `%agent%` as they are. The message `en` is the pages' 
 
 `approval.js` takes its wording from the page: the review template renders the translated messages as JSON in `data-messages` on the passkey panel and on the return panel. Any message missing there stays in the script's own English. A page of your own that uses the script, such as passkey enrollment, can hand over its wording the same way, with the keys of `ENGLISH` in `approval.js`.
 
-Only a request an agent made mentions the agent. Set `agent_name` (default `Claude`) to the name your people know it by, as in "You can close this tab and return to Claude". The approval card in Claude adds `#return=` to the review link it opens: with `claude-desktop` or `claude-mobile`, the finished page also offers a button that opens the `claude://` app link; with `claude-web`, one that closes the tab.
+Only a request an agent made mentions the agent. Set `agent_name` (default `Claude`) to the name your people know it by, as in "You can close this tab and return to Claude". When the card's host names itself Claude in its answer to `ui/initialize`, the approval card adds `#return=` to the review link it opens: with `claude-desktop` or `claude-mobile`, the finished page also offers a button that opens the `claude://` app link; with `claude-web`, one that closes the tab. In any other host the card adds `#return=agent`, and the page keeps that line.
 
 ## After an action runs
 

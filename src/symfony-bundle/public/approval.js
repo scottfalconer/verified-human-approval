@@ -219,8 +219,9 @@ for (const time of document.querySelectorAll('time[data-local-time]')) {
     }
 }
 
-// After approval, return the person to where the request came from. The card in Claude adds
-// #return=claude-desktop, claude-mobile or claude-web to the review link; without it, the page just says so.
+// After approval, return the person to where the request came from. The approval card adds #return=claude-desktop,
+// claude-mobile or claude-web to the review link when its host names itself Claude, and #return=agent in any other
+// host; with that, or with nothing, the page keeps its own line.
 const back = new URLSearchParams(location.hash.slice(1)).get('return');
 const returnPanel = document.querySelector('[data-return]');
 if (returnPanel && back) {

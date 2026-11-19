@@ -45,7 +45,7 @@ HOST = """<!doctype html><meta charset="utf-8"><body style="margin:0;background:
   addEventListener('message', (event) => {
     const m = event.data;
     if (!card() || event.source !== card().contentWindow || !m || m.jsonrpc !== '2.0') return;
-    if (m.method === 'ui/initialize') setTimeout(() => reply(m.id, { protocolVersion: '2026-01-26', hostInfo: { name: 'card-smoke', version: '1' },
+    if (m.method === 'ui/initialize') setTimeout(() => reply(m.id, { protocolVersion: '2026-01-26', hostInfo: %(info)s,
       hostCapabilities: %(capabilities)s, hostContext: %(context)s }), %(delay)d);
     if (m.method === 'ui/notifications/initialized') card().contentWindow.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-result',
       params: { content: [], structuredContent: { approval: view('pending') } } }, '*');
@@ -63,11 +63,12 @@ HOST = """<!doctype html><meta charset="utf-8"><body style="margin:0;background:
 
 
 def host(browser, review=REVIEW, handoff="approval_handoff", theme="light", platform="desktop", capabilities=None,
-         styles=None, background=None, system="light", delay=0):
+         styles=None, background=None, system="light", delay=0, name="card-smoke"):
     # A fresh page each time: set_content keeps the window, and the host script's constants with it.
     # `system` is the device's own light or dark setting, which a host's theme need not follow.
     # `delay`: milliseconds before the host answers ui/initialize. With a delay the host page's clock stands still until
     # the test moves it (the sandboxed card keeps real time), and the caller waits for the statement itself.
+    # `name`: what the host calls itself in that answer (hostInfo.name).
     page = browser.new_page(viewport={"width": 600, "height": 520}, device_scale_factor=2, color_scheme=system)
     if delay:
         page.clock.install()
@@ -76,7 +77,7 @@ def host(browser, review=REVIEW, handoff="approval_handoff", theme="light", plat
         "background": background or ("#1f1f1e" if theme == "dark" else "#ffffff"), "review": json.dumps(review), "handoff": json.dumps(handoff),
         "context": json.dumps(context), "link": json.dumps(LINK), "modules": json.dumps(MODULES),
         "capabilities": json.dumps({"openLinks": {}, "serverTools": {}} if capabilities is None else capabilities),
-        "delay": delay, "card": html.escape(CARD, quote=True)})
+        "delay": delay, "info": json.dumps({"name": name, "version": "1"}), "card": html.escape(CARD, quote=True)})
     card = page.frame_locator("#card")
     if not delay:
         expect(card.locator("#statement")).to_contain_text("Evacuation order")
@@ -165,14 +166,16 @@ def main():
 
         for label, options in [("a local address", {"review": "http://localhost:8080/approval/r1", "handoff": None}),
                                ("a server that does not offer it", {"handoff": None}),
-                               ("Claude on a phone", {"platform": "mobile"})]:
+                               ("Claude on a phone", {"platform": "mobile", "name": "claude-ios"}),
+                               ("another host on a phone", {"platform": "mobile"})]:
             page, card = host(browser, **options)
             expect(card.locator("#open")).to_be_visible()
             expect(card.locator("#phone-show")).to_be_hidden()
             checks.append("no phone option on " + label)
 
-        # The button asks the host to open the site's own page and says where the person came from.
-        page, card = host(browser)
+        # The button asks the host to open the site's own page and says where the person came from: back to Claude only
+        # for a host that names itself Claude, and to the page's own line for any other.
+        page, card = host(browser, name="claude-desktop")
         card.locator("#open").click()
         expect(card.locator("#status")).to_contain_text("Approve on the site with your passkey")
         opened = page.evaluate("window.opened")
@@ -181,6 +184,12 @@ def main():
         page.wait_for_function("window.calls.filter((name) => name === 'approval_status').length >= 2", timeout=10000)
         expect(card.locator("#status")).to_contain_text("Approve on the site with your passkey")
         checks.append("the button opens the review page through the host, and its line outlasts a status check")
+        page, card = host(browser, name="vscode")
+        card.locator("#open").click()
+        expect(card.locator("#status")).to_contain_text("Approve on the site with your passkey")
+        opened = page.evaluate("window.opened")
+        assert opened == [REVIEW + "#return=agent"], f"a host that is not Claude was sent back to Claude: {opened!r}"
+        checks.append("a host that does not name itself Claude is not sent back to Claude")
 
         # A host that declares neither capability is sent neither request, and the card says what it cannot do.
         page, card = host(browser, capabilities={})

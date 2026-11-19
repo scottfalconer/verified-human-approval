@@ -62,8 +62,9 @@ function host() {
         if (check && !answered.has(check.id)) { answered.add(check.id); await this.reply(check, approval()); }
       }
     },
-    async initialize(capabilities = { openLinks: {}, serverTools: {} }, context = { platform: 'web' }) {
-      dispatch({ id: messages[0].id, result: { protocolVersion: '2026-01-26', hostCapabilities: capabilities, hostContext: context } });
+    // The host's answer to ui/initialize. Unless a test says, the host does not name itself.
+    async initialize(capabilities = { openLinks: {}, serverTools: {} }, context = { platform: 'web' }, info = undefined) {
+      dispatch({ id: messages[0].id, result: { protocolVersion: '2026-01-26', hostCapabilities: capabilities, hostInfo: info, hostContext: context } });
       await flush();
     },
     show(result = approval()) { dispatch({ method: 'ui/notifications/tool-result', params: result }); },
@@ -276,6 +277,32 @@ test('a stopped request is told in the review page’s words, with no cause the 
     await h.reply(h.call('approval_status'), approval(status, 'r1', { reason }));
     assert.equal(h.status(), line, `${status} / ${reason}`);
   }
+});
+
+test('only a host that names itself Claude is sent back by Claude’s links; any other host gets the page’s own line', async () => {
+  const opens = async (info, context) => {
+    const h = host(); await h.initialize(undefined, context, info); h.show();
+    const click = h.element('open').handlers.click(); await flush();
+    const url = h.opened().params.url;
+    await h.reply(h.opened(), {}); await click;
+    return url.slice('https://alerts.example/approval/r1'.length);
+  };
+  assert.equal(await opens({ name: 'claude-desktop', version: '1.0.0' }, { platform: 'desktop' }), '#return=claude-desktop');
+  assert.equal(await opens({ name: 'Claude', version: '1.0.0' }, { platform: 'mobile' }), '#return=claude-mobile');
+  assert.equal(await opens(undefined, { platform: 'web', userAgent: 'claude.ai/1.0' }), '#return=claude-web');
+  for (const [info, context] of [[{ name: 'vscode', version: '1.110' }, { platform: 'desktop' }], [{ name: 'chatgpt', version: '1' }, { platform: 'web' }],
+    [{ name: 'basic-host', version: '1' }, {}], [undefined, { platform: 'mobile' }], [undefined, {}]]) {
+    assert.equal(await opens(info, context), '#return=agent', JSON.stringify([info, context]));
+  }
+});
+
+test('a host on a phone is offered no phone code, whoever it is', async () => {
+  for (const info of [{ name: 'claude-ios', version: '1' }, { name: 'another-host', version: '1' }, undefined]) {
+    const h = host(); await h.initialize(undefined, { platform: 'mobile' }, info); h.show();
+    assert.equal(h.element('phone-show').hidden, true, JSON.stringify(info));
+  }
+  const h = host(); await h.initialize(undefined, { platform: 'desktop' }, { name: 'vscode', version: '1.110' }); h.show();
+  assert.equal(h.element('phone-show').hidden, false);
 });
 
 test('a new request does not inherit the colour of the one before it', async () => {

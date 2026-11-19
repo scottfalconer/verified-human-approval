@@ -76,7 +76,7 @@
   const REQUEST_TIMEOUT_MS = 15000;
   const SETTLE_MS = 300;
   const UNANSWERED = new Error('The host did not answer.');
-  let nextId = 1, view = null, timer = null, since = 0, host = {}, capabilities = {}, codeTimer = null, ended = false, generation = 0, polling = false, shown = false, hint = null;
+  let nextId = 1, view = null, timer = null, since = 0, host = {}, hostInfo = {}, capabilities = {}, codeTimer = null, ended = false, generation = 0, polling = false, shown = false, hint = null;
   const waiting = new Map();
 
   // Every request has a deadline except the first, which passes 0: a host that answers late still starts the card.
@@ -189,7 +189,7 @@
     if (view.statement) { statement.textContent = '“' + view.statement + '”'; statement.hidden = false; }
     open.hidden = !(pending && url && capabilities.openLinks);
     // A phone needs the site on HTTPS, and a host that is already a phone doesn't need a code.
-    phoneShow.hidden = !(pending && url && url.protocol === 'https:' && view.handoffTool && capabilities.serverTools && returnTarget() !== 'claude-mobile');
+    phoneShow.hidden = !(pending && url && url.protocol === 'https:' && view.handoffTool && capabilities.serverTools && platform() !== 'mobile');
     if (!pending) hideCode();
     document.body.dataset.status = view.status;
     status.textContent = view.status === 'completed' ? completedLine()
@@ -253,10 +253,15 @@
   }
   // Coming back into view is when the person has most likely just approved, so the card checks at once, also after it stopped.
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { stopPolling(); poll(); } });
-  // Tells the review page where the person came from, so it can offer the way back after approval.
+  // The host's platform as it says, or a guess: Claude's desktop app is built on Electron.
+  function platform() { return host.platform || (/Electron\//.test(navigator.userAgent) ? 'desktop' : 'web'); }
+  // Tells the review page where the person came from, so it can offer the way back after approval. Only a host that
+  // names itself Claude in its answer to ui/initialize is sent back by Claude's own links; any other gets the page's
+  // own line, which names the agent as the site calls it.
   function returnTarget() {
-    const platform = host.platform || (/Electron\//.test(navigator.userAgent) ? 'desktop' : 'web');
-    return platform === 'desktop' || platform === 'mobile' ? 'claude-' + platform : 'claude-web';
+    const claude = [hostInfo.name, host.userAgent].some((name) => typeof name === 'string' && /claude/i.test(name));
+    const where = platform();
+    return !claude ? 'agent' : where === 'desktop' || where === 'mobile' ? 'claude-' + where : 'claude-web';
   }
   function show(result) {
     if (ended) return;
@@ -387,6 +392,7 @@
       clearTimeout(slow);
       if (ended) return;
       capabilities = result?.hostCapabilities || {};
+      hostInfo = result?.hostInfo || {};
       applyTheme(result?.hostContext);
       settle();
       notify('ui/notifications/initialized', {});
