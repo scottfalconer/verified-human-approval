@@ -141,7 +141,7 @@ The [integration guide](src/symfony-bundle/docs/index.md) is the canonical insta
 
 The engine is independent of Symfony. The worked Symfony example uses a single SQLite transaction; the Doctrine storage passes the same contract on SQLite, PostgreSQL, MySQL and MariaDB. External effects, such as an email or another service's API, are outside the transaction and need their own design.
 
-On Doctrine ORM, start from the [publishing example](examples/doctrine-publishing/README.md): a runnable newsroom where publishing, editing live content, archiving (also a batch, under one approval) and deleting each wait for the person's passkey, from the web and from an agent alike, with entities that refuse any other write through the ORM and a public page that marks approved live text. Its tests cover SQLite, PostgreSQL, MySQL and MariaDB.
+On Doctrine ORM, start from the [publishing example](examples/doctrine-publishing/README.md): a runnable newsroom where publishing, editing live content, archiving (also a batch, under one approval) and deleting each wait for the person's passkey, from the web and from an agent alike, with a flush check that refuses any other change to what visitors see and a public page that marks approved live text. Its tests cover SQLite, PostgreSQL, MySQL and MariaDB. The flush check does not catch DQL bulk updates and deletes or raw SQL.
 
 ## Verification
 
