@@ -36,13 +36,13 @@ use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
  * from a key being retired (find()), is read from the whole chain, since an edited index or storage class can
  * hide a row from a lookup.
  *
- * So the checks grow with the chain. Each reading fetches every row, and each signature check, most of the cost,
- * runs at most once per signature for one log: one that verified is remembered, so later readings by the same log
- * (later in one request, or in a long-running worker) cost a fraction. A passkey's standing is read from its
- * enrollment on, or from the first entry once an entry since is signed with a key that has an end, as after a
- * rotation; so in a request of its own, each approval step checks the signature of every entry in that stretch
- * once. The chain grows with what is recorded here: passkeys enrolled and revoked, rotations and the host's own
- * events, never approvals.
+ * So the checks grow with the chain. Each reading fetches every row and checks the signatures of the entries it
+ * reads, which is most of the cost. A log remembers the signatures that verified and does not check them again, so
+ * its later readings, later in a request or in a long-running worker, cost a fraction of the first. A passkey's
+ * standing is read from its enrollment on, or from the first entry once an entry since is signed with a key that
+ * has an end, as after a rotation: an approval step in a request of its own checks every signature in that stretch
+ * once. The chain grows with what is recorded here, passkeys enrolled and revoked, rotations and the host's own
+ * events, and never with approvals.
  *
  * @phpstan-import-type AuditHead from AuditStore
  * @phpstan-import-type AuditRecord from AuditStore
