@@ -27,7 +27,7 @@ URL-mode elicitation is off by default and enabled per client by `clientInfo.nam
 | `statement` | The exact statement the person will approve |
 | `approvedWithPasskey` | Whether this completed action used passkey approval. Direct execution does not claim that it did. |
 | `completedAt` | When the action ran, RFC 3339 in UTC, or `null` until it has |
-| `earlier` | Whether this call's request key named an earlier request that had already finished. The result is that request's recorded outcome, nothing ran for this call, and the card says "Completed earlier, on …" instead of claiming a new approval |
+| `earlier` | Whether this call's request key named an earlier request that had already finished. The result is that request's recorded outcome, nothing ran for this call, and the card says "Completed earlier, on …" instead of claiming a new approval. Never true while the request is pending, whichever call made it |
 | `handoffTool` | Optional. The app-only tool that returns a one-time phone code, if it is the one the card was written with, or `null` |
 
 The card never runs WebAuthn. The verifier rejects embedded and cross-origin ceremonies, and the card runs on the host's sandbox origin, so no assertion it could obtain would pass the application's exact-origin check.
