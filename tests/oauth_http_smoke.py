@@ -34,10 +34,12 @@ class Forms(HTMLParser):
     def handle_starttag(self, tag, attributes):
         attributes = dict(attributes)
         if tag == "form":
-            self.current = {"action": attributes.get("action", ""), "fields": {}}
+            self.current = {"action": attributes.get("action", ""), "fields": {}, "buttons": []}
             self.forms.append(self.current)
         elif tag == "input" and self.current is not None and "name" in attributes:
             self.current["fields"][attributes["name"]] = attributes.get("value", "")
+        elif tag == "button" and self.current is not None and "name" in attributes:
+            self.current["buttons"].append((attributes["name"], attributes.get("value", "")))
 
     def handle_endtag(self, tag):
         if tag == "form":
@@ -82,10 +84,11 @@ with tempfile.TemporaryDirectory(prefix="verified-human-approval-oauth-http-") a
         status, _, body = request("/oauth/token", form=form)
         return status, json.loads(body)
 
-    def consent(client_id):
+    def ask(client_id, state):
+        """Opens an authorization request; returns its consent page, the page's form fields and the PKCE verifier."""
         verifier = secrets.token_urlsafe(48)
         challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
-        query = {"response_type": "code", "client_id": client_id, "redirect_uri": callback, "state": "http-proof", "code_challenge": challenge, "code_challenge_method": "S256", "resource": origin + "/mcp"}
+        query = {"response_type": "code", "client_id": client_id, "redirect_uri": callback, "state": state, "code_challenge": challenge, "code_challenge_method": "S256", "resource": origin + "/mcp"}
         status, headers, _ = request("/oauth/authorize?" + urllib.parse.urlencode(query))
         assert status == 302, "Authorization must first redirect to consent."
         consent_url = headers["Location"]
@@ -93,11 +96,20 @@ with tempfile.TemporaryDirectory(prefix="verified-human-approval-oauth-http-") a
         assert status == 200 and "Connecting does not approve anything" in html
         assert headers["X-Frame-Options"] == "DENY"
         form = next(form for form in Forms(html).forms if "_csrf_token" in form["fields"] and not form["action"])
-        status, headers, _ = request(consent_url, form=form["fields"])
+        assert form["buttons"] == [("answer", "allow"), ("answer", "deny")], "The person answers Allow or Don't allow."
+        return consent_url, form["fields"], verifier
+
+    def answer(consent_url, fields, choice):
+        """Answers the consent page; returns what the authorization sends back to the client."""
+        status, headers, _ = request(consent_url, form={**fields, "answer": choice})
         assert status == 302
         status, headers, _ = request(headers["Location"])
         assert status == 302 and headers["Location"].startswith(callback + "?")
-        returned = urllib.parse.parse_qs(urllib.parse.urlparse(headers["Location"]).query)
+        return urllib.parse.parse_qs(urllib.parse.urlparse(headers["Location"]).query)
+
+    def consent(client_id):
+        consent_url, fields, verifier = ask(client_id, "http-proof")
+        returned = answer(consent_url, fields, "allow")
         assert returned["state"] == ["http-proof"] and returned["iss"] == [origin]
         return {"grant_type": "authorization_code", "code": returned["code"][0], "redirect_uri": callback, "client_id": client_id, "code_verifier": verifier, "resource": origin + "/mcp"}
 
@@ -136,6 +148,10 @@ with tempfile.TemporaryDirectory(prefix="verified-human-approval-oauth-http-") a
             assert status == 400 and json.loads(body)["error"] == "invalid_redirect_uri", "A redirect URI a browser reads with another host is refused."
             status, _, body = request("/oauth/register", data={"client_name": "Claude", "redirect_uris": ["x-safari-https://attacker.example/api/mcp/auth_callback"]})
             assert status == 400 and json.loads(body)["error"] == "invalid_redirect_uri", "A redirect URI is on https or back to this computer, never an application's own link."
+            consent_url, fields, _ = ask(client_id, "http-refusal")
+            refused = answer(consent_url, fields, "deny")
+            assert refused["error"] == ["access_denied"] and refused["state"] == ["http-refusal"] and refused["iss"] == [origin] and "code" not in refused, "Don't allow tells the client the person refused."
+            assert request(consent_url, form={**fields, "answer": "allow"})[0] == 410, "A refused request cannot then be allowed."
             wrong = consent(client_id)
             wrong["code_verifier"] = "a" * 43
             assert tokens(wrong)[1]["error"] == "invalid_grant", "PKCE must reject a wrong verifier."
@@ -161,7 +177,7 @@ with tempfile.TemporaryDirectory(prefix="verified-human-approval-oauth-http-") a
             with sqlite3.connect(runtime / "application.sqlite") as database:
                 assert database.execute("SELECT mutation_count FROM demo_alerts WHERE id='riverside-evacuation'").fetchone()[0] == 0
                 assert database.execute("SELECT COUNT(*) FROM verified_human_approval_executions").fetchone()[0] == 0
-            print(json.dumps({"passed": True, "checks": ["real HTTP metadata and session login", "consent shows only the validated request", "redirect URIs only in plain form, on https or back to this computer", "consent with issuer and state", "S256 verifier rejection", "single-use code exchange", "real SDK calls using issued access token", "publication remains pending", "refresh rotation and old access revocation", "browser connection revocation ends access and refresh", "zero protected mutations without passkey approval"], "issuer": "League OAuth2 server + omouren MCP OAuth bundle", "external_accounts_used": False, "physical_passkey_tested": False}, indent=2))
+            print(json.dumps({"passed": True, "checks": ["real HTTP metadata and session login", "consent shows only the validated request", "redirect URIs only in plain form, on https or back to this computer", "Don't allow returns access_denied with state and issuer", "consent with issuer and state", "S256 verifier rejection", "single-use code exchange", "real SDK calls using issued access token", "publication remains pending", "refresh rotation and old access revocation", "browser connection revocation ends access and refresh", "zero protected mutations without passkey approval"], "issuer": "League OAuth2 server + omouren MCP OAuth bundle", "external_accounts_used": False, "physical_passkey_tested": False}, indent=2))
         finally:
             server.terminate()
             try:

@@ -8,6 +8,7 @@ use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Attribute\AsController;
+use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\Security\Core\Exception\AccessDeniedException;
 use Symfony\Component\Security\Csrf\CsrfToken;
 use Symfony\Component\Security\Csrf\CsrfTokenManagerInterface;
@@ -16,7 +17,8 @@ use VerifiedHumanApproval\Demo\OAuth\ConsentSession;
 
 /**
  * The consent page, at the OAuth provider's consent route. It shows the authorization request waiting in the
- * person's session (OAuth\ConsentGate put it there) and nothing its link says; Allow approves that request.
+ * person's session (OAuth\ConsentGate put it there) and nothing its link says. Either answer resumes that request:
+ * Allow approves it, and Don't allow sends the person back to the client with access_denied.
  */
 #[AsController]
 final readonly class ConsentController
@@ -34,7 +36,12 @@ final readonly class ConsentController
             if (!$this->csrf->isTokenValid(new CsrfToken(self::CSRF_ID, $request->request->getString('_csrf_token')))) {
                 throw new AccessDeniedException('Invalid CSRF token.');
             }
-            $resume = $this->consents->allow($session, $request->request->getString('consent'));
+            $page = $request->request->getString('consent');
+            $resume = match ($request->request->getString('answer')) {
+                'allow' => $this->consents->allow($session, $page),
+                'deny' => $this->consents->deny($session, $page),
+                default => throw new BadRequestHttpException('Answer with Allow or Don’t allow.'),
+            };
 
             return null === $resume ? $this->unavailable() : new RedirectResponse($resume);
         }

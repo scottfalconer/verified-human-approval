@@ -367,6 +367,38 @@ final class OAuthTest extends TestCase
         self::assertSame('/oauth/consent', $browser->getResponse()->headers->get('Location'), 'An Allow is used once.');
     }
 
+    public function testDontAllowTellsTheClientThePersonRefusedAndEndsTheRequest(): void
+    {
+        $api = $this->client();
+        $claude = $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => [self::CALLBACK], 'client_name' => 'Claude']);
+        $browser = $this->signedIn('editor');
+        $authorize = self::authorizeQuery($claude['client_id'], self::CALLBACK);
+        $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query($authorize));
+        $page = $browser->request('GET', self::ORIGIN.'/oauth/consent');
+        $allow = $page->selectButton('Allow')->form();
+        $browser->request('POST', self::ORIGIN.'/oauth/consent', array_diff_key($allow->getValues(), ['answer' => true]));
+        self::assertSame(400, $browser->getResponse()->getStatusCode(), 'The page’s form counts only as the answer its button gives.');
+        $browser->submit($page->selectButton('Don’t allow')->form());
+        self::assertSame(302, $browser->getResponse()->getStatusCode());
+        $resume = (string) $browser->getResponse()->headers->get('Location');
+        $browser->submit($allow);
+        self::assertSame(410, $browser->getResponse()->getStatusCode(), 'Once refused, the request cannot be allowed from its page.');
+
+        $browser->request('GET', self::absolute($resume));
+        $location = (string) $browser->getResponse()->headers->get('Location');
+        self::assertStringStartsWith(self::CALLBACK.'?', $location, 'The person goes back to the client that asked.');
+        parse_str((string) parse_url($location, \PHP_URL_QUERY), $refusal);
+        self::assertSame('access_denied', $refusal['error'] ?? null, 'RFC 6749 §4.1.2.1: the client learns that the person refused.');
+        self::assertSame($authorize['state'], $refusal['state'] ?? null, 'With the state of the request the person refused.');
+        self::assertSame(self::ORIGIN, $refusal['iss'] ?? null, 'RFC 9207: the response names its issuer.');
+        self::assertArrayNotHasKey('code', $refusal);
+        self::assertSame(0, (int) $this->database()->pdo->query('SELECT COUNT(*) FROM oauth2_authorization_codes')->fetchColumn(), 'No code was issued.');
+        self::assertNull($this->connections()->active('editor', $claude['client_id']), 'No connection was opened.');
+
+        $browser->request('GET', self::absolute($resume));
+        self::assertSame('/oauth/consent', $browser->getResponse()->headers->get('Location'), 'A refusal is used once: the same request is asked about again.');
+    }
+
     public function testAConsentPageLeftOpenCannotApproveTheRequestThatReplacedIt(): void
     {
         $api = $this->client();
@@ -422,14 +454,30 @@ final class OAuthTest extends TestCase
         self::assertSame('/oauth/authorize?client_id=claude', $consents->allow($session, 'page'));
         self::assertSame('/oauth/authorize?client_id=claude', $consents->allow($session, 'page'), 'A second click answers the same way.');
         self::assertNull($consents->waiting($session), 'An allowed request is no longer shown.');
-        self::assertFalse($consents->take($session, 'another binding'));
+        self::assertNull($consents->take($session, 'another binding'));
         $clock->sleep(ConsentSession::LIFETIME_SECONDS);
-        self::assertFalse($consents->take($session, 'binding'), 'An Allow expires with its request.');
+        self::assertNull($consents->take($session, 'binding'), 'An Allow expires with its request.');
 
         $consents->ask($session, $request);
         $consents->allow($session, 'page');
         self::assertTrue($consents->take($session, 'binding'));
-        self::assertFalse($consents->take($session, 'binding'), 'An Allow is used once.');
+        self::assertNull($consents->take($session, 'binding'), 'An Allow is used once.');
+    }
+
+    public function testADontAllowStandsUntilItsRequestUsesIt(): void
+    {
+        $consents = new ConsentSession(new MockClock());
+        $session = new Session(new MockArraySessionStorage());
+        $consents->ask($session, new ConsentRequest('page', 'binding', '/oauth/authorize?client_id=claude', 'Claude', 'claude.ai', ReturnAddress::of(self::CALLBACK) ?? self::fail('claude.ai’s callback is plain.'), ['alert.read']));
+        self::assertNull($consents->deny($session, 'another page'), 'Don’t allow names the page that asked.');
+        self::assertSame('/oauth/authorize?client_id=claude', $consents->allow($session, 'page'));
+        self::assertSame('/oauth/authorize?client_id=claude', $consents->deny($session, 'page'), 'It replaces an Allow the request has not used yet.');
+        self::assertNull($consents->allow($session, 'page'), 'No Allow replaces it.');
+        self::assertSame('/oauth/authorize?client_id=claude', $consents->deny($session, 'page'), 'A second click answers the same way.');
+        self::assertNull($consents->waiting($session), 'A refused request is no longer shown.');
+        self::assertNull($consents->take($session, 'another binding'));
+        self::assertFalse($consents->take($session, 'binding'));
+        self::assertNull($consents->take($session, 'binding'), 'A refusal is used once.');
     }
 
     public function testARuntimeCanTurnOpenRegistrationOff(): void
