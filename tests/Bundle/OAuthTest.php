@@ -433,7 +433,8 @@ final class OAuthTest extends TestCase
         self::assertFalse($browser->getResponse()->headers->has('Location'), 'The person stays on this site.');
         $text = $answer->filter('.approval-sheet')->text();
         self::assertStringContainsString('Not connected', $text);
-        self::assertStringContainsString('You did not allow acme-tools-9931 to act for you. You can close this tab.', $text);
+        self::assertStringContainsString('You did not allow the application to act for you. You can close this tab.', $text);
+        self::assertStringNotContainsString('acme-tools-9931', $text, 'The name the client chose is not repeated away from the consent page’s notice.');
         self::assertStringContainsString('It registered itself with this site, so you are not sent on to attacker.example, the address it chose.', $text);
         self::assertCount(0, $answer->filter('a[href*="attacker.example"]'), 'Nor does the page link there.');
         self::assertSame("frame-ancestors 'none'", $browser->getResponse()->headers->get('Content-Security-Policy'));

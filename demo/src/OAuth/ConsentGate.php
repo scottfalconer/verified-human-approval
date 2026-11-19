@@ -46,7 +46,7 @@ final readonly class ConsentGate
         $allowed = $this->consents->take($session, $binding);
         if (false === $allowed && !$trusted) {
             // The person refused a client that chose its own return address: they hear of it here, not there.
-            $event->setResponse(new Response($this->twig->render('consent_refused.html.twig', ['client_name' => $client->getName(), 'returns' => $returnAddress])));
+            $event->setResponse(new Response($this->twig->render('consent_refused.html.twig', ['returns' => $returnAddress])));
 
             return;
         }
