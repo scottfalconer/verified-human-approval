@@ -129,7 +129,7 @@ php demo/bin/console demo:all-clear
 
 This operator command records the take-down in the audit log. Use a new request key, such as `second-demo-request`, for the next publication.
 
-To start with a completely fresh local demo, stop the server, run `php demo/bin/setup.php --reset`, save the new credentials, and restart the server. If you set the demo up for another port, put the same `VERIFIED_HUMAN_APPROVAL_ORIGIN` in front of `--reset`, or setup goes back to `http://localhost:8080`. Reset removes the previous local demo data and keys; enroll a passkey and set the new token again.
+To start with a completely fresh local demo, stop the server, run `php demo/bin/setup.php --reset`, save the new credentials, and restart the server. If you set the demo up for another port, put the same `VERIFIED_HUMAN_APPROVAL_ORIGIN=...` in front of `php demo/bin/setup.php --reset`, or setup goes back to `http://localhost:8080`. Reset removes the previous local demo data and keys; enroll a passkey and set the new token again.
 
 On macOS, `demo/bin/server start` runs an initialized demo under launchd instead of in a terminal, at the address it was set up for, so it survives terminal restarts. Stop the foreground server first. `start` refuses while another program holds the port, and says how to free it or use another one. `demo/bin/server status` says whether this checkout's server or another program holds the port, and `demo/bin/server stop` stops only the server this script started under launchd, never one that another folder or project started. It also accepts `restart`.
 

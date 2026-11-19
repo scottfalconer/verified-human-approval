@@ -25,7 +25,7 @@ composer install
 php demo/bin/setup.php
 ```
 
-Setup shows each demo account's password, personal token and first-passkey link once. Save them privately before you start the server: its log scrolls them off the screen. If you lose them, stop the server, run `php demo/bin/setup.php --reset` for a fresh demo with new ones, and start the server again.
+Setup shows each demo account's password, personal token and first-passkey link once. Save them privately before you start the server: its log scrolls them off the screen. If you lose them, stop the server, run `php demo/bin/setup.php --reset` for a fresh demo with new ones, and start the server again. If you set the demo up for another port, put the same `VERIFIED_HUMAN_APPROVAL_ORIGIN=...` in front of that command, or setup goes back to `http://localhost:8080`.
 
 Then start the server. It keeps this terminal:
 
