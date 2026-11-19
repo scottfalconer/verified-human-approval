@@ -1,0 +1,13 @@
+{# Don't allow, for a client that registered itself and returns to another computer (OAuth\ConsentGate). Nothing
+   vouches for the address it chose, so the person hears of their refusal here instead of being sent there. The name
+   it chose is left out: away from the consent page's notice, it would read as this site's own words. #}
+{% extends '@VerifiedHumanApproval/base.html.twig' %}
+{% block title %}Not connected · Verified Human Approval{% endblock %}
+{% block body %}
+<section class="card approval-sheet">
+    <p class="eyebrow">Connect an application · Riverside Council</p>
+    <h1>Not connected</h1>
+    <p>You did not allow the application to act for you. You can close this tab.</p>
+    <p class="muted small">It registered itself with this site, so you are not sent on to {{ returns.host }}, the address it chose.</p>
+</section>
+{% endblock %}

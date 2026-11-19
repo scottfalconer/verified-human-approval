@@ -16,13 +16,17 @@ use VerifiedHumanApproval\Bundle\ActorProvider;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalHistory;
 use VerifiedHumanApproval\Core\ApprovalService;
+use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
+use VerifiedHumanApproval\Core\Evidence\Receipt;
+use VerifiedHumanApproval\Core\Evidence\ReceiptVerifier;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 use VerifiedHumanApproval\Core\UnreadableApproval;
 
 final class DeskController extends AbstractController
 {
     public function __construct(private readonly ActorProvider $actors, private readonly CurrentAuthority $authority,
         private readonly Drafts $drafts, private readonly EntityManagerInterface $entities,
-        private readonly ApprovalService $approvals, private readonly ApprovalHistory $history)
+        private readonly ApprovalService $approvals, private readonly ApprovalHistory $history, private readonly TrustedKeys $keys)
     {
     }
 
@@ -107,9 +111,12 @@ final class DeskController extends AbstractController
                 $rows[] = ['unreadable' => true, 'id' => $state->requestId, 'owned' => $state->error->request?->actor()->samePerson($actor)];
                 continue;
             }
+            // Someone who can edit every stored part can keep them in agreement, so a completed request is trusted
+            // only while it carries the receipt signed as it committed and that receipt verifies.
             try {
                 $state->assertConsistent();
-                $integrity = true;
+                $integrity = 'completed' !== $state->status
+                    || Receipt::COMMIT === (new ReceiptVerifier())->verify((new EvidenceExporter())->export($state), $this->keys)['receiptSignedAt'];
             } catch (ApprovalException) {
                 $integrity = false;
             }

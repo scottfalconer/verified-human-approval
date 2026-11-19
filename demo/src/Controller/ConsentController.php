@@ -18,7 +18,8 @@ use VerifiedHumanApproval\Demo\OAuth\ConsentSession;
 /**
  * The consent page, at the OAuth provider's consent route. It shows the authorization request waiting in the
  * person's session (OAuth\ConsentGate put it there) and nothing its link says. Either answer resumes that request:
- * Allow approves it, and Don't allow sends the person back to the client with access_denied.
+ * Allow approves it, and Don't allow refuses it. The client learns of a refusal, as access_denied, only at a return
+ * address the server trusts (ConsentGate::trustsReturnAddress()); otherwise the person stays on this site.
  */
 #[AsController]
 final readonly class ConsentController

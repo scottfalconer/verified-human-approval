@@ -52,8 +52,8 @@ final readonly class ConsentSession
      * Records the person's Don't allow for the request their page showed. It stands: it replaces an Allow the request
      * has not used yet, and no Allow replaces it.
      *
-     * @return string|null the authorization to resume, which then goes back to the client refused, or null when that
-     *                     request no longer waits
+     * @return string|null the authorization to resume, which ConsentGate then refuses, or null when that request no
+     *                     longer waits
      */
     public function deny(SessionInterface $session, string $id): ?string
     {
