@@ -67,7 +67,7 @@ This boundary covers local database changes. A remote API call, email or payment
 
 A request key names one intended action. Reusing it with the same arguments and unchanged target and effect returns the existing request or result. When that request finished before the call, the MCP result says so: it is the earlier request's recorded outcome, nothing ran for this call, and the card shows it as an earlier request, with "Completed earlier, on …" for one that completed. Changed arguments or content produce an `idempotency_conflict`. Use the original request ID to read its recorded outcome. A new intended action needs a new key.
 
-A key must be unique to one intended action, so let the client that generates it be a program. A language model asked to supply a key builds it from the arguments and the date, and often builds the same key in a later conversation, where it returns the earlier outcome. Describe the argument so that an agent leaves it out: `ApprovalFlow::REQUEST_KEY_DESCRIPTION` in the MCP package does.
+A key must be unique to one intended action, so let the client that generates it be a program. Asked to supply a key, Claude models built it from the arguments and the date, and often built the same key in a later conversation, where it returns the earlier outcome. Describe the argument so that an agent leaves it out: `ApprovalFlow::REQUEST_KEY_DESCRIPTION` in the MCP package does.
 
 Without a key, a repeated call from the same connection reuses an equivalent pending proposal. It can create a new proposal after the earlier one reaches a terminal state. The core prevents a proposal from committing more than once.
 

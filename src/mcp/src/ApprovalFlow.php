@@ -92,12 +92,13 @@ final readonly class ApprovalFlow
      * The description for a protected tool's optional request key argument:
      * `#[Schema(description: ApprovalFlow::REQUEST_KEY_DESCRIPTION)] ?string $request_key = null`.
      *
-     * A request key is for a client that generates a unique id for each new request. A language
-     * model asked for "your own id for this request" builds one from the arguments and the date, and
-     * often builds the same one in a later conversation. The application then answers with the earlier
-     * request and its outcome, and does not ask the person again. With this wording a model leaves the
+     * A request key is for a client that generates a unique id for each new request. Asked for "your
+     * own id for this request", Claude models built one from the arguments and the date, and often
+     * built the same one in a later conversation. The application then answers with the earlier
+     * request and its outcome, and does not ask the person again. With this wording they left the
      * argument out, which is safe: a repeated call without a key returns the same pending request,
-     * and a new one once that request has finished.
+     * and a new one once that request has finished. tests/claude_request_key.py checks this wording
+     * against Claude models.
      */
     public const REQUEST_KEY_DESCRIPTION = 'For clients that generate a unique random id for each new request and resend it to retry. Otherwise leave it out: a key used before returns that earlier request and its outcome, even after it finished, so never make one up from the arguments or the date.';
 
