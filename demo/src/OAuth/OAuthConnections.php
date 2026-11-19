@@ -68,14 +68,14 @@ final readonly class OAuthConnections
         return null !== $grant && self::isLive($grant) && $grant['user_id'] === $userId && $grant['client_id'] === $clientId ? $grant : null;
     }
 
-    /** @return array<string, mixed>|null */
-    public function forAccessToken(string $identifier, ?string $userId, string $clientId): ?array
+    /** @return array<string, mixed>|null the connection of an unrevoked access token, for the client it was issued to */
+    public function forAccessToken(string $identifier, ?string $userId): ?array
     {
-        $query = $this->database->pdo->prepare('SELECT grant_id FROM oauth2_access_tokens WHERE identifier = ? AND user_identifier = ? AND client = ? AND revoked = 0');
-        $query->execute([$identifier, $userId, $clientId]);
-        $grantId = $query->fetchColumn();
+        $query = $this->database->pdo->prepare('SELECT grant_id, client FROM oauth2_access_tokens WHERE identifier = ? AND user_identifier = ? AND revoked = 0');
+        $query->execute([$identifier, $userId]);
+        $token = $query->fetch();
 
-        return \is_string($grantId) ? $this->bound($grantId, $userId, $clientId) : null;
+        return \is_array($token) && \is_string($token['grant_id']) && \is_string($token['client']) ? $this->bound($token['grant_id'], $userId, $token['client']) : null;
     }
 
     /** @param array<string, mixed> $grant */

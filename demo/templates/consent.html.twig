@@ -1,0 +1,26 @@
+{# The consent step of the OAuth server (Controller\ConsentController). Everything here comes from the authorization
+   request the server validated, never from this page's link; Allow approves that one request. #}
+{% extends '@VerifiedHumanApproval/base.html.twig' %}
+{% block title %}Connect {{ consent.clientName }} · Verified Human Approval{% endblock %}
+{% block body %}
+{% set rule = consent_rule() %}
+<section class="card approval-sheet">
+    <p class="eyebrow">Connect an application · Riverside Council</p>
+    <h1>Let {{ consent.clientName }} act for {{ app.user.displayName|default('you') }}?</h1>
+    {% set returns = consent.returnAddress %}
+    {% if consent.publisher %}
+    <p>Published by <strong>{{ consent.publisher }}</strong>. It returns to <strong>{{ returns.host }}</strong>.</p>
+    {% else %}
+    <p class="notice"><strong>Name not verified:</strong> it registered itself with this site and chose that name. It returns to <strong>{{ returns.host }}</strong>.{% if not returns.thisComputer %} Allow it only if you started connecting from {{ returns.host }}.{% endif %}</p>
+    {% endif %}
+    <p>It asks to {{ consent_scopes(consent.scopes)|join(', ') }}.</p>
+    <p class="statement">{% if rule == 'approval' %}Your role must approve each exact alert with your own passkey on this site. Connecting does not approve anything.{% elseif rule == 'direct' %}Your role can issue alerts directly, so its requests take effect without a passkey.{% else %}Your role cannot issue alerts, so its requests will be refused.{% endif %}</p>
+    {% if returns.thisComputer %}<p class="statement">It returns only to this computer, so this site cannot tell which application receives the connection. Allow it only if you started connecting from an application running here.</p>{% endif %}
+    <form method="post">
+        <input type="hidden" name="consent" value="{{ consent.id }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+        <div class="actions"><button class="primary">Allow</button><a class="button secondary" href="{{ path('demo_home') }}">Don’t allow</a></div>
+    </form>
+    <p class="muted small">Its return address is {{ returns.uri }}. You can revoke this connection from your account page or the audit log. Tokens last an hour and refresh while in use, for up to 30 days.</p>
+</section>
+{% endblock %}

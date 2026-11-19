@@ -9,8 +9,11 @@ use League\Bundle\OAuth2ServerBundle\Manager\InMemory\DeviceCodeManager;
 use Mcp\Server\Transport\Http\OAuth\ProtectedResourceMetadata;
 use Mcp\Server\Transport\Http\OAuth\ScopePolicy;
 use Omouren\McpOauthBundle\Cimd\ClientIdMetadataResolver;
+use Omouren\McpOauthBundle\DependencyInjection\AccessTokenRepositoryDecorator;
+use Omouren\McpOauthBundle\EventListener\ConsentListener;
 use Omouren\McpOauthBundle\EventListener\WwwAuthenticateListener;
 use Omouren\McpOauthBundle\McpOauthBundle;
+use Omouren\McpOauthBundle\OAuth\AccessTokenResourceClaims;
 use Symfony\AI\McpBundle\McpBundle;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
 use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
@@ -37,6 +40,7 @@ use VerifiedHumanApproval\Demo\Action\DemoPolicyProvider;
 use VerifiedHumanApproval\Demo\Action\PublishAlert;
 use VerifiedHumanApproval\Demo\Controller\AccountController;
 use VerifiedHumanApproval\Demo\Controller\AuditController;
+use VerifiedHumanApproval\Demo\Controller\ConsentController;
 use VerifiedHumanApproval\Demo\Controller\DemoController;
 use VerifiedHumanApproval\Demo\Controller\PublicController;
 use VerifiedHumanApproval\Demo\Mcp\DemoTools;
@@ -44,6 +48,7 @@ use VerifiedHumanApproval\Demo\OAuth\AtomicTokenController;
 use VerifiedHumanApproval\Demo\OAuth\ClientMetadataHttpClient;
 use VerifiedHumanApproval\Demo\OAuth\ConnectionOpeningCodeManager;
 use VerifiedHumanApproval\Demo\OAuth\ConsentExtension;
+use VerifiedHumanApproval\Demo\OAuth\ConsentGate;
 use VerifiedHumanApproval\Demo\OAuth\OAuthTransaction;
 use VerifiedHumanApproval\Demo\OAuth\PreserveScopeChallenge;
 use VerifiedHumanApproval\Demo\OAuth\Storage\PdoAccessTokenManager;
@@ -259,6 +264,9 @@ final class DemoKernel extends Kernel
             'login_route' => 'demo_login',
             'consent' => 'page',
             'public_base_url' => $origin,
+            // MCP deprecates open registration in favour of client ID metadata documents. A demo on this computer keeps
+            // it for clients that still register; at any other address it is off unless the runtime turns it on.
+            'dcr' => ['enabled' => '%env(bool:DEMO_RUNTIME_DYNAMIC_CLIENT_REGISTRATION)%'],
         ]);
         $container->extension('verified_human_approval', [
             'public_origin' => $origin, 'actor_provider' => DemoActorProvider::class,
@@ -312,9 +320,14 @@ final class DemoKernel extends Kernel
             'approval_status' => ['approval.read'],
             'approval_handoff' => ['approval.read'],
         ]), service(ProtectedResourceMetadata::class)]);
-        // Client ID metadata documents are fetched through a client that stays off this server's network and stops at a size limit.
         $services->set(DeviceCodeManager::class);
-        // League still owns token protocol handling. The decorator holds the SQLite writer across
+        // An access token's audience is this server's MCP endpoint, not the client (RFC 8707). League's own token
+        // names the client and lets no extra claim replace it, so the provider's resource-bound token, which it
+        // otherwise uses only with older League versions, is the one issued.
+        $services->set(AccessTokenRepositoryDecorator::class)
+            ->decorate('league.oauth2_server.repository.access_token')
+            ->args([service(AccessTokenRepositoryDecorator::class.'.inner'), service(AccessTokenResourceClaims::class)]);
+        // League owns token protocol handling. The decorator holds the SQLite writer across
         // validation, single-use consumption and successor-token persistence.
         $services->set(AtomicTokenController::class)
             ->decorate('league.oauth2_server.controller.token')
@@ -325,6 +338,10 @@ final class DemoKernel extends Kernel
         $services->set(PreserveScopeChallenge::class)
             ->decorate(WwwAuthenticateListener::class)
             ->args([service(PreserveScopeChallenge::class.'.inner')]);
+        // The consent step takes the place of the provider's listener, whose Allow any later authorization would pass:
+        // the person is asked about the exact request League validated, and Allow approves that one only.
+        $services->set(ConsentGate::class)->decorate(ConsentListener::class);
+        // Client ID metadata documents are fetched through a client that stays off this server's network and stops at a size limit.
         $services->set(ClientMetadataHttpClient::class);
         $services->set(ClientIdMetadataResolver::class)->arg('$httpClient', service(ClientMetadataHttpClient::class))->arg('$cache', service('cache.app'));
         $services->get(PublishAlert::class)->arg('$layoutFiles', '%env(json:DEMO_RUNTIME_LAYOUT_FILES)%');
@@ -359,6 +376,8 @@ final class DemoKernel extends Kernel
         // Protocol routes belong to the maintained OAuth providers, not the approval bundle.
         $routes->import('@LeagueOAuth2ServerBundle/config/routes.php')->prefix('/oauth');
         $routes->import('@McpOauthBundle/config/routes.yaml');
+        // The consent page under the provider's own route name and path, in place of its page, which shows what its link says.
+        $routes->add('mcp_oauth_consent', '/oauth/consent')->controller(ConsentController::class)->methods(['GET', 'POST']);
         $routes->add('riverside_alerts', '/alerts')->controller([PublicController::class, 'alerts'])->methods(['GET']);
         $routes->add('riverside_styles', '/site/riverside.css')->controller([PublicController::class, 'styles'])->methods(['GET']);
         $routes->add('demo_styles', '/site/demo.css')->controller([PublicController::class, 'demoStyles'])->methods(['GET']);

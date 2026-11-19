@@ -1,8 +1,9 @@
 #!/bin/sh
 # Serves a second copy of the demo on a public HTTPS address through a Cloudflare quick tunnel, for
-# claude.ai and phones. Both run under launchd, so they survive Claude restarts.
-# The tunnel's hostname changes each time it starts, and passkeys are tied to the hostname,
-# so a new hostname gets a fresh public demo. Usage: public start | stop | status | all-clear | reset
+# claude.ai and phones. Both run under launchd, so they keep running after this terminal closes.
+# Usage: public start [--yes] | stop | status | all-clear | reset
+# The tunnel's hostname changes each time it starts, and passkeys are tied to the hostname, so a new
+# hostname needs a fresh public demo: start says what it would replace and asks first; --yes answers yes.
 # all-clear takes the live alert down for another take, keeping accounts, passkeys and connections.
 # reset starts a fresh public demo on the same address: new accounts, passkey links and connections.
 set -eu
@@ -12,9 +13,18 @@ PORT=8081
 LABEL=dev.verified-human-approval.tunnel
 LOG="$ROOT/var/public-tunnel.log"
 SERVER="$ROOT/demo/bin/server"
+USAGE="Usage: $0 start [--yes] | stop | status | all-clear | reset"
 
 tunnel_url() { grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' "$LOG" 2>/dev/null | tail -1 || true; }
 demo_origin() { php -r '$s = json_decode((string) @file_get_contents($argv[1]), true); echo is_array($s) ? ($s["origin"] ?? "") : "";' "$RUNTIME/settings.json"; }
+
+# Replaces the public demo with a fresh one for the address $1. Clients cannot register themselves on it;
+# claude.ai names itself with its client ID metadata document instead.
+fresh() {
+  PORT=$PORT VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" "$SERVER" stop >/dev/null 2>&1 || true
+  (umask 077; VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" VERIFIED_HUMAN_APPROVAL_ORIGIN="$1" VERIFIED_HUMAN_APPROVAL_DYNAMIC_CLIENT_REGISTRATION=0 php "$ROOT/demo/bin/setup.php" --reset > "$ROOT/var/public-demo-setup.txt")
+  echo "Fresh public demo for $1; its credentials and passkey links are in var/public-demo-setup.txt"
+}
 
 start() {
   mkdir -p "$ROOT/var"
@@ -27,10 +37,22 @@ start() {
   fi
   ORIGIN=$(tunnel_url)
   [ -n "$ORIGIN" ] || { echo "The tunnel did not start; see $LOG"; exit 1; }
-  if [ "$(demo_origin)" != "$ORIGIN" ]; then
-    PORT=$PORT VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" "$SERVER" stop >/dev/null 2>&1 || true
-    (umask 077; VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" VERIFIED_HUMAN_APPROVAL_ORIGIN="$ORIGIN" php "$ROOT/demo/bin/setup.php" --reset > "$ROOT/var/public-demo-setup.txt")
-    echo "Fresh public demo for $ORIGIN; its credentials are in var/public-demo-setup.txt"
+  CURRENT=$(demo_origin)
+  if [ "$CURRENT" != "$ORIGIN" ]; then
+    if [ -n "$CURRENT" ] && [ "$1" != --yes ]; then
+      echo "The public demo was set up for $CURRENT, and the tunnel now answers at $ORIGIN."
+      echo "Passkeys belong to one address, so a demo for the new one replaces this one: its accounts, passkeys, connections, records and signing key."
+      answer=
+      if [ -t 0 ]; then
+        printf 'Replace it? [y/N] '
+        read -r answer || answer=
+      fi
+      case "$answer" in
+        y | Y | yes | Yes) ;;
+        *) echo "Nothing was replaced. To replace it without being asked: $0 start --yes"; exit 1 ;;
+      esac
+    fi
+    fresh "$ORIGIN"
   fi
   PORT=$PORT VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" "$SERVER" start
   echo "Public demo: $ORIGIN"
@@ -43,16 +65,18 @@ stop() {
 }
 
 case "${1:-status}" in
-  start) start ;;
+  start)
+    case "${2:-}" in
+      '' | --yes) start "${2:-}" ;;
+      *) echo "$USAGE"; exit 2 ;;
+    esac ;;
   stop) stop ;;
   status) echo "Tunnel: $(tunnel_url)"; PORT=$PORT "$SERVER" status ;;
   all-clear) VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" php "$ROOT/demo/bin/console" demo:all-clear ;;
   reset)
     ORIGIN=$(demo_origin)
     [ -n "$ORIGIN" ] || { echo "No public demo to reset; run: $0 start"; exit 1; }
-    PORT=$PORT VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" "$SERVER" stop >/dev/null 2>&1 || true
-    (umask 077; VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" VERIFIED_HUMAN_APPROVAL_ORIGIN="$ORIGIN" php "$ROOT/demo/bin/setup.php" --reset > "$ROOT/var/public-demo-setup.txt")
-    PORT=$PORT VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" "$SERVER" start
-    echo "Fresh public demo for $ORIGIN; its credentials and passkey links are in var/public-demo-setup.txt" ;;
-  *) echo "Usage: $0 start | stop | status | all-clear | reset"; exit 2 ;;
+    fresh "$ORIGIN"
+    PORT=$PORT VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" "$SERVER" start ;;
+  *) echo "$USAGE"; exit 2 ;;
 esac

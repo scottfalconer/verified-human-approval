@@ -86,9 +86,10 @@ final class AgentTokenAuthenticator extends AbstractAuthenticator implements Aut
             throw new CustomUserMessageAuthenticationException('Invalid token.');
         }
         $userId = $validated->getAttribute('oauth_user_id');
-        $clientId = $validated->getAttribute('oauth_client_id');
         $tokenId = $validated->getAttribute('oauth_access_token_id');
-        $grant = \is_string($clientId) && \is_string($tokenId) ? $this->connections->forAccessToken($tokenId, \is_string($userId) ? $userId : null, $clientId) : null;
+        // The client is the one this server issued the token to. League reports the audience as `oauth_client_id`,
+        // and a token's audience is this server's MCP endpoint.
+        $grant = \is_string($tokenId) ? $this->connections->forAccessToken($tokenId, \is_string($userId) ? $userId : null) : null;
         if (null === $grant) {
             throw new CustomUserMessageAuthenticationException('This connection was revoked or has ended. Connect again.');
         }
