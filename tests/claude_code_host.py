@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import select
 import shutil
+import signal
 import socket
 import sqlite3
 import subprocess
@@ -77,7 +78,8 @@ def main() -> None:
         config.chmod(0o600)
 
         with open(work / "server.log", "w") as log:
-            server = subprocess.Popen([PHP, "-S", f"localhost:{port}", "-t", str(ROOT / "demo/public"), str(ROOT / "demo/public/index.php")], env={**env, "PHP_CLI_SERVER_WORKERS": "4"}, stdout=log, stderr=log)
+            # In a process group of its own, so that stopping it also stops the workers it forks.
+            server = subprocess.Popen([PHP, "-S", f"localhost:{port}", "-t", str(ROOT / "demo/public"), str(ROOT / "demo/public/index.php")], env={**env, "PHP_CLI_SERVER_WORKERS": "4"}, stdout=log, stderr=log, start_new_session=True)
             try:
                 for _ in range(100):
                     try:
@@ -89,8 +91,12 @@ def main() -> None:
                 with sqlite3.connect(work / "runtime/application.sqlite") as db:
                     report["committed_effects"] = db.execute("SELECT mutation_count FROM demo_alerts WHERE id = 'riverside-evacuation'").fetchone()[0]
             finally:
-                server.terminate()
-                server.wait(timeout=10)
+                os.killpg(server.pid, signal.SIGTERM)
+                try:
+                    server.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    os.killpg(server.pid, signal.SIGKILL)
+                    server.wait()
 
     assert report["elicitation"] and report["elicitation"]["mode"] == "url", report
     assert report["elicitation"]["url"].startswith(origin + "/approval/apr_"), report
