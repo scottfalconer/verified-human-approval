@@ -120,7 +120,14 @@ final class ReceiptKeyRotationTest extends TestCase
 
         // Renaming the key in the receipt to a trusted one breaks what it signed.
         $evidence['receipt']->keyId = 'application-1';
-        $this->assertRefused($evidence, $this->keys, 'The record is not what the application signed: its receipt has been changed.');
+        $this->assertRefused($evidence, $this->keys, 'The trusted key "application-1" did not sign this receipt.');
+
+        // A key set can list one public key under two names, each with a window of its own: the receipt keeps the one it signed.
+        $twice = new TrustedKeys([new TrustedKey('application-9', $stranger->publicKey()), new TrustedKey('application-9-copy', $stranger->publicKey())]);
+        $evidence['receipt']->keyId = 'application-9';
+        self::assertSame('application-9', (new ReceiptVerifier())->verify($evidence, $twice)['keyId']);
+        $evidence['receipt']->keyId = 'application-9-copy';
+        $this->assertRefused($evidence, $twice, 'The receipt names key "application-9-copy", but it was signed as key "application-9".');
     }
 
     public function testAReceiptSignedAtExportIsRefusedOnlyWhenItsKeyRetiredBeforeTheActionWasRecorded(): void

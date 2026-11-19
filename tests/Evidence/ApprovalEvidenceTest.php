@@ -130,6 +130,12 @@ final class ApprovalEvidenceTest extends TestCase
             case 'signature':
                 $bundle['receipt']->signature = ChallengeBinding::encode(random_bytes(64));
                 break;
+            case 'manifest':
+                // The record is left as it was; only the receipt's own copy of a digest changes.
+                $manifest = CanonicalJson::decode($bundle['receipt']->manifest);
+                $manifest->proposalDigest = str_repeat('0', 64);
+                $bundle['receipt']->manifest = CanonicalJson::encode($manifest);
+                break;
             case 'another-key':
                 // Another site's key with the same name, as two installations of one application have.
                 $other = new SodiumEvidenceSigner($this->signer->keyId(), sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
@@ -168,6 +174,8 @@ final class ApprovalEvidenceTest extends TestCase
         yield 'every-part' => ['every-part', $changed('proposal, approval proof and execution record')];
         yield 'key-id' => ['key-id', 'The receipt is signed with key "attacker", which the trusted keys do not list.'];
         yield 'signature' => ['signature', 'The trusted key "test-application-key" did not sign this receipt.'];
+        // A changed receipt is not taken for a changed record: what its key did not sign says nothing of the record.
+        yield 'manifest' => ['manifest', 'The trusted key "test-application-key" did not sign this receipt.'];
         yield 'another-key' => ['another-key', 'The trusted key "test-application-key" did not sign this receipt.'];
         yield 'added-field' => ['added-field', 'The evidence holds fields that nothing in it signs.'];
         yield 'added-receipt-field' => ['added-receipt-field', 'The evidence holds fields that nothing in it signs.'];

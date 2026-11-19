@@ -57,6 +57,10 @@ final class ReceiptVerifier
             // The receipt names its key; only a key the verifier was given out of band can vouch for it.
             $keyId = \is_string($receipt['keyId'] ?? null) ? $receipt['keyId'] : '';
             $key = $keys->get($keyId) ?? throw new \UnexpectedValueException(\sprintf('The receipt is signed with key "%s", which the trusted keys do not list.', $keyId));
+            // Checked before the record is compared with the manifest: a manifest the key did not sign says nothing of the record.
+            if (!\is_string($receipt['signature'] ?? null) || !$key->signed($receipt['manifest'], $receipt['signature'])) {
+                throw new \UnexpectedValueException(\sprintf('The trusted key "%s" did not sign this receipt.', $key->keyId));
+            }
             $expected = [
                 'format' => Receipt::FORMAT, 'keyId' => $key->keyId, 'signedAt' => $signedAt, 'proposalDigest' => $digest,
                 'proofDigest' => hash('sha256', CanonicalJson::encode($bundle['proof'])),
@@ -85,9 +89,6 @@ final class ReceiptVerifier
                     throw new \UnexpectedValueException('The proof is not bound to the proposal.');
                 }
             }
-            if (!\is_string($receipt['signature'] ?? null) || !$key->signed($receipt['manifest'], $receipt['signature'])) {
-                throw new \UnexpectedValueException(\sprintf('The trusted key "%s" did not sign this receipt.', $key->keyId));
-            }
             // The time it claims is signed too, through the execution digest: it must fall inside its key's window.
             if (!self::withinWindow($key, $signedAt, $execution['recordedAt'] ?? null)) {
                 throw new \UnexpectedValueException(\sprintf('The receipt claims a time outside the window of its key "%s".', $key->keyId));
@@ -100,7 +101,8 @@ final class ReceiptVerifier
     }
 
     /**
-     * Why a record does not match its receipt, named by the parts whose digests differ from the ones it signed.
+     * Why a receipt its key signed does not vouch for this record, named by the parts whose digests differ from the
+     * ones it signed.
      *
      * @param array<string, mixed>  $signed the manifest the receipt carries
      * @param array<string, string> $record the manifest the receipt would carry for this record
@@ -114,7 +116,9 @@ final class ReceiptVerifier
             }
         }
         if ([] === $parts) {
-            return 'The record is not what the application signed: its receipt has been changed.';
+            // A manifest the application signed for this record differs from it only in the key it names: the receipt
+            // was given another name for the same public key, as a key set may list one under two.
+            return \sprintf('The receipt names key "%s", but it was signed as key "%s".', $record['keyId'], \is_string($signed['keyId'] ?? null) ? $signed['keyId'] : '');
         }
         $last = array_pop($parts);
 
