@@ -2,36 +2,36 @@
 
 The bundle handles review and approval for enrolled passkeys. Your host application decides who may add or revoke a credential and owns account recovery. Browser authentication alone is not an enrollment authorization decision. Require your established trusted process, such as a separately delivered one-time enrollment link or an existing verified passkey. An MCP bearer cannot enroll a credential.
 
-There is a complete Doctrine reference in the [publishing application's account controller](../../../examples/doctrine-publishing/src/Controller/AccountController.php), [enrollment service](../../../examples/doctrine-publishing/src/Account/PasskeyEnrollment.php) and [template](../../../examples/doctrine-publishing/templates/account/passkey.html.twig). They use normal Symfony Security, session and CSRF services, the existing bundle JavaScript, and the WebAuthn library. Adapt the account-specific enrollment authorization rather than copying a new login system.
+There is a complete Doctrine reference in the [publishing application's account controller](https://github.com/scottfalconer/verified-human-approval/blob/main/examples/doctrine-publishing/src/Controller/AccountController.php), [enrollment service](https://github.com/scottfalconer/verified-human-approval/blob/main/examples/doctrine-publishing/src/Account/PasskeyEnrollment.php) and [template](https://github.com/scottfalconer/verified-human-approval/blob/main/examples/doctrine-publishing/templates/account/passkey.html.twig). They use normal Symfony Security, session and CSRF services, the existing bundle JavaScript, and the WebAuthn library. Adapt the account-specific enrollment authorization rather than copying a new login system.
 
 ## Complete reference flow and acceptance tests
 
-For a complete host implementation, follow the independent Editorial Desk consumer in this order:
+For a complete host implementation with acceptance tests, follow [Editorial Desk](https://github.com/scottfalconer/verified-human-approval/blob/main/tests/EditorialDesk/README.md), an independent Symfony application in this repository that the tests use to check the packages from the outside, in this order:
 
 | Host responsibility | Executable reference |
 | --- | --- |
-| Resolve the actual browser account; reject a bearer-only enrollment | [Actor provider](../../../tests/EditorialDesk/src/Security/ApprovalActors.php) and [Security configuration](../../../tests/EditorialDesk/config/packages/security.php) |
-| Issue an account-bound trusted one-use grant, store only its hash and audit its issuance | [`PasskeyEnrollment::issueLink()`](../../../tests/EditorialDesk/src/Account/PasskeyEnrollment.php) and [host grant schema](../../../tests/EditorialDesk/src/Setup/Installer.php) |
-| Open the grant only while signed in as its account; bind its reference to this session | [`AccountController::openLink()`](../../../tests/EditorialDesk/src/Controller/AccountController.php) |
+| Resolve the actual browser account; reject a bearer-only enrollment | [Actor provider](https://github.com/scottfalconer/verified-human-approval/blob/main/tests/EditorialDesk/src/Security/ApprovalActors.php) and [Security configuration](https://github.com/scottfalconer/verified-human-approval/blob/main/tests/EditorialDesk/config/packages/security.php) |
+| Issue an account-bound trusted one-use grant, store only its hash and audit its issuance | [`PasskeyEnrollment::issueLink()`](https://github.com/scottfalconer/verified-human-approval/blob/main/tests/EditorialDesk/src/Account/PasskeyEnrollment.php) and [host grant schema](https://github.com/scottfalconer/verified-human-approval/blob/main/tests/EditorialDesk/src/Setup/Installer.php) |
+| Open the grant only while signed in as its account; bind its reference to this session | [`AccountController::openLink()`](https://github.com/scottfalconer/verified-human-approval/blob/main/tests/EditorialDesk/src/Controller/AccountController.php) |
 | Check host CSRF and the trusted grant; save the server's options, ceremony identifier, account and short expiry | `AccountController::options()` in the same controller |
 | Consume the saved ceremony; reject a changed identifier, account, expiry or untrusted options | `AccountController::complete()` in the same controller |
 | Recheck the enabled account and current one-use grant, verify WebAuthn and anchor the credential in one transaction | `PasskeyEnrollment::complete()` in the same service |
-| Display the registered credential list and existing registration panel | [Account template](../../../tests/EditorialDesk/templates/account/passkeys.html.twig) |
+| Display the registered credential list and existing registration panel | [Account template](https://github.com/scottfalconer/verified-human-approval/blob/main/tests/EditorialDesk/templates/account/passkeys.html.twig) |
 
-The fixture is single tenant: the actor provider fixes its tenant and the enrollment service checks it. A multi-tenant host must bind the tenant to its grants and saved ceremonies as well, and include it in the atomic consumption condition. Do not accept either identity from posted registration data.
+Editorial Desk is single tenant: the actor provider fixes its tenant and the enrollment service checks it. A multi-tenant host must bind the tenant to its grants and saved ceremonies as well, and include it in the atomic consumption condition. Do not accept either identity from posted registration data.
 
-An operator issues these fixture grants; the caller of `issueLink()` must itself be a trusted, authorized host process. The fixture's setup script is not a production identity-verification or link-delivery system. In your application, use your existing verified enrollment, recovery or authenticator-addition process to authorize that call. A password login or an agent grant alone must not create this authority. Delivering, expiring and revoking enrollment grants remains host policy.
+In Editorial Desk an operator issues these grants; the caller of `issueLink()` must itself be a trusted, authorized host process. Its setup script is not a production identity-verification or link-delivery system. In your application, use your existing verified enrollment, recovery or authenticator-addition process to authorize that call. A password login or an agent grant alone must not create this authority. Delivering, expiring and revoking enrollment grants remains host policy.
 
-The independent [acceptance tests](../../../tests/EditorialDesk/tests/ApplicationIntegrationTest.php) exercise registration through the real controller, session, CSRF validation, verifier and credential repository. `testTrustedEnrollmentBindsTheAccountAndConsumesOnlyAValidCeremony` covers password-only refusal, wrong-account and expired grants, invalid CSRF, a mismatched ceremony identifier, a foreign-origin registration that leaves the grant unused and stores no credential, then successful enrollment and refusal of the used grant. The credential verifier stays enabled throughout. This is not a claim that every possible transaction or signing failure has been injected.
+Its [acceptance tests](https://github.com/scottfalconer/verified-human-approval/blob/main/tests/EditorialDesk/tests/ApplicationIntegrationTest.php) exercise registration through the real controller, session, CSRF validation, verifier and credential repository. `testTrustedEnrollmentBindsTheAccountAndConsumesOnlyAValidCeremony` covers password-only refusal, wrong-account and expired grants, invalid CSRF, a mismatched ceremony identifier, a foreign-origin registration that leaves the grant unused and stores no credential, then successful enrollment and refusal of the used grant. The credential verifier stays enabled throughout. They do not inject every possible transaction or signing failure.
 
-Run the maintained consumer from the repository root:
+Run Editorial Desk from the repository root:
 
 ```bash
 php tests/Package/check-editorial-consumer.php
 php tests/Package/check-editorial-consumer.php --browser
 ```
 
-See its [README](../../../tests/EditorialDesk/README.md) for Composer and browser prerequisites. The runner uses a fresh temporary application and current packages. No real account, existing credential or running demo state is reused. The Doctrine publishing controller/service linked above are a second complete wiring reference using an ORM grant entity; the trust and transaction boundaries are the same.
+See its [README](https://github.com/scottfalconer/verified-human-approval/blob/main/tests/EditorialDesk/README.md) for Composer and browser prerequisites. The runner uses a fresh temporary application and current packages. No real account, existing credential or running demo state is reused. The Doctrine publishing controller/service linked above are a second complete wiring reference using an ORM grant entity; the trust and transaction boundaries are the same.
 
 ## Render the existing browser panel
 
@@ -50,7 +50,7 @@ On your authenticated account page, render this only after your trusted enrollme
 {% endblock %}
 ```
 
-Use the `SecurityHeadersSubscriber::ROUTE_DEFAULT` route default on your host enrollment routes to apply the same security headers as the review page. Keep your enrollment routes behind your own browser firewall. The bundle's public route matcher does not include them.
+Set the `VerifiedHumanApproval\Bundle\SecurityHeadersSubscriber::ROUTE_DEFAULT` route default (`_verified_human_approval_headers: true`) on your host enrollment routes to apply the same security headers as the review page. Keep your enrollment routes behind your own browser firewall. The bundle's public route matcher does not include them.
 
 ## Options endpoint
 
@@ -93,11 +93,11 @@ $passkeys->anchor($credential, [
 
 `$passkeys` is `AnchoredCredentialRepository`. `register()` validates and inserts the credential; `anchor()` records its signed enrollment. The credential and anchor must commit together. A missing or failed anchor must leave no usable credential. The Doctrine reference uses `DbalTransaction::run()` and consumes its link with a conditional update in that transaction. For PDO use the same shared connection and transaction boundary as your application.
 
-Return `{"status":"registered","message":"Your passkey is registered."}` only after commit. For a definite refusal, answer with a 4xx status and a JSON body that carries `"status": "rejected"` and a `message`, such as `{"status":"rejected","reason":"expired","message":"This registration expired. Start again from this page."}`; the panel shows that message. It treats any other answer, a 4xx without that status included, as one whose outcome it cannot confirm: a response lost after submission leaves the browser uncertain, and reloading the account's credential list determines whether enrollment committed.
+Return `{"status":"registered","message":"Your passkey is registered."}` only after commit: the panel takes any 2xx JSON answer as success, shows its `message` and reloads the page. For a definite refusal, answer with a 4xx status and a JSON body that carries `"status": "rejected"` (or `"rate_limited"`) and a `message`, such as `{"status":"rejected","reason":"expired","message":"This registration expired. Start again from this page."}`; the panel shows that message. It treats any other failure, a 4xx with another status included, as one whose outcome it cannot confirm: a response lost after submission leaves the browser uncertain, and reloading the account's credential list determines whether enrollment committed.
 
 ## Revocation and recovery
 
-Resolve the trusted human account and enforce your revocation policy, then call the anchored repository's `revoke()` inside the shared transaction. Its signed audit entry and the credential change must commit together; signing failure rolls back revocation. The [reference revocation service](../../../demo/src/Account/PasskeyRevocation.php) demonstrates this boundary.
+Resolve the trusted human account and enforce your revocation policy, then call the anchored repository's `revoke()` inside the shared transaction. Its signed audit entry and the credential change must commit together; signing failure rolls back revocation. The demo's [revocation service](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/src/Account/PasskeyRevocation.php) demonstrates this boundary.
 
 Recovery is host account functionality. Keep an agent token, a guessed user ID, or a stolen password from replacing the credential that authorizes protected actions. Approval still rechecks the credential and current business authority when executing the frozen proposal.
 

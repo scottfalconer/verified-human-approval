@@ -98,3 +98,5 @@ When a key does name a request that was made before the call and has finished, `
 | --- | --- |
 | `rejected` | The application refused: the reason says why |
 | `integrity_error` | The stored request failed the core's check (`record_integrity_error`). The application cannot vouch for the outcome, and the action may have run, so the model must not report it as refused or as not having happened |
+
+This package is developed in the [Verified Human Approval repository](https://github.com/scottfalconer/verified-human-approval). Open issues and pull requests there.

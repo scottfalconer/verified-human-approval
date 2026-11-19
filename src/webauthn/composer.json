@@ -1,6 +1,6 @@
 {
   "name": "verified-human-approval/webauthn",
-  "description": "WebAuthn user-verification bridge for exact application action approval.",
+  "description": "Passkey verification for Verified Human Approval: WebAuthn registration and approval with required user verification, through web-auth/webauthn-lib, and an offline receipt verifier.",
   "keywords": ["webauthn", "passkeys", "approval", "user-verification"],
   "type": "library",
   "license": "MIT",

@@ -88,12 +88,13 @@ With a `PrimaryReadReplicaConnection`, every read the stores make, inside or out
 
 ## Actions on ORM entities
 
-Use `currentApproval()->requestId` from `apply()` to associate the written revision with its approval in the same transaction. `currentApproval()` also reports `userVerified()` and refuses use outside execution; subclasses need not inject or store another `ExecutionGuard`.
-
 Extend `Orm\EntityAction`. Its `execute()` is final: it clears the entity manager, so nothing loaded or changed earlier is read as current or flushed with the approved change; loads the targets you name, locked for writing; lets your `apply()` change them; and flushes inside the approval transaction, so your postconditions read the written rows and the receipt is signed after them. If the transaction rolls back, the entity manager is reset.
 
 ```php
-use Doctrine\Persistence\ManagerRegistry;
+use App\Entity\Article;
+use VerifiedHumanApproval\Core\Actor;
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\PreparedAction;
 use VerifiedHumanApproval\Doctrine\Orm\EntityAction;
 
 final class PublishArticle extends EntityAction
@@ -135,6 +136,8 @@ final class PublishArticle extends EntityAction
 
 Its constructor takes the `ManagerRegistry`, the `ExecutionGuard`, the `DbalTransaction`, the `ProtectedEntityListener` and, optionally, the entity manager's name; with autowiring they are all found.
 
+From `apply()`, `currentApproval()->requestId` links the written revision to its approval in the same transaction. `currentApproval()` also reports `userVerified()` and refuses use outside execution, so a subclass needs no `ExecutionGuard` of its own.
+
 ## Protected entities
 
 Mark the entities, or the fields, that only an approved action may change:
@@ -153,7 +156,7 @@ class Article
 
 `ProtectedEntityListener` then refuses, on every flush of that connection's entity manager, a change to a marked entity or field, with `ApprovalException('approval_required')`, unless the flush happens while an approved action executes and that action permitted the entity. An `EntityAction` permits the targets it locks and the entities it creates with `persist()`; another adapter calls `permit()` itself. On a field, inserting or deleting the entity while the field holds a value other than null counts as a change too, so keep the approved state in nullable fields beside the draft, as above. An embedded object (`#[ORM\Embedded]`) can hold it as well: mark the embedded property to protect each of its fields, or mark a field or an embedded object inside the embeddable to protect it wherever the embeddable is used. The `protected_entities` setting does the same as the attribute, for entities you cannot annotate, and takes an embedded property's name (`published`) or one of its fields (`published.title`).
 
-For an existing non-null `draft`/`published`/`archived` column, keep status protected and use a constrained, explicitly policy-exempt draft-creation action through `ApprovalService`. The [adoption cookbook](../symfony-bundle/docs/adoption.md#a-non-null-draftpublishedarchived-column) includes the executable adapter and regression tests; a draft value is not an automatic exemption from the guard.
+For an existing non-null `draft`/`published`/`archived` column, keep status protected and use a constrained, explicitly policy-exempt draft-creation action through `ApprovalService`. The [adoption cookbook](https://github.com/scottfalconer/verified-human-approval/blob/main/src/symfony-bundle/docs/adoption.md#a-non-null-draftpublishedarchived-column) includes the executable adapter and regression tests; a draft value is not an automatic exemption from the guard.
 
 The check covers the unit of work. DQL `UPDATE` and `DELETE`, and plain SQL, do not pass through it: keep those away from protected rows, as you keep every other write path behind the approval service.
 
@@ -181,3 +184,5 @@ Add or revoke a passkey inside a transaction on the connection (`$transaction->r
 ## Checking an adapter
 
 The same contract tests run on this package's stores and on the SQLite reference stores, on every database: `verified-human-approval/store-contracts` ships them, with the fixture application, fault injection and the process race, for checking your own adapter.
+
+This package is developed in the [Verified Human Approval repository](https://github.com/scottfalconer/verified-human-approval). Open issues and pull requests there.

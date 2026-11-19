@@ -2,7 +2,7 @@
 
 Verified Human Approval is not an OAuth issuer. The installable packages have no client registration, authorization-code, refresh-token or login implementation. Use your existing Symfony Security firewall and maintained OAuth or access-token integration. The bundle adds the exact-action passkey ceremony after authentication and ordinary authorization.
 
-The [reference application](../../../demo/README.md) demonstrates an issuer integration; its accounts, token storage and enrollment authorization belong to that application. They are not required by the bundle. Do not copy its issuer into an application that already has one.
+The [reference application](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/README.md) demonstrates an issuer integration; its accounts, token storage and enrollment authorization belong to that application. They are not required by the bundle. Do not copy its issuer into an application that already has one.
 
 ## Incoming MCP request
 
@@ -16,11 +16,11 @@ Keep `/mcp` on a stateless host firewall. Your existing authenticator or resourc
 ```php
 use Mcp\Server\Authorization\AccessToken;
 
-// Only after validation by your resource server, with the verified token's claims/scopes.
-$request->attributes->set(AccessToken::class, $validatedSdkToken);
+// Only after validation by your resource server, with the verified token's scopes and claims.
+$request->attributes->set(AccessToken::class, new AccessToken($scopes, ['sub' => $userId, 'grant_id' => $grantId]));
 ```
 
-An `AccessToken` object is not itself proof of validation. Never construct its identity or scopes from unverified JSON, tool arguments or arbitrary headers. A different host can map its own validated principal and claims; the bundle does not prescribe the issuer's grant tables.
+`$scopes` is the list of effective scopes from step 3. The claims are what your adapters read: here the account (`sub`) and the original delegation (`grant_id`), which the [first-action guide's identity adapter](first-action.md#3-map-the-authenticated-person) expects. An `AccessToken` object is not itself proof of validation. Never construct its identity or scopes from unverified JSON, tool arguments or arbitrary headers. A different host can map its own validated principal and claims; the bundle does not prescribe the issuer's grant tables.
 
 ## ActorProvider
 
@@ -32,7 +32,7 @@ Implement the three methods using the authenticated host principal:
 | `interactive()` | Return the authenticated human browser account. Reject an MCP bearer even if it belongs to that person. |
 | `assertCanReadApproval($state)` | Check current account/tenant ownership and delegated result-read access before returning any stored proposal or outcome. |
 
-The first-action guide has a [concrete identity adapter](first-action.md#3-map-the-authenticated-person). The Doctrine example supplies a separate [adapter](../../../examples/doctrine-publishing/src/Security/ApprovalActors.php). An account identifier in `localContext`, a JSON argument or a request attribute alone does not establish Symfony's authenticated user.
+The first-action guide has a [concrete identity adapter](first-action.md#3-map-the-authenticated-person). The Doctrine example supplies a separate [adapter](https://github.com/scottfalconer/verified-human-approval/blob/main/examples/doctrine-publishing/src/Security/ApprovalActors.php). An account identifier in a tool argument, a JSON body or a request attribute alone does not establish Symfony's authenticated user.
 
 Keep the review and enrollment pages on the host's browser session firewall. A person approving in that browser does not replace the original initiating delegation. The browser proves the right human approved; the execution authorizer still checks the initiating grant.
 
@@ -48,7 +48,7 @@ Test an absent credential, wrong audience, expired/revoked credential, insuffici
 
 ## Recover an expired browser session
 
-The browser script sends `Accept: application/json`. Configure the host's browser authentication entry point to return **HTTP 401** with `{"status":"authentication_required"}` when authentication is needed for that JSON request. Keep normal HTML navigation on the host's existing login flow. The [publishing example entry point](../../../examples/doctrine-publishing/src/Security/BrowserEntryPoint.php) and its [firewall configuration](../../../examples/doctrine-publishing/config/packages/security.php) show this using Symfony Security's `AuthenticationEntryPointInterface`; the bundle does not authenticate the person or select a login route.
+The browser script sends `Accept: application/json`. Configure the host's browser authentication entry point to return **HTTP 401** with `{"status":"authentication_required"}` when authentication is needed for that JSON request. Keep normal HTML navigation on the host's existing login flow. The [publishing example entry point](https://github.com/scottfalconer/verified-human-approval/blob/main/examples/doctrine-publishing/src/Security/BrowserEntryPoint.php) and its [firewall configuration](https://github.com/scottfalconer/verified-human-approval/blob/main/examples/doctrine-publishing/config/packages/security.php) show this using Symfony Security's `AuthenticationEntryPointInterface`; the bundle does not authenticate the person or select a login route.
 
 The exact marker displays sign-in recovery and a link to the **current page**. Following that link makes a new GET; the host should save its target and return the signed-in person to this existing request. It never repeats the approval POST or creates a new operation. If the passkey response was already submitted, the page retains the unconfirmed-outcome warning until the host reports the recorded state. Cancellation and enrollment follow the same rule. A plain 401, HTML login redirect, gateway failure or unreadable response cannot establish either session expiry or an operation's outcome.
 

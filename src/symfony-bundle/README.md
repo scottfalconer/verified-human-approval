@@ -6,7 +6,7 @@ For an existing CMS, the [adoption cookbook](docs/adoption.md) covers completed 
 
 This is a development preview. The packages are not on Packagist yet. Start with the [integration guide](docs/index.md) for installation from this repository, including the WebAuthn package, and a complete first action.
 
-The bundle supplies service configuration, review routes, CSRF checks, rate limits, the MCP approval card, status tool, scoped phone handoff, the person's receipt download and the public keys that check receipts. Your application supplies accounts, current permissions, trusted enrollment and the guarded business action.
+The bundle supplies service configuration, review routes, CSRF checks, rate limits on each person's approval attempts and on their agents' requests (`attempts_per_minute`, `agent_requests_per_minute`), the MCP approval card, status tool, a scoped phone handoff that `phone_handoff: false` turns off, the person's receipt download and the public keys that check receipts. Your application supplies accounts, current permissions, trusted enrollment and the guarded business action.
 
 Two storages are supplied. The PDO store keeps approvals on SQLite, on one PDO connection your application shares. With `verified-human-approval/doctrine`, the bundle keeps them on your Doctrine DBAL connection, on SQLite, PostgreSQL, MySQL 8.0.17 or later, or MariaDB. Either way, the approval and the business change commit in one transaction on one connection.
 
