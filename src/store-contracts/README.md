@@ -1,18 +1,22 @@
 # Verified Human Approval: storage contracts (`verified-human-approval/store-contracts`)
 
-The tests every Verified Human Approval storage adapter must pass, packaged so you can run them against your own: an `ApprovalStore`, an `Audit\AuditStore` or a `RevocableCredentialRepository` on another database, a framework's own storage (a Drupal table, say), or a fork of the supplied ones. The repository runs these same tests against the SQLite reference stores and the Doctrine stores on SQLite, PostgreSQL and MySQL.
+The tests every Verified Human Approval storage adapter must pass, packaged so you can run them against your own: an `ApprovalStore`, an `Audit\AuditStore` or a `RevocableCredentialRepository` on another database, a framework's own storage, or a fork of the supplied ones. The repository runs these same tests against the SQLite reference stores and the Doctrine stores on SQLite, PostgreSQL, MySQL and MariaDB.
 
-Require it for development only:
+Require it for development only. The packages are not on Packagist yet: first configure the path repository described in the [Symfony installation guide](https://github.com/scottfalconer/verified-human-approval/blob/main/src/symfony-bundle/docs/index.md#1-install-from-a-checkout), including the version entry for `verified-human-approval/store-contracts`, then:
 
 ```bash
 composer require --dev verified-human-approval/store-contracts:dev-main
 ```
 
+The contracts are PHPUnit test cases. The package requires `phpunit/phpunit ^11.5`, so the suite that runs them must use PHPUnit 11, and it installs `verified-human-approval/core` and `verified-human-approval/webauthn` at its own version.
+
+This package is developed in the [Verified Human Approval repository](https://github.com/scottfalconer/verified-human-approval). Open issues and pull requests there.
+
 ## What it checks
 
 | Contract | Rules (see the PHPDoc of each interface) |
 | --- | --- |
-| `ApprovalStoreContract` | The nine rules on `ApprovalStore`: the change, proof, execution and receipt commit together; an unrelated open transaction is refused; writes outside the store's transaction are refused; every failure before commit rolls back every write; a lost commit answer is recovered, never repeated; terminal records keep their bytes; request keys and keyless retries reuse the original; racing completions, ceremonies, proposals and requests commit once; a lock timeout leaves nothing half done. Then: a change to the grant, permission, content, passkey or policy that another connection tries while an approval is between its authority check and its commit must wait, or commit first and stop it; a ceremony retired after a failed attempt is never used by a completion that waited; a 256 KiB proposal with U+2028 and 4-byte characters, and `{}` kept apart from `[]`, keep their bytes. With the `ApprovalHistoryContract` trait, for a store that keeps one: a resource's history. |
+| `ApprovalStoreContract` | The rules in `ApprovalStore`'s PHPDoc, as tests: the change, proof, execution and receipt commit together; an unrelated open transaction is refused; writes outside the store's transaction are refused; every failure before commit rolls back every write; a lost commit answer is recovered, never repeated; terminal records keep their bytes; request keys and keyless retries reuse the original; racing completions, ceremonies, proposals and requests commit once; a lock timeout leaves nothing half done. Then: a change to the grant, permission, content, passkey or policy that another connection tries while an approval is between its authority check and its commit must wait, or commit first and stop it; a ceremony retired after a failed attempt is never used by a completion that waited; a 256 KiB proposal with U+2028 and 4-byte characters, and `{}` kept apart from `[]`, keep their bytes. With the `ApprovalHistoryContract` trait, for a store that keeps one: a resource's history. |
 | `AuditStoreContract` | Rows kept exactly and returned unfiltered; a damaged head is still the head; every signed or bound field is checked; a joined append commits or rolls back with the host; other appenders are held off from before the head is read, for an empty log too; an append after the host read an older view never forks the chain; nothing is left half open after a failure; concurrent processes keep one ordered chain. |
 | `CredentialRepositoryContract` | An identical zero-counter write-back succeeds; a replaced source is refused; an id is never overwritten, reassigned or reactivated; ids differing only in case or a trailing space are different passkeys; ownership is user and tenant together. |
 
@@ -41,6 +45,6 @@ final class MyApprovalStoreContractTest extends \VerifiedHumanApproval\StoreCont
 
 If the store implements `ApprovalHistory`, add `use \VerifiedHumanApproval\StoreContracts\ApprovalHistoryContract;` to that class. A store without a history leaves it out, and no test is skipped.
 
-`AuditStoreContract` with an `AuditHarness`, and `CredentialRepositoryContract` with a `CredentialHarness`, work the same way. The repository's `tests/Contract` has a harness for each supplied store to start from. The races need `proc_open`. Each worker runs `bin/store-worker.php` or `bin/audit-worker.php` with the Composer autoloader of the test process that started it, and the PSR-4 namespaces that process registered at run time, so the package can be installed as a symlink (a Composer path repository) and harnesses can live in namespaces a framework's test bootstrap adds, such as a Drupal module's tests.
+`AuditStoreContract` with an `AuditHarness`, and `CredentialRepositoryContract` with a `CredentialHarness`, work the same way. The repository's [`tests/Contract`](https://github.com/scottfalconer/verified-human-approval/tree/main/tests/Contract) has a harness for each supplied store to start from. The races need `proc_open`. Each worker runs `bin/store-worker.php` or `bin/audit-worker.php` with the Composer autoloader of the test process that started it, and the PSR-4 namespaces that process registered at run time, so the package can be installed as a symlink (a Composer path repository) and harnesses can live in namespaces a framework's test bootstrap adds, such as a Drupal module's tests.
 
 Passing these tests is necessary, not sufficient: they show your adapter keeps the rules for the fixture application. Your own authorizer and actions must lock what they read, as the fixture's do.
