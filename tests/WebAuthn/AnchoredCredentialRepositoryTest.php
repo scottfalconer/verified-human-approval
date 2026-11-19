@@ -220,6 +220,35 @@ final class AnchoredCredentialRepositoryTest extends TestCase
         self::assertTrue($this->approves($replacement));
     }
 
+    /** @return iterable<string, array{string}> an edit to entry 2, which follows the enrollment and is not the newest */
+    public static function editedEntries(): iterable
+    {
+        yield 'edited' => ["UPDATE verified_human_approval_audit SET entry = REPLACE(entry, 'editor', 'mallory') WHERE seq = 2"];
+        yield 'retargeted' => ["UPDATE verified_human_approval_audit SET subject = 'grant-9' WHERE seq = 2"];
+        yield 'removed' => ['DELETE FROM verified_human_approval_audit WHERE seq = 2'];
+    }
+
+    #[DataProvider('editedEntries')]
+    public function testAnEntryEditedInTheDatabaseStopsThePasskeyOnlyUntilItsRowIsPutBack(string $edit): void
+    {
+        $authenticator = new VirtualAuthenticator();
+        $this->enroll($authenticator);
+        $this->audit->append('acme', 'connection.revoked', 'grant-1', ['by' => 'editor']);
+        $this->audit->append('acme', 'connection.revoked', 'grant-2', ['by' => 'editor']);
+        $kept = $this->pdo->query('SELECT * FROM verified_human_approval_audit WHERE seq = 2')->fetch(\PDO::FETCH_ASSOC);
+        self::assertIsArray($kept);
+
+        $this->pdo->exec($edit);
+        self::assertFalse($this->approves($authenticator));
+
+        // The same log, as a long-running worker keeps it, accepts the row again once it is put back as it was.
+        $this->pdo->exec('DELETE FROM verified_human_approval_audit WHERE seq = 2');
+        $this->pdo->prepare('INSERT INTO verified_human_approval_audit (seq, tenant_id, type, subject, entry, hash, key_id, signature) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+            ->execute([$kept['seq'], $kept['tenant_id'], $kept['type'], $kept['subject'], $kept['entry'], $kept['hash'], $kept['key_id'], $kept['signature']]);
+        self::assertTrue($this->approves($authenticator), 'The passkey approves without being enrolled again.');
+        self::assertTrue($this->audit->verify()['intact']);
+    }
+
     public function testOnlyACheckpointShowsThatTheNewestEntriesWereCutOff(): void
     {
         $authenticator = new VirtualAuthenticator();

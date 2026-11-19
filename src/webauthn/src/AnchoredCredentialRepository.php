@@ -22,9 +22,10 @@ use VerifiedHumanApproval\Core\Audit\AuditLog;
  * with that key, reaching back to the rotation away from it once that is recorded. Only a checkpoint of the log's
  * head kept where the application cannot write (AuditLog::checkpoint()) shows that a revocation among them is gone.
  *
- * An entry the log refuses stops every passkey enrolled before it until its owner enrolls again, even one that a
- * host or worker wrote while still signing with a retired key: from the chain alone, it could be a rewritten
- * revocation.
+ * From the chain alone, an entry the log refuses could be what is left of a revocation, so it stops every passkey
+ * enrolled before it until the log accepts it: once the trusted keys list its key with a window that covers it, or a
+ * damaged row is put back as it was. The log never accepts an entry signed after the rotation away from its key, as a
+ * host or worker still signing with the retired key can write one. The owner can instead enroll another passkey.
  *
  * It wraps any RevocableCredentialRepository, so a host can keep passkeys in its own storage. Wire the
  * verifier's CredentialRepository to this wrapper and give the wrapper the raw adapter, never itself.
@@ -118,10 +119,21 @@ final readonly class AnchoredCredentialRepository implements CredentialRepositor
      */
     public function unvouched(Actor $actor): array
     {
+        return $this->weighed($actor)['unvouched'];
+    }
+
+    /**
+     * The owner's stored passkeys, split into those forActor() returns and those unvouched() does, both from one
+     * reading of the chain.
+     *
+     * @return array{vouched: list<Credential>, unvouched: list<Credential>}
+     */
+    public function weighed(Actor $actor): array
+    {
         $credentials = $this->credentials->forActor($actor);
         $vouched = $this->vouchedFor($credentials);
 
-        return array_values(array_filter($credentials, static fn (Credential $credential): bool => !\in_array($credential, $vouched, true)));
+        return ['vouched' => $vouched, 'unvouched' => array_values(array_filter($credentials, static fn (Credential $credential): bool => !\in_array($credential, $vouched, true)))];
     }
 
     public function anchored(Credential $credential): bool

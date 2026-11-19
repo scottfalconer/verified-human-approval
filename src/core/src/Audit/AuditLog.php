@@ -37,14 +37,21 @@ use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
  * hide a row from a lookup.
  *
  * So the checks grow with the chain. A reading fetches every row and checks the signatures of the entries it reads,
- * which is most of the cost. find() reads the chain only for an entry signed with a key that has an end, and
- * standing() reads it once however many subjects it weighs. A log remembers up to 50,000 signatures that verified,
- * the first it checks, and does not check those again, so its later readings, later in a request or in a
- * long-running worker, cost a fraction of the first; in a longer chain, the entries beyond those are checked at each
- * reading. A passkey's standing is read from its enrollment on, or from the first entry once an entry since is signed
- * with a key that has an end, as after a rotation: an approval step in a request of its own reads the chain once, for
- * all of the person's passkeys, and checks every signature in that stretch once. The chain grows with what is
- * recorded here, passkeys enrolled and revoked, rotations and the host's own events, and never with approvals.
+ * which is most of the time it takes. It also holds every row, and the entry it decodes from each one it checks, until
+ * it is done. When it checks every signature, its peak is up to about 3.5 KB per entry for small entries, such as a
+ * connection revoked, and 4.6 KB for passkey enrollments, which carry the passkey's registration. Under PHP's default
+ * memory_limit of 128M, a long enough chain makes an approval step or verify() fail with a fatal error, not a refusal.
+ * How soon depends on those entries, on the store and on what else the process holds: the bundle's audit-head command
+ * fails from about 25,000 entries in a log of enrollments, and 33,000 in a log of small ones; a script that loads only
+ * the library lasts a few thousand entries longer. Raise the limit well before the chain grows that long. find() reads
+ * the chain only for an entry signed with a key that has an end, and standing() reads it once however many subjects it
+ * weighs. A log remembers up to 50,000 signatures that verified, the first it checks, and does not check those again,
+ * so its later readings, later in a request or in a long-running worker, cost a fraction of the first; in a longer
+ * chain, the entries beyond those are checked at each reading. A passkey's standing is read from its enrollment on, or
+ * from the first entry once an entry since is signed with a key that has an end, as after a rotation: an approval step
+ * in a request of its own reads the chain once, for all of the person's passkeys, and checks every signature in that
+ * stretch once. The chain grows with what is recorded here, passkeys enrolled and revoked, rotations and the host's own
+ * events, and never with approvals.
  *
  * @phpstan-import-type AuditHead from AuditStore
  * @phpstan-import-type AuditRecord from AuditStore
