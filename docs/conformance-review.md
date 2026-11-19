@@ -38,12 +38,12 @@ Deviation:
 
 ### The phone code is a pre-authenticated URL
 
-The card's **Approve on your phone** button calls the `approval_handoff` tool, whose result carries a one-time link, in its `url` field, for the card to draw as a QR code. Whoever redeems that link first gets a browser session scoped to one request, so it is a pre-authenticated URL. The elicitation specification says a server requesting elicitation must not provide a URL that is pre-authenticated to a protected resource. The review URL the prompt sends obeys that rule. This link travels in a tool result, not in an elicitation, so the rule does not bind it, but it is stated here.
+The card's **Approve on your phone** button calls the `approval_handoff` tool, whose result carries a one-time link and the QR code of that link, which the card draws. Whoever redeems that link first gets a browser session scoped to one request, so it is a pre-authenticated URL. The elicitation specification says a server requesting elicitation must not provide a URL that is pre-authenticated to a protected resource. The review URL the prompt sends obeys that rule. This link travels in a tool result, not in an elicitation, so the rule does not bind it, but it is stated here.
 
 - The code is 32 random bytes and opens only its pending request's review page, for the person who owns it. It works once and expires two minutes after it is issued; a Continue step keeps a link previewer from spending it. The session it opens lasts ten minutes. Both times are measured by the application's clock.
 - The scoped session can read that one review page and start the passkey step. It cannot cancel the request, download the receipt or reach any other page, and approving still needs the owner's passkey. Its approval attempts have a budget of their own.
 - The tool checks the same read permission as `approval_status`, has its own per-person budget, and makes a code only when the application's origin is HTTPS.
-- A site that does not want the phone code sets the bundle's `phone_handoff: false`: the card then offers no code, the tool is not defined, and a code link answers 410.
+- The bundle's `phone_handoff` is on by default. While it is on, a container in which an MCP server serves the card without the tool does not build, so the card is never told to call a tool its server lacks. A site that does not want the phone code sets `phone_handoff: false`: the card then offers no code, the tool is not defined, and a code link answers 410.
 
 ## MCP Apps
 
