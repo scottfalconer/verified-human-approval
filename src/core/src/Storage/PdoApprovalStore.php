@@ -57,28 +57,60 @@ final class PdoApprovalStore implements ApprovalStore, ApprovalHistory
         return $this->pdo;
     }
 
+    /**
+     * Begun through PDO, so that PDO reports it: the audit store, and the application's own code on this
+     * connection, then join it instead of beginning another, which SQLite would refuse.
+     */
     public function transaction(callable $callback): mixed
     {
+        $nested = 'Approval execution must own the outer database transaction.';
         if ($this->active || $this->pdo->inTransaction()) {
-            throw new \LogicException('Approval execution must own the outer database transaction.');
+            throw new \LogicException($nested);
         }
-        // BEGIN IMMEDIATE obtains the write reservation before reading any authority/precondition.
-        $this->pdo->exec('BEGIN IMMEDIATE');
+        try {
+            $this->pdo->beginTransaction();
+        } catch (\PDOException $error) {
+            // Before PHP 8.4, PDO does not report a transaction begun with plain SQL; SQLite refuses the BEGIN.
+            throw str_contains($error->getMessage(), 'within a transaction') ? new \LogicException($nested, 0, $error) : $error;
+        }
         $this->active = true;
         try {
+            // A write that changes nothing takes the write reservation, as BEGIN IMMEDIATE would, before any
+            // authority or precondition is read, and holds it until the transaction ends.
+            $this->pdo->exec('UPDATE verified_human_approval_requests SET id = id WHERE 0');
             $result = $callback();
-            $this->pdo->exec('COMMIT');
+            $this->pdo->commit();
 
             return $result;
         } catch (\Throwable $error) {
-            try {
-                $this->pdo->exec('ROLLBACK');
-            } catch (\Throwable) {
-                // A failed commit may have an unknown outcome. ApprovalService reads persisted state.
-            }
+            // A failed commit may have an unknown outcome. ApprovalService reads persisted state.
+            $this->rollBack();
             throw $error;
         } finally {
             $this->active = false;
+        }
+    }
+
+    /**
+     * Rolls back, and leaves PDO and SQLite agreeing that no transaction is open. SQLite ends a transaction by
+     * itself after some errors, such as a full disk; PDO before PHP 8.4 still counts it then, and would refuse
+     * every later transaction on this connection.
+     */
+    private function rollBack(): void
+    {
+        try {
+            $this->pdo->rollBack();
+        } catch (\Throwable) {
+            if (!$this->pdo->inTransaction()) {
+                return;
+            }
+            try {
+                // A transaction on SQLite alone, for PDO's rollback to end.
+                $this->pdo->exec('BEGIN');
+                $this->pdo->rollBack();
+            } catch (\Throwable) {
+                // The failure that ended the transaction is the one to report.
+            }
         }
     }
 
