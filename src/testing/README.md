@@ -19,8 +19,6 @@ composer require --dev verified-human-approval/testing:dev-main
 
 The package does not install PHPUnit, the MCP SDK or any Symfony bundle. Keep your application's test runner; supply a PSR-17 implementation such as `nyholm/psr7` when using `KernelHttpClient`.
 
-This package is developed in the [Verified Human Approval repository](https://github.com/scottfalconer/verified-human-approval). Open issues and pull requests there.
-
 ## Approve through the page
 
 Use a BrowserKit browser already signed in through your application's normal test fixtures. Enroll the software passkey through your trusted test enrollment flow first. The passkey's origin must match the application's configured WebAuthn origin.
@@ -80,8 +78,10 @@ $http = new KernelHttpClient(
 );
 ```
 
-Give `$http` to the MCP SDK's `HttpTransport` as `httpClient`, with `$factory` as `requestFactory` and `streamFactory`. Its requests run through your real endpoint, authentication and tool services. Your host issues the test bearer token; this package creates no accounts, sessions or access tokens.
+Give `$http` to the MCP SDK's `HttpTransport` as `httpClient`, with `$factory` as `requestFactory` and `streamFactory`. Its requests run through your real endpoint, authentication and tool services. Your host issues the test bearer token; this package creates no accounts, sessions or access tokens. A kernel built with debug off, as here, reuses the container it compiled before: clear the test cache after changing configuration.
 
 The client preserves request headers and bodies, HTTP error responses and streamed SSE content. It keeps no cookie jar. Each request obtains a new kernel; a terminable kernel is terminated after sending the response, and a Symfony kernel is shut down even when a request fails. Exceptions raised by your in-process application remain visible to the test.
 
 See the [Symfony testing guide](https://github.com/scottfalconer/verified-human-approval/blob/main/src/symfony-bundle/docs/testing.md) for test environment setup, MCP wiring, receipt verification and the cases a host integration should cover. The repository's [whole-application test](https://github.com/scottfalconer/verified-human-approval/blob/main/tests/Testing/DemoApplicationTest.php) exercises registration, MCP requests, approval, cancellation, stale data, handoff and receipt download using these public helpers.
+
+This package is developed in the [Verified Human Approval repository](https://github.com/scottfalconer/verified-human-approval). Open issues and pull requests there.
