@@ -37,6 +37,8 @@ final class McpToolsTest extends TestCase
             $kernel->shutdown();
         }
         (new Filesystem())->remove($this->runtime);
+        // ReviewKernel trusts app.example only, and Symfony keeps that for the whole process.
+        Request::setTrustedHosts([]);
     }
 
     public function testAnAgentsCallsToAskForAnActionHaveABudgetAndReadingTheOutcomeIsFree(): void

@@ -49,6 +49,8 @@ final class LayoutAndLanguageTest extends TestCase
             $browser->getKernel()->shutdown();
         }
         (new Filesystem())->remove($this->runtime);
+        // ReviewKernel trusts app.example only, and Symfony keeps that for the whole process.
+        Request::setTrustedHosts([]);
     }
 
     public function testEachResponseHasANonceThatThePolicyAndTheLayoutShare(): void
