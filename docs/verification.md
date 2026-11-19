@@ -1,6 +1,6 @@
 # Verification status
 
-What runs automatically on every push, what has been checked with real clients and devices, and what is not proven.
+What runs automatically on every push, which browser checks run by hand, what has been checked with real clients and devices, and what is not proven.
 
 ## Automated checks
 
@@ -45,25 +45,37 @@ A run checks the commit it ran on. The checks shown beside a commit or pull requ
 
 Core lifecycle tests use a test-only verifier where cryptography is not the subject. WebAuthn, evidence and Symfony integration tests use the production WebAuthn bridge. Synthetic authenticators test signatures and protocol behavior; they do not establish how a physical authenticator or a biometric behaves.
 
+## Browser checks outside CI
+
+Three Python scripts drive Chromium: two run the demo with virtual authenticators, and one runs the approval card on its own. CI does not run them; [run the checks yourself](#run-the-checks-yourself) gives the commands.
+
+- [`browser_smoke.py`](../tests/browser_smoke.py): a first passkey needs the account's one-time link; an expired sign-in returns to the same request; the review page shows the final public page from the frozen proposal; the approval publishes once, and the request key's retry does not publish again; a draft changed after review stops its request; an answer lost after the passkey response, or replaced by a gateway's error, is reported as unconfirmed. It also runs Symfony AI's `Agent` and `McpToolbox` with a scripted model.
+- [`card_smoke.py`](../tests/card_smoke.py): the real approval card inside a scripted MCP Apps host. A QR decoder reads back the phone code the card draws, and the card's text must be readable on the surface it paints, under dark, light and mismatched hosts and hosts that send no styles.
+- [`phone_smoke.py`](../tests/phone_smoke.py): behind a stand-in for an HTTPS tunnel, a second browser that never signed in redeems the phone code, reaches nothing but that review, and approves with a copy of the passkey; the agent's `approval_status` then says completed, and the code is refused the second time.
+
+All three last passed together on [`4ea04eb1`](https://github.com/scottfalconer/verified-human-approval/commit/4ea04eb1487cc59a77687f8a4753dcc690957f48) (its commit message records the run), with Python Playwright 1.63 and Chrome for Testing build 1234. That is earlier code: `browser_smoke.py` and `card_smoke.py` have changed since, `card_smoke.py` to add its color checks. Two more checks of earlier code drove Chromium by hand through Node Playwright, with scripts that are not in this repository: lost and stopped requests on the review page and in the card, on [`0c3bb115`](https://github.com/scottfalconer/verified-human-approval/commit/0c3bb115341e9ba36d876d3f76da38e947b15db4), and a receipt downloaded and verified offline, on `4ea04eb1`.
+
 ## Real clients and devices
 
-These runs used real clients, with a physical device where the table says so. The last column names where each was first recorded. The three approvals ran on the code of 8 November 2026, and none has been repeated on the current code.
+These runs used real clients, with a physical device where the table says so. The last column names where each was first recorded. The three recorded approvals ran on the code of 8 November 2026, and none has been repeated on the current code. The runs of 18 November 2026 record what the card looked like in the Claude iOS app, and whether models send a request key.
 
 | Date (UTC) | Client and connection | Passkey | Result | Recorded in |
 | --- | --- | --- | --- | --- |
 | 8 November 2026, 16:21 | A Claude Desktop chat, connected to a local demo through `mcp-remote` with the editor's personal token | A Mac's Touch ID, with an iCloud Keychain passkey | Claude asked to publish; the approval card polled `approval_status` every 3 seconds; the passkey approved the exact page 21 seconds later; the site published once, and the card stopped polling. This was the demo's earlier announcement version (tool `publish_announcement`), before it became the alerts site. | [`d63715cf`](https://github.com/scottfalconer/verified-human-approval/commit/d63715cf6277a1e0cf33c3e78f8d8f51bd3d02ac) |
 | 8 November 2026, 17:46 | A claude.ai custom connector to the demo on a public HTTPS tunnel, over OAuth with Claude's client ID metadata document | A physical iPhone, from the phone code's scoped session, which never signed in; an iCloud Keychain passkey enrolled in Safari on the Mac | The card called the app-only `approval_handoff` tool through claude.ai, and the phone redeemed the code; the application recorded the approval and issued the alert in the same second, once. The demo then ran its own OAuth server, since replaced by League's bundle. claude.ai did not pass the server's instructions to the model in this run. | [`0dcba657`](https://github.com/scottfalconer/verified-human-approval/commit/0dcba6577aa91d0c928f1f61baa2c284d6fd49ba) |
 | 8 November 2026 | Claude Code 2.1.317 with `claude-haiku-5-5`, in the stream-json host mode the desktop app uses, driven by [`claude_code_host.py`](../tests/claude_code_host.py) | Chrome's virtual authenticator: no physical device | The URL-mode elicitation reached the host; after the approval on the review page and an `accept`, the retried call returned `completed`, with one committed effect. | [`56f0bdeb`](https://github.com/scottfalconer/verified-human-approval/commit/56f0bdeb8f7fc3915f59da8c99f728628dbe7c0a) |
+| 18 November 2026 | The Claude iOS app on an iPhone, connected to the demo | Not recorded | The approval card's text was unreadable: the light theme's dark text over the app's dark surface. That led to the card's color fix (see [MCP Apps](conformance-review.md#mcp-apps)), which has not been checked in the app. | The [changelog](../CHANGELOG.md), and [`card_smoke.py`](../tests/card_smoke.py), which reproduces those colors |
 | 18 November 2026 | Claude Code 2.1.319 in print mode, with a plain system prompt, against the demo's HTTP endpoint, by hand and with [`claude_request_key.py`](../tests/claude_request_key.py) | None: nothing was approved | Asked to publish, Claude left the optional `request_key` out in all 38 new conversations (Opus 5.5, Fable 5.2, Sonnet 5.5 and Haiku 5.5); in a few more, Haiku showed the draft and asked before sending anything. With the earlier description, "Your own id for this request", it sent a key in 24 of 24 (Opus 5.5, Fable 5.2 and Haiku 5.5), often the same one again. Not checked in claude.ai, whose system prompt differs, or with the publishing example's tools. | This page |
 
 ## What is not proven
 
 - **The current code on a physical device.** The newest recorded approvals with Touch ID and with an iPhone ran on 8 November 2026, on an earlier version of the demo with a different OAuth server.
+- **The card's colors in the Claude iOS app.** `card_smoke.py` checks the fixed colors in Chromium, under scripted hosts. No check in the app is recorded.
 - **Hosts other than Claude's.** No run with ChatGPT, VS Code, Cursor or another MCP Apps host is recorded.
 - **Physical authenticators in the automated tests.** They use synthetic credentials and Chrome's virtual authenticator.
 - **A live model in CI.** `http_smoke.py` gives Symfony AI scripted model responses. The [live-model example](../examples/README.md#live-model) needs a model API key, and the two checks with real Claude models above are not part of CI.
-- **The Python browser checks in CI.** `browser_smoke.py`, `card_smoke.py` and `phone_smoke.py` run Chrome with virtual authenticators, on a developer's machine only.
-- **An install from Packagist.** Nothing is published yet; the consumer jobs install the packages from this repository's `src/` directories.
+- **The Python browser checks on the current code.** CI runs the Editorial Desk's browser check, not these three, and their last recorded pass is on earlier code (see [browser checks outside CI](#browser-checks-outside-ci)).
+- **An install from Packagist.** The packages are not on Packagist; the consumer jobs install them from this repository's `src/` directories.
 - **Security.** This is a tested implementation, not an independent security audit.
 
 ## Run the checks yourself
@@ -81,19 +93,19 @@ node --test tests/card_lifecycle.mjs tests/approval_recovery.mjs
 
 PHPUnit reports the PostgreSQL and MySQL test classes as skipped unless `VERIFIED_HUMAN_APPROVAL_POSTGRES_URL` or `VERIFIED_HUMAN_APPROVAL_MYSQL_URL` names a database server; CI runs them. The [workflow](../.github/workflows/tests.yml) shows the form of each URL and the command, `vendor/bin/phpunit --testsuite contract,doctrine,example --filter Postgres` or `--filter Mysql`. Two SQLite cases are also skipped: in SQLite's rollback journal, the race they test cannot happen.
 
-The Python HTTP checks use the standard library. The Node checks need Node.js 22 or later and install nothing. The optional browser checks need Python Playwright and Chromium, and the card check also needs PHP's `gd` extension to decode its QR code. Install the Python dependencies in a virtual environment:
+The Python HTTP checks use the standard library. The Node checks need Node.js 22 or later and install nothing. The optional browser checks need Python Playwright and Chromium, and the card check also needs PHP's `gd` extension to decode its QR code. Install the Python dependencies in a virtual environment, with the Playwright version of the checks' last recorded pass:
 
 ```bash
 python3 -m venv var/browser-checks
 . var/browser-checks/bin/activate
-python3 -m pip install playwright
+python3 -m pip install playwright==1.63.0
 python3 -m playwright install chromium
 PHP_BIN=php python3 tests/browser_smoke.py
 PHP_BIN=php python3 tests/card_smoke.py
 PHP_BIN=php python3 tests/phone_smoke.py
 ```
 
-The scripts use Playwright's Chromium unless `CHROMIUM_BIN`, or a `chromium` on the path, selects another executable. They use virtual authenticators.
+`CHROMIUM_BIN` selects the browser. Without it, `browser_smoke.py` and `phone_smoke.py` use a `chromium` on the path if there is one, and otherwise, like `card_smoke.py`, Playwright's own Chromium.
 
 Two optional checks use a real model through the Claude Code CLI. [`claude_request_key.py`](../tests/claude_request_key.py) checks that an agent leaves the request key out, with three short model calls by default. [`claude_code_host.py`](../tests/claude_code_host.py) runs the URL-mode elicitation end to end, with one model call, and also needs Python Playwright and `CHROMIUM_BIN`:
 
@@ -104,4 +116,4 @@ CLAUDE_BIN=claude CHROMIUM_BIN=/path/to/chrome PHP_BIN=php python3 tests/claude_
 
 For a check on a physical device, follow the [demo](../demo/README.md) with the device and client you intend to support, and record the commit, origin, browser, client and device beside the outcome.
 
-The [receipt walkthrough](evidence.md) is a smaller check: verify an original record, change a copy, and see verification fail.
+[Verify a receipt](evidence.md) is a smaller check: verify an original record, change a copy, and see verification fail.
