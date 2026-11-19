@@ -218,13 +218,13 @@ final class StoredApprovalAuditTest extends TestCase
 
     /**
      * The site's Issue alert button and its alert rule form send no request key, so asking again with the same content
-     * reuses the proposal still waiting. When that stored proposal was edited, they say what the review page says, that
+     * reuses the proposal still waiting. When its stored record was edited, they say what the review page says, that
      * its outcome cannot be confirmed, and never that the request was refused.
      *
      * @param \Closure(\PDO, string): void $change
      */
     #[DataProvider('waitingChanges')]
-    public function testAskingAgainOnTheSiteWhileTheWaitingRequestIsDamagedSaysItsOutcomeCannotBeConfirmed(\Closure $change, bool $proposalReadsBack): void
+    public function testAskingAgainOnTheSiteWhileTheWaitingRequestIsDamagedSaysItsOutcomeCannotBeConfirmed(\Closure $change, bool $namesRequest): void
     {
         $editor = $this->signedIn('editor');
         $issue = $editor->request('GET', self::ORIGIN.'/')->selectButton('Issue alert')->form();
@@ -240,18 +240,24 @@ final class StoredApprovalAuditTest extends TestCase
             self::assertSame(409, $browser->getResponse()->getStatusCode(), $surface);
             self::assertCount(1, $page->filter('[data-status="integrity_error"]'), $surface);
             self::assertStringContainsString('We cannot confirm this approval’s outcome', $page->text(), $surface);
-            $named = $proposalReadsBack ? 'Request '.$match[1].' · ' : '';
-            self::assertSame($named.'Reason code: record_integrity_error', $page->filter('[data-status="integrity_error"] p.small')->text(), $surface.': the page names the request while its proposal still shows it is this person’s.');
+            $named = $namesRequest ? 'Request '.$match[1].' · ' : '';
+            self::assertSame($named.'Reason code: record_integrity_error', $page->filter('[data-status="integrity_error"] p.small')->text(), $surface.': the page names the request only when the error carries it.');
         }
         self::assertSame(0, (int) $this->database->alert('riverside-evacuation')['mutation_count']);
         self::assertSame(1, (int) $this->database->policy('alert.publish')['version']);
     }
 
-    /** @return iterable<string, array{\Closure(\PDO, string): void, bool}> each edit to a waiting request, and whether its proposal still reads back after it */
+    /**
+     * The error names the request only when a part other than the proposal does not read back. A record that reads
+     * back but whose parts disagree, such as a proof beside a waiting request, fails a check that names none.
+     *
+     * @return iterable<string, array{\Closure(\PDO, string): void, bool}> each edit to a waiting request, and whether the error it causes names the request
+     */
     public static function waitingChanges(): iterable
     {
         yield 'one character of the proposal' => [self::update("proposal = substr(proposal, 1, 20) || 'X' || substr(proposal, 22)"), false];
         yield 'the proof, to text that is not JSON' => [self::update("proof = 'approved'"), true];
+        yield 'a proof, added while it waits' => [self::update("proof = '{}'"), false];
     }
 
     /** @return \Closure(\PDO, string): void an edit to the stored request's own row */

@@ -126,7 +126,8 @@ final readonly class DemoController
     /**
      * Both forms ask without a request key, so asking again reuses the proposal still waiting with the same content.
      * When that stored record fails its integrity check, nothing says whether it ran: the page is the one the review
-     * page shows for such a record, never a refusal, and it names the request while its proposal still shows whose it is.
+     * page shows for such a record, never a refusal. It names the request when the error carries it, and an error
+     * carries it only while the proposal still shows whose the record is.
      */
     private function integrityError(ApprovalException $error): Response
     {
