@@ -101,6 +101,8 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             ->integerNode('agent_requests_per_minute')->min(1)->max(1000)->defaultValue(30)
                 ->info('Calls per person per minute, across their agent connections, to protected tools that may open a proposal, as the MCP specification asks a server to rate limit tool calls. Reading an outcome is free. It sets the default of the framework rate limiter "verified_human_approval_agent_requests", which your own framework.rate_limiter config can override.')->end()
             ->scalarNode('rate_limiter')->defaultValue('limiter.verified_human_approval')->info('Service id of a Symfony\\Component\\RateLimiter\\RateLimiterFactoryInterface, to replace the framework limiter with your own.')->end()
+            ->booleanNode('phone_handoff')->defaultTrue()
+                ->info('"Approve on your phone": the approval card offers a one-time code that opens one pending request\'s review on the person\'s phone. While it is on, list VerifiedHumanApproval\\Bundle\\Mcp\\ApprovalHandoffTool under your MCP server\'s registry tools. Off, the card offers no code, the tool is not defined, and a code link answers 410.')->end()
             ->scalarNode('lock_factory')->defaultValue('verified_human_approval.lock_factory')
                 ->info('Service id of a Symfony\\Component\\Lock\\LockFactory that makes each phone code single-use. The default locks files on this host; use "lock.factory" with a shared store when several hosts serve the application.')->end()
             ->scalarNode('receipt_signer')
@@ -255,17 +257,18 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             ->tag('verified_human_approval.observer');
 
         $services->set('verified_human_approval.presenter', ApprovalPresenter::class)
-            ->args([service('router'), $config['public_origin']]);
+            ->args([service('router'), $config['public_origin'], $config['phone_handoff']]);
         $services->alias(ApprovalPresenter::class, 'verified_human_approval.presenter');
         $services->alias(ResultPresenter::class, 'verified_human_approval.presenter');
 
-        // A file lock on this host, so a phone code is redeemed once even when two devices open it together.
-        $services->set('verified_human_approval.lock_store', FlockStore::class)->args(['%kernel.cache_dir%/verified-human-approval-locks']);
-        $services->set('verified_human_approval.lock_factory', LockFactory::class)->args([service('verified_human_approval.lock_store')]);
-
-        $services->set('verified_human_approval.handoff', ApprovalHandoff::class)->args([
-            service('cache.app'), service('router'), $config['public_origin'], service('verified_human_approval.clock'), service($config['lock_factory']),
-        ]);
+        if ($config['phone_handoff']) {
+            // A file lock on this host, so a phone code is redeemed once even when two devices open it together.
+            $services->set('verified_human_approval.lock_store', FlockStore::class)->args(['%kernel.cache_dir%/verified-human-approval-locks']);
+            $services->set('verified_human_approval.lock_factory', LockFactory::class)->args([service('verified_human_approval.lock_store')]);
+            $services->set('verified_human_approval.handoff', ApprovalHandoff::class)->args([
+                service('cache.app'), service('router'), $config['public_origin'], service('verified_human_approval.clock'), service($config['lock_factory']),
+            ]);
+        }
 
         $services->set('verified_human_approval.url_prompt', UrlPrompt::class)
             ->args([$config['url_elicitation']['enabled'], $config['url_elicitation']['clients']]);
@@ -321,7 +324,8 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             service('security.csrf.token_manager'),
             service('twig'),
             service($config['rate_limiter']),
-            service('verified_human_approval.handoff'),
+            // Without the phone code, no code link opens a review and no session is scoped to one.
+            $config['phone_handoff'] ? service('verified_human_approval.handoff') : null,
             service('router'),
             null === $config['requester_label'] ? service(RequesterLabel::class)->nullOnInvalid() : service($config['requester_label']),
             null === $config['receipt_signer'] ? null : service('verified_human_approval.evidence_exporter'),
@@ -334,9 +338,11 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
         $services->set('verified_human_approval.status_tool', ApprovalStatusTool::class)
             ->args([service('verified_human_approval.approval_service'), service('verified_human_approval.actor_provider'), service('verified_human_approval.presenter')])
             ->tag('mcp.tool', ['method' => 'status']);
-        $services->set('verified_human_approval.handoff_tool', ApprovalHandoffTool::class)
-            ->args([service('verified_human_approval.approval_service'), service('verified_human_approval.actor_provider'), service('verified_human_approval.handoff'), service($config['rate_limiter'])])
-            ->tag('mcp.tool', ['method' => 'handoff']);
+        if ($config['phone_handoff']) {
+            $services->set('verified_human_approval.handoff_tool', ApprovalHandoffTool::class)
+                ->args([service('verified_human_approval.approval_service'), service('verified_human_approval.actor_provider'), service('verified_human_approval.handoff'), service($config['rate_limiter'])])
+                ->tag('mcp.tool', ['method' => 'handoff']);
+        }
         $services->set('verified_human_approval.card_app', ApprovalCardApp::class)->tag('mcp.app');
 
         // The review pages' headers, and their policy's nonce for your layout's templates.

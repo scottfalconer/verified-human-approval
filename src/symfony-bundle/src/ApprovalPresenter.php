@@ -16,7 +16,8 @@ use VerifiedHumanApproval\Mcp\ResultPresenter;
 /** One result shape for MCP and browser status, with no assertion material. */
 final readonly class ApprovalPresenter implements ResultPresenter
 {
-    public function __construct(private UrlGeneratorInterface $urls, private string $publicOrigin)
+    /** @param bool $phoneHandoff whether the site offers the phone code, through ApprovalHandoffTool */
+    public function __construct(private UrlGeneratorInterface $urls, private string $publicOrigin, private bool $phoneHandoff)
     {
         $parts = parse_url($publicOrigin);
         if (!\is_array($parts) || !isset($parts['scheme'], $parts['host']) || isset($parts['user']) || isset($parts['pass'])
@@ -59,9 +60,9 @@ final readonly class ApprovalPresenter implements ResultPresenter
             $data['receipt_keys_url'] = rtrim($this->publicOrigin, '/').$this->urls->generate('verified_human_approval_receipt_keys');
             $data['receipt_key_url'] = rtrim($this->publicOrigin, '/').$this->urls->generate('verified_human_approval_receipt_key');
         }
-        // The MCP App card reads these fixed names; it shows only what the application recorded.
-        // It offers the phone only when a phone could reach the site: a public HTTPS address.
-        $phone = str_starts_with($this->publicOrigin, 'https://') ? ApprovalHandoffTool::NAME : null;
+        // The MCP App card reads these fixed names; it shows only what the application recorded. It offers the phone
+        // only when the site offers it and a phone could reach the site: a public HTTPS address.
+        $phone = $this->phoneHandoff && str_starts_with($this->publicOrigin, 'https://') ? ApprovalHandoffTool::NAME : null;
         $data['approval'] = ApprovalCard::view($state, $this->reviewUrl($state), $this->statusTool(), $phone, $earlier);
 
         return $data;

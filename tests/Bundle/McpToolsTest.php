@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace VerifiedHumanApproval\Tests\Bundle;
 
 use PHPUnit\Framework\TestCase;
+use Symfony\AI\McpBundle\Exception\LogicException;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpFoundation\Request;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool;
@@ -48,6 +49,41 @@ final class McpToolsTest extends TestCase
         for ($check = 0; $check < 3; ++$check) {
             self::assertSame('pending', $this->call($kernel, ApprovalStatusTool::NAME, ['request_id' => $first['structuredContent']['requestId']])['structuredContent']['status'] ?? null, 'The status tool reads for free.');
         }
+    }
+
+    public function testTheCardOffersThePhoneOnlyWhereTheSiteServesIt(): void
+    {
+        // As the guide registers them: the status tool, the phone tool and the card.
+        $on = $this->kernel();
+        self::assertContains(ApprovalHandoffTool::NAME, $this->tools($on));
+        $pending = $this->call($on, 'publish_article', ['article_id' => 1]);
+        self::assertSame(ApprovalHandoffTool::NAME, $pending['structuredContent']['approval']['handoffTool'] ?? null);
+
+        // A site that turns the phone code off: the card is never told to call a tool the server does not have.
+        $off = $this->kernel(['phone_handoff' => false], [ApprovalStatusTool::class]);
+        self::assertNotContains(ApprovalHandoffTool::NAME, $this->tools($off));
+        foreach ([$this->call($off, 'publish_article', ['article_id' => 1]), $this->call($off, ApprovalStatusTool::NAME, ['request_id' => $pending['structuredContent']['requestId']])] as $result) {
+            self::assertArrayHasKey('handoffTool', $result['structuredContent']['approval'] ?? []);
+            self::assertNull($result['structuredContent']['approval']['handoffTool']);
+        }
+        self::assertSame(410, $off->handle(Request::create('https://app.example/approval/handoff/'.str_repeat('Q', 43), server: ['HTTPS' => 'on']))->getStatusCode(), 'No code link opens a review.');
+
+        // The switch and the tool go together: a server that lists the tool the site turned off does not build.
+        $listed = new ReviewKernel($this->runtime, ['phone_handoff' => false], tools: [ApprovalStatusTool::class, ApprovalHandoffTool::class]);
+        try {
+            $listed->boot();
+            self::fail('The server listed a phone tool the site turned off.');
+        } catch (LogicException $error) {
+            self::assertStringContainsString(ApprovalHandoffTool::class, $error->getMessage());
+        } finally {
+            $listed->shutdown();
+        }
+    }
+
+    /** @return list<string> the names of the tools the server lists */
+    private function tools(ReviewKernel $kernel): array
+    {
+        return array_column($this->call($kernel, null)['tools'] ?? [], 'name');
     }
 
     /** @param array<string, mixed> $approval */

@@ -195,7 +195,7 @@ The matcher covers only the bundle's own routes: review, handoff, the person's r
 
 ## 4. Register the MCP tools and card
 
-The worked example defines `App\Mcp\PublishDocumentTool`. Register it with the bundle's status tool and optional card/phone handoff:
+The worked example defines `App\Mcp\PublishDocumentTool`. Register it with the bundle's status tool, its card and the card's phone code:
 
 ```yaml
 # config/packages/mcp.yaml
@@ -220,6 +220,16 @@ mcp:
 ```
 
 The MCP Flex recipe may already define a server named `default` on `/mcp`. Update that server in place, or replace its definition with `application` above; do not leave two servers claiming the same path. Keep your other existing tools in the registry.
+
+`ApprovalHandoffTool` is the card's "Approve on your phone" code, and it goes with the bundle's `phone_handoff` key, on by default: while the key is on, list the tool, since the card is told to call it. To turn the phone code off, set the key and leave the tool out:
+
+```yaml
+# config/packages/verified_human_approval.yaml
+verified_human_approval:
+    phone_handoff: false
+```
+
+The card then offers no code, the tool is not defined, and a code link answers 410. A server that still lists the tool does not build.
 
 Set `allowed_hosts` to your application's host. Keep the MCP route import (`resource: '.', type: mcp`) supplied by your MCP integration. The session lock prevents the card's polling and a tool call from overwriting each other's session state. The request-state key must be at least 32 bytes and separate from the receipt key. Its TTL should exceed your approval lifetime; this example uses a 600-second approval lifetime.
 
@@ -403,6 +413,6 @@ Keep the application database and signing keys persistent across deploys. Restor
 
 The browser rate limiter defaults to 30 attempts per person per minute. Override the `verified_human_approval` framework limiter or point `rate_limiter` to your own `RateLimiterFactoryInterface` service. Agents have a budget of their own, as the MCP specification asks a server to rate limit tool calls: `agent_requests_per_minute`, 30 by default, counts each person's calls to protected tools across all their agent connections, through the framework limiter `verified_human_approval_agent_requests`. A call past it is refused before anything is prepared, with `status: rejected` and the reason `rate_limited`; reading an outcome, with `approval_status` or a URL prompt's retry, is free. `ApprovalFlow` spends it through the `VerifiedHumanApproval\Mcp\ProposalBudget` service, which you can replace. The phone handoff uses `cache.app` and a lock; multiple web servers need a shared cache and a shared lock store configured through `lock_factory`. Its default file lock is local to one host.
 
-The phone link is single-use and lasts two minutes. Opening it shows a Continue button; Continue redeems it and creates a session for that request only. It grants no general login and cannot cancel a request. App-only tool visibility is a client convention; the server still checks ownership and read permission.
+The phone link is single-use and lasts two minutes. Opening it shows a Continue button; Continue redeems it and creates a session for that request only, for ten minutes. It grants no general login, cannot cancel a request or download the receipt, and its approval attempts count against a budget of their own, so they never use up the signed-in person's. App-only tool visibility is a client convention; the server still checks ownership and read permission. A site that does not want a code to open a review elsewhere sets `phone_handoff: false`, as [section 4](#4-register-the-mcp-tools-and-card) shows.
 
 Verify the [worked example's acceptance checks](first-action.md#8-check-the-integration) with your actual account and storage adapters. The repository's Symfony suite can be run from its root with `composer test -- --testsuite symfony`. Protocol tests do not replace checks with the browsers, authenticators and MCP clients you plan to support.
