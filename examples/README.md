@@ -22,9 +22,9 @@ export VERIFIED_HUMAN_APPROVAL_TOKEN
 | Variable | Purpose |
 | --- | --- |
 | `VERIFIED_HUMAN_APPROVAL_TOKEN` | Required personal connection token. It authenticates requests; it cannot approve them. |
-| `VERIFIED_HUMAN_APPROVAL_MCP_URL` | Defaults to `http://localhost:8080/mcp`. Set it to the demo's HTTPS MCP URL for a public instance. |
+| `VERIFIED_HUMAN_APPROVAL_MCP_URL` | Defaults to `http://localhost:8080/mcp`. For a demo at another address, such as another port or a public instance's HTTPS one, set it to the MCP URL setup printed. |
 | `OPENAI_API_KEY` | Required only for the live model example. |
-| `VERIFIED_HUMAN_APPROVAL_MODEL` | Optional model override for the live model example. |
+| `VERIFIED_HUMAN_APPROVAL_MODEL` | Optional model for the live model example, instead of `gpt-4.1-mini`. |
 
 Use a token from the instance you are connecting to. The local and public demos have separate accounts and tokens. The client permits HTTPS endpoints and HTTP on `localhost`; it does not follow redirects.
 
@@ -69,17 +69,18 @@ If you already issued the alert in the earlier example, follow [Run it again](..
 
 ### Live model
 
-The same script can use the Symfony AI OpenAI bridge. Supply an API key and a model available to your API account. Replace `YOUR_MODEL_ID` below with that model's ID:
+The same script can use the Symfony AI OpenAI bridge. Supply an API key:
 
 ```bash
 printf 'OpenAI API key: '
 read -r -s OPENAI_API_KEY
 printf '\n'
 export OPENAI_API_KEY
-export VERIFIED_HUMAN_APPROVAL_MODEL='YOUR_MODEL_ID'
 
 php examples/agent.php 'Issue the riverside-evacuation alert. If approval is needed, show its review link and stop.'
 ```
+
+It uses `gpt-4.1-mini`. To use another model your API account offers, set `VERIFIED_HUMAN_APPROVAL_MODEL` to its ID first.
 
 This mode makes a live model request and may incur API charges. Its instructions tell the agent to show the application's review URL and stop while approval is pending. The application enforces approval regardless of the model's response. Check the application's recorded status before treating an action as complete.
 
