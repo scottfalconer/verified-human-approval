@@ -37,7 +37,7 @@ The four workers allow browser requests and MCP calls to run at the same time. O
 
 #### If port 8080 is taken
 
-If another program has the port, PHP's server stops at once with `Failed to listen on localhost:8080 (reason: Address already in use)`. The demo answers only at the address it was set up for, because its passkeys and the links it gives agents belong to that address; opened at another one, it says where to open it. To use port 8090 instead, set the demo up for that address and start the server on the same port:
+If PHP's server stops at once with `Failed to listen on localhost:8080 (reason: Address already in use)`, another program has that port. The demo answers only at the address it was set up for, because its passkeys and the links it gives agents belong to that address; opened at another one, it says where to open it. To use port 8090 instead, set the demo up for that address and start the server on the same port:
 
 ```bash
 VERIFIED_HUMAN_APPROVAL_ORIGIN=http://localhost:8090 php demo/bin/setup.php --reset
