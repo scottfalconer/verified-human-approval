@@ -162,15 +162,19 @@ final readonly class DbalApprovalStore implements ApprovalStore, ApprovalHistory
         $sql = $this->connection->getDatabasePlatform()->modifyLimitQuery(self::SELECT.' WHERE r.tenant_id = ? AND r.resource_key = ? ORDER BY r.seq DESC', max(1, min($limit, 1000)));
         $listed = array_map(self::listed(...), $this->connection->fetchAllAssociative($sql, [$tenantId, self::resourceKey($resource)]));
 
-        // A row whose proposal reads back must name this resource itself, not only in the columns. One that cannot be
-        // read stays where its columns put it: it shows no more than that it cannot be read.
-        return array_values(array_filter($listed, static fn (ApprovalState|UnreadableApproval $entry): bool => $entry instanceof UnreadableApproval
-            || ($entry->request->actor()->tenantId === $tenantId && self::resourceKey($entry->request->prepared()->target['resource'] ?? null) === self::resourceKey($resource))));
+        // A row whose proposal reads back must name this resource itself, not only in the columns. One whose proposal
+        // cannot be read stays where its columns put it: it shows no more than that it cannot be read.
+        return array_values(array_filter($listed, static function (ApprovalState|UnreadableApproval $entry) use ($tenantId, $resource): bool {
+            $request = $entry instanceof UnreadableApproval ? $entry->error->request : $entry->request;
+
+            return null === $request || ($request->actor()->tenantId === $tenantId && self::resourceKey($request->prepared()->target['resource'] ?? null) === self::resourceKey($resource));
+        }));
     }
 
     /**
      * The newest requests first, for an administrator's audit view. The host filters them by tenant: a request that
-     * cannot be read back is an UnreadableApproval, with the tenant its row is filed under.
+     * cannot be read back is an UnreadableApproval, with its proposal's tenant while that reads back, otherwise the
+     * tenant its row is filed under.
      *
      * @return list<ApprovalState|UnreadableApproval>
      */
@@ -239,7 +243,7 @@ final readonly class DbalApprovalStore implements ApprovalStore, ApprovalHistory
         try {
             return self::state($row);
         } catch (ApprovalException $error) {
-            return new UnreadableApproval((string) $row['id'], null === $row['tenant_id'] ? null : (string) $row['tenant_id'], $error);
+            return new UnreadableApproval((string) $row['id'], $error->request?->actor()->tenantId ?? (null === $row['tenant_id'] ? null : (string) $row['tenant_id']), $error);
         }
     }
 }

@@ -199,6 +199,14 @@ abstract class DbalStoreHarness extends StoreHarness
         }
     }
 
+    /** Files a request under another tenant and resource in the columns a history is read by, from a connection of its own. */
+    public function refile(string $requestId, string $tenantId, string $resource): void
+    {
+        $writer = $this->observer();
+        $writer->executeStatement('UPDATE '.ApprovalSchema::REQUESTS.' SET tenant_id = ?, resource_key = ? WHERE id = ?', [$tenantId, hash('sha256', $resource), $requestId]);
+        $writer->close();
+    }
+
     public function failInserts(string $what): void
     {
         $table = match ($what) {
