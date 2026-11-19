@@ -154,7 +154,7 @@ Phones and claude.ai need a reachable HTTPS address. On macOS with `cloudflared`
 demo/bin/public start
 ```
 
-This starts a second demo and a Cloudflare quick tunnel under launchd. It prints the address and MCP connector URL. The second demo's credentials and passkey links are in `var/public-demo-setup.txt`; keep that file private. Its server uses port 8081 on this computer, and the tunnel publishes whatever answers there, so nothing else may use that port while the public demo runs. `start` refuses while anything else holds it. Passkeys belong to a hostname, so a tunnel that comes back with a new one needs a fresh demo: `start` then says what it would replace and asks first. `demo/bin/public start --yes` answers yes, for use without a terminal.
+This starts a second demo and a Cloudflare quick tunnel under launchd. It prints the address and MCP connector URL. The second demo's credentials and passkey links are in `var/public-demo-setup.txt`; keep that file private. Its server uses port 8081 on this computer, and the tunnel publishes whatever answers there, so nothing else may use that port while the public demo runs. Passkeys belong to a hostname, so a tunnel that comes back with a new one needs a fresh demo: `start` then says what it would replace and asks first. `demo/bin/public start --yes` answers yes, for use without a terminal.
 
 1. Open the public address, sign in as its `editor`, and enroll a passkey through that editor's link. Use a passkey available on the phone if you want to approve there.
 2. In claude.ai, add the printed MCP URL as a custom connector, and sign in as the public demo's editor. The consent page should say the client was published by claude.ai and returns to claude.ai; choose **Allow**.
@@ -164,7 +164,11 @@ The consent page can name claude.ai because claude.ai identifies itself with a c
 
 The phone code works once for two minutes. It opens only that review, without granting a general login, and still requires the person's passkey.
 
-`demo/bin/public all-clear` takes down the alert and keeps the accounts, passkeys, and connector. `demo/bin/public reset` replaces the public demo data on the same address. `demo/bin/public stop` stops it.
+`demo/bin/public status` shows the tunnel's address and whether the public demo is served, or what else holds its port. `demo/bin/public all-clear` takes down the alert and keeps the accounts, passkeys, and connector. `demo/bin/public reset` replaces the public demo data on the same address. `demo/bin/public stop` stops it.
+
+`start` and `reset` refuse while anything else holds port 8081. Whenever either stops before the public demo is served, for this or any other reason, it also stops this checkout's tunnel. Without a network connection, for example, `start` says that the tunnel did not start, points to `var/public-tunnel.log`, and leaves the public demo as it was. Once the tunnel has stopped, the next `start` gets a new address, and so needs a fresh demo: new accounts and passkeys, and a new connector URL in claude.ai.
+
+Only one public demo runs on a computer at a time. From another checkout, `start` refuses and names the checkout that runs it, and `stop` leaves it running.
 
 ## Source map
 
