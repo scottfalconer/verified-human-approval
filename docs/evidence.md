@@ -302,7 +302,7 @@ It passes only if the whole chain still verifies and entry 5 still has that hash
 
 Rotation limits what a stolen key can do from then on. It cannot take back what the key signed, and the time a receipt or an entry records is the application's own claim: a thief can sign a record backdated into the stolen key's window, and it verifies.
 
-1. **Rotate at once** as above, recording `--reason="suspected compromise"`, and close the old key's window at the switch. Closing it earlier, at the exposure, would refuse everything the key signed since, genuine receipts and entries included: the audit log would report those entries as failing from then on, each would stop every passkey enrolled before it, and no checkpoint of it would verify again.
+1. **Rotate at once** as above, recording `--reason="suspected compromise"`, and close the old key's window at the switch, with no overlap, since someone else may hold the key. Closing it earlier, at the exposure, would refuse everything the key signed since, genuine receipts and entries included: the audit log would report those entries as failing from then on, each would stop every passkey enrolled before it, and no checkpoint of it would verify again.
 2. **Check the chain against your newest checkpoint from before the exposure** with `audit-head --check`. If it holds, every entry up to that checkpoint is as it was. Review the entries after it that the old key signed: enrollments, revocations, links issued. Treat a passkey enrolled in that period as suspect: revoke it and enroll it again through your trusted account process.
 3. **Keep a new checkpoint** right after the rotation entry.
 4. **Destroy the old private key**, publish the new key set, and say when the exposure started if you know.
