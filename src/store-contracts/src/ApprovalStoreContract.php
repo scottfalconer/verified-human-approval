@@ -180,7 +180,8 @@ abstract class ApprovalStoreContract extends TestCase
 
     /**
      * An action that commits the approval transaction itself takes its own write, and what came before it, out of
-     * the approval. The store records no outcome for it: no execution record, no receipt, no completed status.
+     * the approval. The store records no outcome for it: complete() answers execution_failed, and there is no
+     * execution record, no receipt and no completed status.
      */
     public function testAnActionThatCommitsTheTransactionItselfGetsNoOutcomeRecorded(): void
     {
@@ -191,6 +192,7 @@ abstract class ApprovalStoreContract extends TestCase
             $harness->service()->complete($harness->reviewer(), $ceremony->id, $harness->proof($ceremony));
             self::fail('An approval whose action committed its transaction itself was reported as completed.');
         } catch (ApprovalException $error) {
+            self::assertSame('execution_failed', $error->reason);
             self::assertInstanceOf(\LogicException::class, $error->getPrevious(), 'The store refused to write outside its transaction.');
         }
 
