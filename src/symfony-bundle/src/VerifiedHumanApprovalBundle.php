@@ -67,7 +67,7 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
     {
         parent::build($container);
         $container->addCompilerPass(new CheckScopeChallengePass());
-        // Once the MCP bundle's passes have told each server what to serve, and its arguments are positional.
+        // Late: after the MCP bundle's passes have told each server what to serve, and named arguments are resolved.
         $container->addCompilerPass(new CheckPhoneHandoffPass(), PassConfig::TYPE_BEFORE_REMOVING);
     }
 

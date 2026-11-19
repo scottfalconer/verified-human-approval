@@ -24,7 +24,7 @@ final class CheckPhoneHandoffPass implements CompilerPassInterface
 {
     public function process(ContainerBuilder $container): void
     {
-        // Defined only while phone_handoff is on, which is when the card is told to call it.
+        // Defined only while phone_handoff is on, the one setting under which the card may be told to call it.
         if (!$container->hasDefinition('verified_human_approval.handoff_tool')) {
             return;
         }
