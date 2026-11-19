@@ -246,7 +246,7 @@ verified_human_approval:
         clients: ['*']          # or only the clients you have tested, such as [claude-code]
 ```
 
-Listing clients turns the prompt on; `enabled: false` turns it off and keeps the list. `'*'` leaves the decision to the capability each client declares, as the specification advises. A list of names is for clients that declare URL mode and then drop the prompt; it changes the server's behaviour by `clientInfo`, which the specification advises against, and decides nothing about security. The prompt is sent only on MCP 2026-07-28 or later, and its retry carries signed request state, so the MCP server needs the `request_state.key` shown above. See [MCP presentation](https://github.com/scottfalconer/verified-human-approval/blob/main/src/mcp/README.md) for client and protocol details.
+Listing clients turns the prompt on; `enabled: false` turns it off and keeps the list. `'*'` leaves the decision to the capability each client declares, as the specification advises. A list of names is for clients that declare URL mode and then drop the prompt; it changes the server's behaviour by `clientInfo`, which the specification advises against, and decides nothing about security. The prompt is sent only on MCP 2026-07-28 or later, and its retry carries signed request state, so the MCP server needs the `request_state.key` shown above: without it, a call the prompt is for fails before anything is made. See [MCP presentation](https://github.com/scottfalconer/verified-human-approval/blob/main/src/mcp/README.md) for client and protocol details.
 
 ### Scope challenges over HTTP
 

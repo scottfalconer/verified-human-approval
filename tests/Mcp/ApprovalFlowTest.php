@@ -66,6 +66,22 @@ final class ApprovalFlowTest extends TestCase
         self::assertSame(1, (int) $this->fixture->pdo->query('SELECT COUNT(*) FROM verified_human_approval_requests')->fetchColumn(), 'Nothing was prepared for the refused call.');
     }
 
+    public function testAPromptThisServerCouldNotContinueIsRefusedBeforeAnythingIsMade(): void
+    {
+        try {
+            $this->flow(new UrlPrompt(true, ['*']))->respond($this->context(['id' => 1], signs: false), $this->fixture->actor, 'publish', ['id' => 1], $this->request(...));
+            self::fail('A prompt began that its retry could not continue.');
+        } catch (\LogicException $error) {
+            self::assertSame('The URL prompt is on for this client, but this MCP server has no request-state key to sign its retry with: set one with Builder::setRequestState(), or request_state.key in the MCP bundle.', $error->getMessage());
+        }
+        self::assertSame([], $this->spent, 'Nothing was spent.');
+        self::assertSame(0, (int) $this->fixture->pdo->query('SELECT COUNT(*) FROM verified_human_approval_requests')->fetchColumn(), 'Nothing was prepared.');
+
+        // A client the prompt is not for needs no key.
+        $plain = $this->flow(new UrlPrompt(true, ['another-client']))->respond($this->context(['id' => 1], signs: false), $this->fixture->actor, 'publish', ['id' => 1], $this->request(...));
+        self::assertSame('pending', $plain->structuredContent['status'] ?? null);
+    }
+
     public function testADecimalArgumentIsAskedForWithOrWithoutTheUrlPrompt(): void
     {
         // "Refund 12.50": the action's input takes the amount as a string, the tool's arguments as the client sent it.
@@ -188,12 +204,17 @@ final class ApprovalFlowTest extends TestCase
         self::fail('A retry of an asked round only reads; it never requests the action.');
     }
 
-    /** A 2026-07-28 tools/call from a client that declares URL mode, carrying a continuation when given one. */
-    private function context(array $arguments, ?InputContext $input = null): RequestContext
+    /**
+     * A 2026-07-28 tools/call from a client that declares URL mode, carrying a continuation when given one, to a server
+     * that signs request state unless told otherwise.
+     */
+    private function context(array $arguments, ?InputContext $input = null, bool $signs = true): RequestContext
     {
         $session = new Session(new InMemorySessionStore());
         $session->set(RequestMeta::class, new RequestMeta('2026-07-28', new ClientCapabilities(elicitation: true, elicitationUrl: true), new Implementation('claude-code', '2.1.317')));
-        $session->set(RequestStateCodec::class, $this->codec);
+        if ($signs) {
+            $session->set(RequestStateCodec::class, $this->codec);
+        }
         if (null !== $input) {
             $session->set(InputContext::class, $input);
         }

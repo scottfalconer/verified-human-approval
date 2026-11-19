@@ -12,6 +12,7 @@ use Mcp\Schema\Result\InputRequiredResult;
 use Mcp\Server\RequestContext;
 use Mcp\Server\Stateless\InputContext;
 use Mcp\Server\Stateless\RequestMeta;
+use Mcp\Server\Stateless\RequestStateCodec;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalState;
@@ -73,6 +74,16 @@ final readonly class UrlPrompt
             true === $context->getClientCapabilities()?->elicitationUrl,
             $meta instanceof RequestMeta ? $meta->clientInfo?->name : null,
         );
+    }
+
+    /**
+     * Whether this server can carry a prompt's state to its retry. The SDK signs that state with the key the server
+     * was built with (Builder::setRequestState(), or request_state.key in the MCP bundle), and mintRequestState()
+     * finds it in the session, as this does.
+     */
+    public static function canContinue(RequestContext $context): bool
+    {
+        return $context->getSession()->get(RequestStateCodec::class) instanceof RequestStateCodec;
     }
 
     /**

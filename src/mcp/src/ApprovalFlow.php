@@ -21,7 +21,9 @@ use VerifiedHumanApproval\Core\ApprovalState;
  * result when it retries with its answer; every other client gets the pending result at once,
  * with the review link and the card's view. The retry is bound to the same caller, tool and
  * arguments, and only reads the stored state: the client's answer never approves anything, and
- * the application has already executed the action if the passkey check passed.
+ * the application has already executed the action if the passkey check passed. The retry carries
+ * state the server signs, so a server without a request-state key refuses a prompted call before
+ * anything is made.
  *
  * A request key that names an earlier request returns that request's recorded outcome, and the
  * result says so: nothing runs for that call.
@@ -142,11 +144,17 @@ final readonly class ApprovalFlow
             return $this->presenter->toolResult($state, UrlPrompt::note($resumed['answer'], $state, $this->presenter->statusTool()));
         }
 
+        // Decided before anything is made: a prompt whose retry this server could not continue would leave a
+        // proposal that nobody was shown.
+        $prompt = $this->prompt->allowsContext($context);
+        if ($prompt && !UrlPrompt::canContinue($context)) {
+            throw new \LogicException('The URL prompt is on for this client, but this MCP server has no request-state key to sign its retry with: set one with Builder::setRequestState(), or request_state.key in the MCP bundle.');
+        }
         // Any call that may open a proposal spends the person's budget, before anything is prepared.
         $this->budget->spend($actor);
         $called = $this->clock->now();
         $state = $request();
-        if ('pending' === $state->status && $this->prompt->allowsContext($context)) {
+        if ('pending' === $state->status && $prompt) {
             return $this->prompt->ask($context, $state, $this->presenter->reviewUrl($state), UrlPrompt::binding($actor, $tool, $arguments));
         }
         // A call that makes a request gets it pending, or completed by a rule that needs no passkey. A finished

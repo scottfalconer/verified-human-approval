@@ -68,7 +68,7 @@ When `handoffTool` is set, the review page is on HTTPS and the host declares `se
 3. The retry must carry the same binding, or it fails with `continuation_mismatch`. It reads the stored state and never prepares or executes anything.
 4. After `accept`, the model is told the person opened the page, which is not an approval. After `decline` or `cancel`, the request stays open on the site.
 
-The SDK signs request state but does not encrypt it, and its expiry bounds replay without making it single-use. So the state carries only a reference. A keyless retry also reuses the pending proposal in the core, so a handler that is entered again never creates a second review URL.
+The SDK signs request state but does not encrypt it, and its expiry bounds replay without making it single-use. So the state carries only a reference. It signs with the key the server was built with (`Builder::setRequestState()`); on a server without one, `respond()` throws a `LogicException` for a call it would prompt, before it spends the budget or prepares anything. A keyless retry also reuses the pending proposal in the core, so a handler that is entered again never creates a second review URL.
 
 A platform supplies a `ResultPresenter`: its review URL, its normal tool result, and its status tool's name.
 
