@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Approval</title>
 <style>
-  /* The card's own colours, light or dark: the host's theme (data-theme) decides, and the device's setting until the
-     host names one. color-scheme goes with them, so a host colour sent as light-dark() takes the same side. */
+  /* The card's own colors, light or dark: the host's theme (data-theme) decides, and the device's setting until the
+     host names one. color-scheme goes with them, so a host color sent as light-dark() takes the same side. */
   :root { color-scheme: light; --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --accent: #0b57d0; --ok: #1a7f37; --stop: #9a6700; --rule: rgba(31, 35, 40, .18); }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) { color-scheme: dark; --bg: #1f1f1e; --fg: #e6edf3; --muted: #9198a1; --accent: #6ea8fe; --ok: #3fb950; --stop: #d29922; --rule: rgba(230, 237, 243, .2); }
   }
   :root[data-theme="dark"] { color-scheme: dark; --bg: #1f1f1e; --fg: #e6edf3; --muted: #9198a1; --accent: #6ea8fe; --ok: #3fb950; --stop: #d29922; --rule: rgba(230, 237, 243, .2); }
-  /* The card paints its own surface, from the same source as its text: the host's colours, or else these. */
+  /* The card paints its own surface, from the same source as its text: the host's colors, or else these. */
   body { margin: 0; padding: 14px 16px; background: var(--color-background-primary, var(--bg)); color: var(--color-text-primary, var(--fg));
     font-family: var(--font-sans, system-ui, -apple-system, "Segoe UI", sans-serif); font-size: var(--font-text-md-size, 15px); line-height: 1.45; }
   /* Until the host has said how it is drawn, the card paints no surface: on a device set to light, inside an app drawn
@@ -137,8 +137,8 @@
   // The host sizes the frame from these reports, so the card also reports what it did not draw itself: a change of
   // the host's fonts, or of the frame's width, that wraps its lines differently.
   if (typeof ResizeObserver === 'function') new ResizeObserver(() => resize()).observe(document.body);
-  // The given colours painted one over the other, as one sRGB pixel. A canvas has the browser parse and blend them,
-  // whatever their CSS notation, and a colour it cannot take paints nothing.
+  // The given colors painted one over the other, as one sRGB pixel. A canvas has the browser parse and blend them,
+  // whatever their CSS notation, and a color it cannot take paints nothing.
   let pixel = null;
   function paint(...colors) {
     pixel = pixel || document.createElement('canvas').getContext('2d', { willReadFrequently: true });
@@ -163,10 +163,10 @@
       return surface[3] === 255 && contrast >= 4.5 && (text > back) === dark;
     } catch { return false; }
   }
-  // The host's theme picks the card's colours, and the side of any light-dark() colour the host sent. The card takes
-  // the specification's style variables, so none can replace one of its own. It uses the host's colours only as a
+  // The host's theme picks the card's colors, and the side of any light-dark() color the host sent. The card takes
+  // the specification's style variables, so none can replace one of its own. It uses the host's colors only as a
   // pair, the host's text on the host's surface, and only where that is legible in the theme. A host can name one
-  // theme and send the other's colours, or colours this browser cannot use: then the card's own apply. The host's
+  // theme and send the other's colors, or colors this browser cannot use: then the card's own apply. The host's
   // fonts, sizes and radii apply either way.
   const hostVariables = new Map();
   function settle() { document.documentElement.dataset.settled = ''; }
@@ -180,7 +180,7 @@
       const name = key.startsWith('--') ? key : '--' + key;
       if (typeof value === 'string' && /^--(color|font|border|shadow)-/.test(name)) hostVariables.set(name, value);
     }
-    // Every colour the host has sent is tried again: a change of theme alone can make them fit, or stop them fitting.
+    // Every color the host has sent is tried again: a change of theme alone can make them fit, or stop them fitting.
     for (const [name, value] of hostVariables) root.style.setProperty(name, value);
     const paired = hostVariables.has('--color-text-primary') && hostVariables.has('--color-background-primary');
     if (!(paired && legible())) for (const name of hostVariables.keys()) if (name.startsWith('--color-')) root.style.removeProperty(name);
@@ -226,7 +226,7 @@
   function render() {
     if (!view) {
       site.textContent = 'Approval'; open.hidden = true; phoneShow.hidden = true; statement.hidden = true;
-      // An earlier request's colour does not carry over to the next one.
+      // An earlier request's color does not carry over to the next one.
       delete document.body.dataset.status;
       status.textContent = 'No approval is waiting.'; resize(); return;
     }
