@@ -17,16 +17,21 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
+use Symfony\Component\Clock\MockClock;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\NoPrivateNetworkHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
+use Symfony\Component\HttpFoundation\Session\Session;
+use Symfony\Component\HttpFoundation\Session\Storage\MockArraySessionStorage;
 use VerifiedHumanApproval\Demo\Account\AgentConnections;
 use VerifiedHumanApproval\Demo\DemoDatabase;
 use VerifiedHumanApproval\Demo\DemoKernel;
 use VerifiedHumanApproval\Demo\DemoSetup;
 use VerifiedHumanApproval\Demo\OAuth\ClientMetadataHttpClient;
 use VerifiedHumanApproval\Demo\OAuth\ConnectionOpeningCodeManager;
+use VerifiedHumanApproval\Demo\OAuth\ConsentRequest;
+use VerifiedHumanApproval\Demo\OAuth\ConsentSession;
 use VerifiedHumanApproval\Demo\OAuth\OAuthConnections;
 use VerifiedHumanApproval\Demo\OAuth\Storage\PdoAccessTokenManager;
 use VerifiedHumanApproval\Demo\OAuth\Storage\PdoClientManager;
@@ -36,14 +41,15 @@ use VerifiedHumanApproval\Tests\Support\ProcessRace;
 
 /**
  * MCP authorization the way a remote client such as claude.ai does it, end to end, against the OAuth server the
- * demo uses: league/oauth2-server with omouren/mcp-oauth-bundle. These are the security checks the demo's earlier
- * hand-written server passed, kept as acceptance tests for the replacement.
+ * demo uses: league/oauth2-server with omouren/mcp-oauth-bundle, and the demo's own consent step.
  */
 final class OAuthTest extends TestCase
 {
     private const ORIGIN = 'http://localhost:8080';
     private const CALLBACK = 'https://claude.ai/api/mcp/auth_callback';
     private const CLAUDE = 'https://claude.ai/oauth/mcp-oauth-client-metadata';
+    /** A return address registered by someone other than the person connecting. */
+    private const ELSEWHERE = 'https://attacker.example/callback';
     private string $runtime;
     private array $accounts;
     /** @var list<KernelBrowser> */ private array $browsers = [];
@@ -122,7 +128,11 @@ final class OAuthTest extends TestCase
         $metadata = new MockResponse(json_encode(['client_id' => self::CLAUDE, 'client_name' => 'Claude', 'redirect_uris' => [self::CALLBACK]]));
         $fetched = new MockHttpClient($metadata);
         $browser->getContainer()->get('test.service_container')->set(ClientMetadataHttpClient::class, new ClientMetadataHttpClient($fetched));
-        [$code, $verifier] = $this->consentIn($this->signIn($browser, 'editor'), self::CLAUDE, $resource);
+        [$code, $verifier] = $this->consentIn($this->signIn($browser, 'editor'), self::CLAUDE, $resource, static function (string $page): void {
+            self::assertStringContainsString('Published by claude.ai. It returns to claude.ai.', $page, 'The host that publishes the client’s metadata vouches for its name.');
+            self::assertStringContainsString('It asks to read public alerts, ask to issue public alerts as you, read the outcome of your approvals.', $page);
+            self::assertStringNotContainsString('Name not verified', $page);
+        });
         $tokens = $this->token($browser, ['grant_type' => 'authorization_code', 'code' => $code, 'redirect_uri' => self::CALLBACK, 'client_id' => self::CLAUDE, 'code_verifier' => $verifier] + (null === $resource ? [] : ['resource' => $resource]));
         self::assertSame('Bearer', $tokens['token_type'] ?? null, json_encode($tokens));
         self::assertGreaterThanOrEqual(1, $fetched->getRequestsCount(), 'The document was fetched from claude.ai’s URL.');
@@ -193,9 +203,130 @@ final class OAuthTest extends TestCase
         self::assertSame('DENY', $browser->getResponse()->headers->get('X-Frame-Options'));
         $text = $page->filter('.approval-sheet')->text();
         self::assertStringContainsString('Let Claude Code act for', $text);
+        self::assertStringContainsString('Name not verified: it registered itself with this site and chose that name. It returns to 127.0.0.1.', $text, 'A client that named itself is shown as such, with where its code goes.');
         self::assertStringContainsString('It asks to read public alerts, read the outcome of your approvals.', $text, 'Consent lists what is being granted.');
         self::assertStringContainsString('Connecting does not approve anything.', $text);
-        self::assertStringContainsString('returns only to an address on this computer', $text, 'A loopback client gets a warning.');
+        self::assertStringContainsString('It returns only to this computer', $text, 'A loopback client gets a warning.');
+    }
+
+    public function testALinkToTheConsentPageCannotChooseWhatItShowsOrApproveAnything(): void
+    {
+        // A link straight to the consent page that names Claude and claude.ai, for a client whose code goes elsewhere.
+        $api = $this->client();
+        $impostor = $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => [self::ELSEWHERE], 'client_name' => 'acme-tools-9931']);
+        $browser = $this->signedIn('editor');
+        $authorize = self::authorizeQuery($impostor['client_id'], self::ELSEWHERE);
+        $link = self::ORIGIN.'/oauth/consent?'.http_build_query($authorize + ['client_name' => 'Claude', 'redirect_host' => 'claude.ai', 'scope' => 'alert.read']);
+        $page = $browser->request('GET', $link);
+        self::assertSame(410, $browser->getResponse()->getStatusCode());
+        self::assertStringContainsString('Nothing is waiting for your consent', $page->text());
+        self::assertStringNotContainsString('claude.ai', $page->text(), 'The page never shows what its link says.');
+        $browser->request('POST', $link, ['_csrf_token' => 'anything', 'consent' => 'anything']);
+        self::assertSame(403, $browser->getResponse()->getStatusCode(), 'An Allow needs the page’s own form.');
+
+        // Only the authorization request puts a client in front of the person: under the name it registered, with
+        // the return address the server checked.
+        $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query($authorize));
+        self::assertSame('/oauth/consent', $browser->getResponse()->headers->get('Location'));
+        $text = $browser->request('GET', self::ORIGIN.'/oauth/consent?'.http_build_query(['client_name' => 'Claude', 'redirect_host' => 'claude.ai']))->filter('.approval-sheet')->text();
+        self::assertStringContainsString('Let acme-tools-9931 act for', $text);
+        self::assertStringContainsString('Name not verified', $text);
+        self::assertStringContainsString('It returns to attacker.example.', $text);
+        self::assertStringNotContainsString('claude.ai', $text);
+        self::assertStringNotContainsString('this computer', $text, 'The loopback warning follows the checked return address, not the link.');
+    }
+
+    public function testAnAllowApprovesOnlyTheRequestItAnsweredAndOnlyOnce(): void
+    {
+        $api = $this->client();
+        $claude = $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => [self::CALLBACK], 'client_name' => 'Claude']);
+        $impostor = $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => [self::ELSEWHERE], 'client_name' => 'Claude']);
+        $browser = $this->signedIn('editor');
+        foreach ([
+            'another client' => self::authorizeQuery($impostor['client_id'], self::ELSEWHERE),
+            'the same client with another state and PKCE challenge' => self::authorizeQuery($claude['client_id'], self::CALLBACK),
+        ] as $case => $next) {
+            // The person allows Claude's request; before it resumes, another request arrives in the same session.
+            $this->allow($browser, self::authorizeQuery($claude['client_id'], self::CALLBACK));
+            $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query($next));
+            self::assertSame('/oauth/consent', $browser->getResponse()->headers->get('Location'), $case.': a request the person did not allow is asked about, never approved.');
+        }
+
+        $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query(self::authorizeQuery($claude['client_id'], self::CALLBACK)));
+        $form = $browser->request('GET', self::ORIGIN.'/oauth/consent')->selectButton('Allow')->form();
+        $browser->submit($form);
+        $resume = (string) $browser->getResponse()->headers->get('Location');
+        $browser->submit($form);
+        self::assertSame($resume, $browser->getResponse()->headers->get('Location'), 'A second click on Allow answers the same way.');
+        $browser->request('GET', self::absolute($resume));
+        self::assertStringStartsWith(self::CALLBACK.'?', (string) $browser->getResponse()->headers->get('Location'), 'The request the person allowed gets its code.');
+        $browser->request('GET', self::absolute($resume));
+        self::assertSame('/oauth/consent', $browser->getResponse()->headers->get('Location'), 'An Allow is used once.');
+    }
+
+    public function testAConsentPageLeftOpenCannotApproveTheRequestThatReplacedIt(): void
+    {
+        $api = $this->client();
+        $claude = $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => [self::CALLBACK], 'client_name' => 'Claude']);
+        $other = $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => [self::ELSEWHERE], 'client_name' => 'Other tool']);
+        $browser = $this->signedIn('editor');
+        $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query(self::authorizeQuery($claude['client_id'], self::CALLBACK)));
+        $form = $browser->request('GET', self::ORIGIN.'/oauth/consent')->selectButton('Allow')->form();
+        $replacement = self::authorizeQuery($other['client_id'], self::ELSEWHERE);
+        $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query($replacement));
+
+        $browser->submit($form);
+        self::assertSame(410, $browser->getResponse()->getStatusCode(), 'The page named a request that no longer waits.');
+        self::assertStringContainsString('Let Other tool act for', $browser->request('GET', self::ORIGIN.'/oauth/consent')->filter('.approval-sheet')->text(), 'The newer request still waits for its own answer.');
+        $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query($replacement));
+        self::assertSame('/oauth/consent', $browser->getResponse()->headers->get('Location'), 'Nobody allowed it.');
+    }
+
+    public function testConsentListsOnlyScopesTheClientMayHave(): void
+    {
+        $api = $this->client();
+        $reader = $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => [self::CALLBACK], 'client_name' => 'Reader', 'scope' => 'alert.read']);
+        $browser = $this->signedIn('editor');
+        $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query(['scope' => 'alert.read alert.publish'] + self::authorizeQuery($reader['client_id'], self::CALLBACK)));
+        $location = (string) $browser->getResponse()->headers->get('Location');
+        self::assertStringStartsWith(self::CALLBACK.'?', $location, 'A request beyond the client’s own scopes goes back to it without asking the person.');
+        parse_str((string) parse_url($location, \PHP_URL_QUERY), $refusal);
+        self::assertSame('invalid_scope', $refusal['error'] ?? null);
+        self::assertArrayHasKey('state', $refusal);
+        self::assertArrayNotHasKey('code', $refusal);
+
+        // Asking for no scope, it gets its own: the page lists those, and the token and the connection carry exactly them.
+        [$code, $verifier] = $this->consentIn($browser, $reader['client_id'], self::ORIGIN.'/mcp', static fn (string $page) => self::assertStringContainsString('It asks to read public alerts.', $page));
+        $tokens = $this->token($api, $this->codeExchange($reader['client_id'], $code, $verifier));
+        $claims = json_decode(base64_decode(strtr(explode('.', $tokens['access_token'])[1], '-_', '+/')), true, 8, \JSON_THROW_ON_ERROR);
+        self::assertSame(['alert.read'], $claims['scopes'] ?? null);
+        self::assertSame(['alert.read'], json_decode((string) $this->connections()->active('editor', $reader['client_id'])['scopes'], true, 4, \JSON_THROW_ON_ERROR));
+    }
+
+    public function testAConsentRequestWaitsTenMinutesAndAnAllowIsUsedOnce(): void
+    {
+        $clock = new MockClock();
+        $consents = new ConsentSession($clock);
+        $session = new Session(new MockArraySessionStorage());
+        $request = new ConsentRequest('page', 'binding', '/oauth/authorize?client_id=claude', 'Claude', 'claude.ai', self::CALLBACK, ['alert.read']);
+        $consents->ask($session, $request);
+        self::assertNull($consents->allow($session, 'another page'), 'Allow names the page that asked.');
+        $clock->sleep(ConsentSession::LIFETIME_SECONDS);
+        self::assertNull($consents->waiting($session), 'An unanswered request stops waiting.');
+        self::assertNull($consents->allow($session, 'page'));
+
+        $consents->ask($session, $request);
+        self::assertSame('/oauth/authorize?client_id=claude', $consents->allow($session, 'page'));
+        self::assertSame('/oauth/authorize?client_id=claude', $consents->allow($session, 'page'), 'A second click answers the same way.');
+        self::assertNull($consents->waiting($session), 'An allowed request is no longer shown.');
+        self::assertFalse($consents->take($session, 'another binding'));
+        $clock->sleep(ConsentSession::LIFETIME_SECONDS);
+        self::assertFalse($consents->take($session, 'binding'), 'An Allow expires with its request.');
+
+        $consents->ask($session, $request);
+        $consents->allow($session, 'page');
+        self::assertTrue($consents->take($session, 'binding'));
+        self::assertFalse($consents->take($session, 'binding'), 'An Allow is used once.');
     }
 
     public function testTheTokenEndpointIssuesTokensOnlyForThisServersMcpEndpoint(): void
@@ -513,8 +644,12 @@ final class OAuthTest extends TestCase
         return $this->consentIn($this->signedIn($user), $clientId);
     }
 
-    /** @return array{0: string, 1: string} the authorization code and its PKCE verifier */
-    private function consentIn(KernelBrowser $browser, string $clientId, ?string $resource = self::ORIGIN.'/mcp'): array
+    /**
+     * @param (\Closure(string): void)|null $checkPage checks the consent page's text; by default, that it lists every scope
+     *
+     * @return array{0: string, 1: string} the authorization code and its PKCE verifier
+     */
+    private function consentIn(KernelBrowser $browser, string $clientId, ?string $resource = self::ORIGIN.'/mcp', ?\Closure $checkPage = null): array
     {
         $verifier = rtrim(strtr(base64_encode(random_bytes(48)), '+/', '-_'), '=');
         $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query([
@@ -524,8 +659,9 @@ final class OAuthTest extends TestCase
         self::assertSame(302, $browser->getResponse()->getStatusCode(), (string) $browser->getResponse()->getContent());
         $consent = $browser->request('GET', self::absolute((string) $browser->getResponse()->headers->get('Location')));
         self::assertSame(200, $browser->getResponse()->getStatusCode(), 'The person sees the consent page first.');
-        self::assertStringContainsString('approve each exact alert with your own passkey', (string) $browser->getResponse()->getContent());
-        self::assertStringContainsString('read public alerts, ask to issue public alerts as you, read the outcome of your approvals', (string) $browser->getResponse()->getContent());
+        $page = $consent->filter('.approval-sheet')->text();
+        self::assertStringContainsString('approve each exact alert with your own passkey', $page);
+        ($checkPage ?? static fn (string $page) => self::assertStringContainsString('It asks to read public alerts, ask to issue public alerts as you, read the outcome of your approvals.', $page))($page);
         $browser->submit($consent->selectButton('Allow')->form());
         self::assertSame(302, $browser->getResponse()->getStatusCode());
         $browser->request('GET', self::absolute((string) $browser->getResponse()->headers->get('Location')));
@@ -537,6 +673,32 @@ final class OAuthTest extends TestCase
         self::assertSame(self::ORIGIN, $query['iss'] ?? null, 'RFC 9207: the response names its issuer.');
 
         return [$query['code'], $verifier];
+    }
+
+    /** @return array<string, string> an authorization request with a state and PKCE challenge of its own */
+    private static function authorizeQuery(string $clientId, string $redirectUri): array
+    {
+        return [
+            'response_type' => 'code', 'client_id' => $clientId, 'redirect_uri' => $redirectUri, 'state' => bin2hex(random_bytes(8)),
+            'code_challenge' => self::challenge(bin2hex(random_bytes(32))), 'code_challenge_method' => 'S256', 'resource' => self::ORIGIN.'/mcp',
+        ];
+    }
+
+    /**
+     * Opens the authorization request and allows it on the consent page.
+     *
+     * @param array<string, string> $query
+     *
+     * @return string the authorization to resume
+     */
+    private function allow(KernelBrowser $browser, array $query): string
+    {
+        $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query($query));
+        self::assertSame('/oauth/consent', $browser->getResponse()->headers->get('Location'));
+        $browser->submit($browser->request('GET', self::ORIGIN.'/oauth/consent')->selectButton('Allow')->form());
+        self::assertSame(302, $browser->getResponse()->getStatusCode());
+
+        return (string) $browser->getResponse()->headers->get('Location');
     }
 
     private function resolver(MockResponse $answer): ClientIdMetadataResolver

@@ -161,6 +161,6 @@ The phone code works once for two minutes. It opens only that review, without gr
 | [`src/Action/DemoPolicyProvider.php`](src/Action/DemoPolicyProvider.php) | The administrator's rules |
 | [`src/Controller/AccountController.php`](src/Controller/AccountController.php) | Passkey enrollment and confirmation |
 | [`src/Controller/AuditController.php`](src/Controller/AuditController.php) | Receipt and passkey checks in the administrator view |
-| [`src/OAuth`](src/OAuth) | Application storage, connection lifecycle, and bounded metadata fetching for the maintained OAuth providers |
+| [`src/OAuth`](src/OAuth) | Application storage, connection lifecycle, bounded metadata fetching, and the consent step bound to the exact authorization request, for the maintained OAuth providers |
 | [`src/Security/AgentTokenAuthenticator.php`](src/Security/AgentTokenAuthenticator.php) | Host firewall: validate the bearer token with League, resolve the actual local user, and pass verified scopes to the MCP SDK |
 | [`../examples/README.md`](../examples/README.md) | SDK and Symfony AI clients |

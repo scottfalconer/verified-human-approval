@@ -7,12 +7,17 @@ The Riverside reference application needs accounts and an issuer so it can run i
 | Responsibility | Owner |
 | --- | --- |
 | Authorization code, S256 PKCE, signed access tokens, refresh protocol and token validation | `league/oauth2-server-bundle` and `league/oauth2-server` |
-| MCP protected-resource and authorization-server metadata, client ID metadata documents (CIMD), registration and consent | `omouren/mcp-oauth-bundle` |
+| MCP protected-resource and authorization-server metadata, client ID metadata documents (CIMD) and registration | `omouren/mcp-oauth-bundle` |
+| Ask the person about the exact authorization request League validated, and approve only that request | `ConsentGate` and `ConsentController`, in place of the provider's consent listener and page |
 | Resolve the local account and its agent connection; apply current local permissions | `AgentTokenAuthenticator`, `DemoActorProvider`, `DemoAuthorizer` |
 | Persist provider records on the application's SQLite connection; revoke and expire local agent connections | `demo/src/OAuth/Storage` and `OAuthConnections` |
 | Freeze the exact action, require and verify its passkey approval, authorize again at execution, and record the result | Verified Human Approval packages |
 
 The `/mcp` firewall is stateless. League validates the bearer credential; the host resolves the actual `DemoUser` and hands the SDK a verified `AccessToken` request attribute. A request's claimed user ID is not authentication. The browser review uses the ordinary host session, or the approval package's narrowly scoped one-time phone handoff, and still requires the person's passkey. Personal setup tokens are a separate reference-only convenience.
+
+## Consent
+
+Every authorization waits for the person on the consent page, which shows only what the server validated: the client's registered name; the host of the client ID metadata document that named it, or that the name is unverified when the client registered itself; the host its code returns to, with a warning when that is this computer; and the scopes its token will carry. Nothing in the page's link changes what it shows. Allow approves that one request, for the same person, client, redirect URI, scopes, resource, state and PKCE challenge, once and within ten minutes; any other authorization request is asked about again. A request for scopes the client was not registered with goes back to the client as `invalid_scope` without being shown.
 
 ## Connection and persistence rules
 
@@ -28,7 +33,7 @@ CIMD is the primary client discovery path. Fetches use Symfony's `NoPrivateNetwo
 
 The root project pins `symfony/mcp-bundle` to `1.0.0-BETA1` and aliases it as `0.13.99`, because `omouren/mcp-oauth-bundle` 1.2 still declares `^0.13`. This is an explicit compatibility override in this reference application, not upstream's declaration of Symfony MCP 1.0 support. None of the reusable package manifests imposes the OAuth providers or this alias on consumers. Remove the override when the provider supports the MCP 1.0 constraint and rerun the acceptance suite.
 
-`tests/Bundle/OAuthTest.php` exercises real League code issuance, S256 exchange, access validation, refresh, revocation, reconnection binding, rollback, expiry during passkey approval and two independent PHP processes racing to consume the same code or refresh token. Browser requests run through the real Symfony kernel; client metadata download responses are controlled fixtures. `tests/oauth_http_smoke.py` separately starts the real PHP HTTP server on an ephemeral port and exercises browser-session login and consent, S256 exchange, issued JWTs used by the SDK, refresh rotation, and connection revocation through the account page. Neither test connects to a hosted Claude account or tests a physical passkey device.
+`tests/Bundle/OAuthTest.php` exercises real League code issuance, S256 exchange, access validation, refresh, revocation, reconnection binding, rollback, expiry during passkey approval, two independent PHP processes racing to consume the same code or refresh token, and consent that approves only the request it showed. Browser requests run through the real Symfony kernel; client metadata download responses are controlled fixtures. `tests/oauth_http_smoke.py` separately starts the real PHP HTTP server on an ephemeral port and exercises browser-session login and consent, S256 exchange, issued JWTs used by the SDK, refresh rotation, and connection revocation through the account page. Neither test connects to a hosted Claude account or tests a physical passkey device.
 
 The OAuth replacement uses runtime schema 6 and fresh isolated test runtimes. It does not migrate or reset existing deployed demo accounts, signing keys, passkeys or grants. Keep an existing demo running on its matching code until an explicit migration or replacement-runtime deployment is arranged; never reset a public demo merely to update this library.
 
