@@ -2,13 +2,21 @@
 
 The tests every Verified Human Approval storage adapter must pass, packaged so you can run them against your own: an `ApprovalStore`, an `Audit\AuditStore` or a `RevocableCredentialRepository` on another database, a framework's own storage, or a fork of the supplied ones. The repository runs these same tests against the SQLite reference stores and the Doctrine stores on SQLite, PostgreSQL, MySQL and MariaDB.
 
-Require it for development only. The packages are not on Packagist yet: first configure the path repository described in the [Symfony installation guide](https://github.com/scottfalconer/verified-human-approval/blob/main/src/symfony-bundle/docs/index.md#1-install-from-a-checkout), including the version entry for `verified-human-approval/store-contracts`, then:
+Require it for development only. The packages are not on Packagist yet: first configure the path repository described in the [Symfony installation guide](https://github.com/scottfalconer/verified-human-approval/blob/main/src/symfony-bundle/docs/index.md#1-install-from-a-checkout), including the version entry for `verified-human-approval/store-contracts`.
+
+The package requires `verified-human-approval/core` and `verified-human-approval/webauthn` at its own version. Unless your `minimum-stability` is `dev`, Composer installs a package's `dev-main` version only when your root `composer.json` asks for it by name. If your application already requires both at `dev-main`, as the guide's step 1 does:
 
 ```bash
 composer require --dev verified-human-approval/store-contracts:dev-main
 ```
 
-The contracts are PHPUnit test cases. The package requires `phpunit/phpunit ^11.5`, so the suite that runs them must use PHPUnit 11, and it installs `verified-human-approval/core` and `verified-human-approval/webauthn` at its own version.
+Otherwise name the ones it lacks in the same command. With neither:
+
+```bash
+composer require --dev verified-human-approval/core:dev-main verified-human-approval/webauthn:dev-main verified-human-approval/store-contracts:dev-main
+```
+
+The contracts are PHPUnit test cases. The package requires `phpunit/phpunit ^11.5`, so the suite that runs them must use PHPUnit 11.
 
 This package is developed in the [Verified Human Approval repository](https://github.com/scottfalconer/verified-human-approval). Open issues and pull requests there.
 
