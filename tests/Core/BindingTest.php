@@ -53,14 +53,15 @@ final class BindingTest extends TestCase
         $value = ['labels' => ["\u{fb01}" => 'ligature', "\u{1f600}" => 'emoji']];
         $expected = '{"labels":{"'."\u{1f600}".'":"emoji","'."\u{fb01}".'":"ligature"}}';
         self::assertSame($expected, CanonicalJson::encode($value));
-        $canonical = CanonicalJson::encode(['id' => 'apr_1', 'labels' => $value['labels']]);
+        $action = new PreparedAction('notice.publish', '1', ['tenant' => 't'], $value, [], ['title' => 'Notice']);
+        $request = ApprovalRequest::create(new Actor('alice', 't'), $action, new ApprovalPolicy('notice.publish', '1', 'Publish the exact notice.'), new \DateTimeImmutable('2026-11-08T10:00:00Z'), 'en');
 
         $encoding = mb_internal_encoding();
         try {
             // A legacy setting, such as mbstring.internal_encoding in php.ini.
             mb_internal_encoding('ISO-8859-1');
             self::assertSame($expected, CanonicalJson::encode($value));
-            self::assertSame($canonical, (new ApprovalRequest('apr_1', $canonical, hash('sha256', $canonical)))->canonical, 'A proposal frozen under one setting reads back under another.');
+            self::assertSame($request->canonical, (new ApprovalRequest($request->id, $request->canonical, $request->digest))->canonical, 'A proposal frozen under one setting reads back under another.');
         } finally {
             mb_internal_encoding($encoding);
         }
