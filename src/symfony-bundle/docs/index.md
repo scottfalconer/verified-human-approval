@@ -395,7 +395,27 @@ It renders "Approved with a passkey · date" only when all of these hold, and no
 
 It needs `receipt_signer`. `verified_human_approval(...)` returns the same check's result, or null, if you draw your own badge. With `public_verification: true`, the badge links to `/approval/{id}/verified`, a page anyone with the link can open: what was approved, when, and the signed receipt (digests only). It names no account, tenant, agent connection or passkey, and an unknown request looks the same as one that doesn't verify.
 
-For history views, `PdoApprovalStore` and `DbalApprovalStore` also implement `VerifiedHumanApproval\Core\ApprovalHistory`: `forResource($tenantId, $resource)` lists the requests made about one target `resource`, newest first, including ones whose resource was later deleted. Decide who may see which history yourself. A request whose stored record cannot be read back comes as a `VerifiedHumanApproval\Core\UnreadableApproval` in its place, with its `requestId`, the `tenantId` its record names and the `record_integrity_error` as `error`: show it as a record that cannot be read. `PdoApprovalStore` reads the resource from the proposal itself, so a request whose proposal is no longer JSON is in no history there; its `recent()` still lists it. A state in the list is as stored: call its `assertConsistent()` before showing its outcome.
+For history views, `PdoApprovalStore` and `DbalApprovalStore` also implement `VerifiedHumanApproval\Core\ApprovalHistory`: `forResource($tenantId, $resource)` lists the requests made about one target `resource`, newest first, including ones whose resource was later deleted. Decide who may see which history yourself. A request whose stored record cannot be read back comes as a `VerifiedHumanApproval\Core\UnreadableApproval` in its place, with its `requestId`, the `tenantId` its record names and the `record_integrity_error` as `error`: show it as a record that cannot be read. `PdoApprovalStore` reads the resource from the proposal itself, so a request whose proposal is no longer JSON is in no history there; its `recent()` still lists it.
+
+A state in the list is as stored, not checked as `ApprovalService` checks the records it reads, so check it the same way before you show its outcome. `assertConsistent()` checks that the stored parts agree, and only that: someone who can edit every part can keep them in agreement. With a `receipt_signer`, a completed state must also still carry the receipt signed as it committed, and that receipt must verify against the keys the service trusts:
+
+```php
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
+use VerifiedHumanApproval\Core\Evidence\Receipt;
+use VerifiedHumanApproval\Core\Evidence\ReceiptVerifier;
+
+// $trustedKeys is the autowired VerifiedHumanApproval\Core\Evidence\TrustedKeys.
+try {
+    $state->assertConsistent();
+    $showOutcome = 'completed' !== $state->status
+        || Receipt::COMMIT === (new ReceiptVerifier())->verify((new EvidenceExporter())->export($state), $trustedKeys)['receiptSignedAt'];
+} catch (ApprovalException) {
+    $showOutcome = false;
+}
+```
+
+When `$showOutcome` is false, show the request as an integrity error, not with its stored outcome, as the demo's [audit page](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/src/Controller/AuditController.php) does. Only an executed action has a receipt, so a status other than completed rests on the database alone.
 
 ## Stored receipts and later verification
 
