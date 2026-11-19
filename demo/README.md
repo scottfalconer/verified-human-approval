@@ -143,7 +143,7 @@ demo/bin/public start
 This starts a second demo and a Cloudflare quick tunnel under launchd. It prints the address and MCP connector URL. Its credentials and passkey links are in `var/public-demo-setup.txt`; keep that file private. A new tunnel hostname creates a fresh demo because passkeys belong to a hostname.
 
 1. Open the public address, sign in as its `editor`, and enroll a passkey through that editor's link. Use a passkey available on the phone if you want to approve there.
-2. Add the printed HTTPS MCP URL as a custom connector in claude.ai. Sign in as the public demo's editor and grant access through the demo's OAuth flow.
+2. Add the printed HTTPS MCP URL as a custom connector in claude.ai. Sign in as the public demo's editor and grant access through the demo's OAuth flow. claude.ai identifies itself with a client ID metadata document; the public demo does not let clients register themselves.
 3. Request the alert. Use **Review and approve**, or **Approve on your phone** when the client displays the card. Scan the QR code, review the alert, and approve with the enrolled passkey.
 
 The phone code works once for two minutes. It opens only that review, without granting a general login, and still requires the person's passkey.

@@ -86,6 +86,7 @@ final class OAuthTest extends TestCase
         self::assertTrue($server['client_id_metadata_document_supported']);
         self::assertTrue($server['authorization_response_iss_parameter_supported']);
         self::assertSame(['authorization_code', 'refresh_token'], $server['grant_types_supported']);
+        self::assertSame(self::ORIGIN.'/oauth/register', $server['registration_endpoint'] ?? null, 'A local demo keeps open registration for clients that still need it.');
 
         $registration = $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => [self::CALLBACK], 'client_name' => 'Claude']);
         self::assertSame(201, $api->getResponse()->getStatusCode());
@@ -327,6 +328,25 @@ final class OAuthTest extends TestCase
         $consents->allow($session, 'page');
         self::assertTrue($consents->take($session, 'binding'));
         self::assertFalse($consents->take($session, 'binding'), 'An Allow is used once.');
+    }
+
+    public function testARuntimeCanTurnOpenRegistrationOff(): void
+    {
+        // The public demo does: claude.ai names itself with its client ID metadata document instead.
+        (new Filesystem())->remove($this->runtime);
+        $this->accounts = DemoSetup::initialize($this->runtime, self::ORIGIN, dynamicClientRegistration: false)['accounts'];
+        $api = $this->client();
+        self::assertArrayNotHasKey('registration_endpoint', $this->json($api, 'GET', '/.well-known/oauth-authorization-server'));
+        $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => [self::ELSEWHERE], 'client_name' => 'Claude']);
+        self::assertSame(404, $api->getResponse()->getStatusCode());
+        self::assertSame(0, (int) $this->database()->pdo->query('SELECT COUNT(*) FROM oauth2_clients')->fetchColumn());
+
+        $browser = $this->client();
+        $browser->disableReboot();
+        $browser->getKernel()->boot();
+        $browser->getContainer()->get('test.service_container')->set(ClientMetadataHttpClient::class, new ClientMetadataHttpClient(new MockHttpClient(new MockResponse(json_encode(['client_id' => self::CLAUDE, 'client_name' => 'Claude', 'redirect_uris' => [self::CALLBACK]])))));
+        [$code, $verifier] = $this->consentIn($this->signIn($browser, 'editor'), self::CLAUDE);
+        self::assertSame('Bearer', $this->token($browser, $this->codeExchange(self::CLAUDE, $code, $verifier))['token_type'] ?? null);
     }
 
     public function testTheTokenEndpointIssuesTokensOnlyForThisServersMcpEndpoint(): void
@@ -825,7 +845,8 @@ final class OAuthTest extends TestCase
             } finally {
                 restore_error_handler();
             }
-            self::assertSame(429 === $browser->getResponse()->getStatusCode() ? 0 : 1, $warnings, 'Only a registration that reaches the provider emits its known DCR deprecation.');
+            // Refused by the budget (429), or with registration off (404), it never reaches that code.
+            self::assertSame(\in_array($browser->getResponse()->getStatusCode(), [404, 429], true) ? 0 : 1, $warnings, 'Only a registration that reaches the provider emits its known DCR deprecation.');
         } else {
             $request();
         }

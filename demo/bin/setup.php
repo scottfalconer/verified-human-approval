@@ -13,6 +13,9 @@ use VerifiedHumanApproval\Demo\DemoSetup;
 
 $directory = getenv('VERIFIED_HUMAN_APPROVAL_RUNTIME') ?: dirname(__DIR__, 2).'/var/demo';
 $origin = getenv('VERIFIED_HUMAN_APPROVAL_ORIGIN') ?: 'http://localhost:8080';
+// OAuth clients may register themselves unless this is set to a false value; the public demo sets it to 0.
+$registration = getenv('VERIFIED_HUMAN_APPROVAL_DYNAMIC_CLIENT_REGISTRATION');
+$registration = false === $registration || filter_var($registration, \FILTER_VALIDATE_BOOL);
 try {
     // --reset starts a fresh demo for another take. It only removes a directory this setup created.
     if (in_array('--reset', $argv, true) && is_dir($directory)) {
@@ -21,7 +24,7 @@ try {
         }
         (new Filesystem())->remove($directory);
     }
-    $created = DemoSetup::initialize($directory, $origin);
+    $created = DemoSetup::initialize($directory, $origin, $registration);
     // The review pages load the bundle's script and stylesheet from demo/public/bundles/, like any Symfony app after assets:install.
     $console = new Application(new DemoKernel($directory));
     $console->setAutoExit(false);

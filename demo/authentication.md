@@ -27,7 +27,9 @@ League handles OAuth protocol validation. `AtomicTokenController` wraps its toke
 
 The only token audience is this application's `/mcp`. `ResourceTargetGuard` rejects an explicit different resource and normalizes an omitted resource or this server's origin to `/mcp` before the provider's request listeners run. Only authorization-code and refresh grants are enabled. Plain PKCE and plaintext client secrets are disabled. The SDK scope policy supplies precise per-operation challenges. A reference-only `PreserveScopeChallenge` decorator keeps the OAuth provider’s general response listener from replacing an existing challenge with the whole server’s scope list; when none exists, the provider supplies it unchanged.
 
-CIMD is the primary client discovery path. Fetches use Symfony's `NoPrivateNetworkHttpClient`, a 64 KiB download limit and a 10 second maximum duration. The provider caches metadata for five minutes. Its older dynamic registration route remains available with a per-address budget; upstream deliberately marks DCR deprecated. Tests assert that exact known warning only around that compatibility route while all other deprecations remain failures.
+CIMD is the primary client discovery path. Fetches use Symfony's `NoPrivateNetworkHttpClient`, a 64 KiB download limit and a 10 second maximum duration. The provider caches metadata for five minutes.
+
+Dynamic client registration (RFC 7591), which the MCP specification deprecates in favour of CIMD, is a setting of each runtime. A local demo offers it, with a per-address budget, for clients that still register themselves; set `VERIFIED_HUMAN_APPROVAL_DYNAMIC_CLIENT_REGISTRATION=0` when running `php demo/bin/setup.php` to turn it off. The public demo turns it off, so only a client that publishes a client ID metadata document, as claude.ai does, can connect there. The provider marks its registration route deprecated; tests assert that exact warning only around that route, and every other deprecation still fails.
 
 ## Reference-only dependency compatibility
 

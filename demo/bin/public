@@ -29,7 +29,7 @@ start() {
   [ -n "$ORIGIN" ] || { echo "The tunnel did not start; see $LOG"; exit 1; }
   if [ "$(demo_origin)" != "$ORIGIN" ]; then
     PORT=$PORT VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" "$SERVER" stop >/dev/null 2>&1 || true
-    (umask 077; VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" VERIFIED_HUMAN_APPROVAL_ORIGIN="$ORIGIN" php "$ROOT/demo/bin/setup.php" --reset > "$ROOT/var/public-demo-setup.txt")
+    (umask 077; VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" VERIFIED_HUMAN_APPROVAL_ORIGIN="$ORIGIN" VERIFIED_HUMAN_APPROVAL_DYNAMIC_CLIENT_REGISTRATION=0 php "$ROOT/demo/bin/setup.php" --reset > "$ROOT/var/public-demo-setup.txt")
     echo "Fresh public demo for $ORIGIN; its credentials are in var/public-demo-setup.txt"
   fi
   PORT=$PORT VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" "$SERVER" start
@@ -51,7 +51,7 @@ case "${1:-status}" in
     ORIGIN=$(demo_origin)
     [ -n "$ORIGIN" ] || { echo "No public demo to reset; run: $0 start"; exit 1; }
     PORT=$PORT VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" "$SERVER" stop >/dev/null 2>&1 || true
-    (umask 077; VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" VERIFIED_HUMAN_APPROVAL_ORIGIN="$ORIGIN" php "$ROOT/demo/bin/setup.php" --reset > "$ROOT/var/public-demo-setup.txt")
+    (umask 077; VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" VERIFIED_HUMAN_APPROVAL_ORIGIN="$ORIGIN" VERIFIED_HUMAN_APPROVAL_DYNAMIC_CLIENT_REGISTRATION=0 php "$ROOT/demo/bin/setup.php" --reset > "$ROOT/var/public-demo-setup.txt")
     PORT=$PORT VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" "$SERVER" start
     echo "Fresh public demo for $ORIGIN; its credentials and passkey links are in var/public-demo-setup.txt" ;;
   *) echo "Usage: $0 start | stop | status | all-clear | reset"; exit 2 ;;
