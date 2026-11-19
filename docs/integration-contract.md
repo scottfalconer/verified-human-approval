@@ -76,6 +76,7 @@ The package `verified-human-approval/store-contracts` (`VerifiedHumanApproval\St
 - `AuditStoreContract`, with an `AuditHarness`, for an `Audit\AuditStore`.
 - `CredentialRepositoryContract`, with a `CredentialHarness`, for a `RevocableCredentialRepository`.
 - The fixture application (`Fixture\*`, on a `Fixture\FixtureDatabase`, with a fixture schema per platform), `FaultingStore`, `FaultingSigner`, `Faults` (pauses at `authority_checked` and `before_commit` among them) and `ProcessRace`.
+- Each harness has `close(): void`, which does nothing by default. The contract calls it for every harness a test connected, when the test ends and before `destroy()`: a harness that opens a connection closes it there, so a database server that keeps connections open after a drop, as MySQL and MariaDB do, does not run out of them.
 
 This repository runs them on the PDO approval and audit stores on SQLite, in the rollback journal and in WAL, and on the PDO passkey repository in the rollback journal. It runs them on the Doctrine stores on SQLite in both journals, PostgreSQL and MySQL, and CI runs the MySQL classes on MariaDB too. The server runs are named by `VERIFIED_HUMAN_APPROVAL_POSTGRES_URL` and `VERIFIED_HUMAN_APPROVAL_MYSQL_URL`. Require the same before relying on another adapter.
 
