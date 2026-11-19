@@ -154,7 +154,7 @@ Phones and claude.ai need a reachable HTTPS address. On macOS with `cloudflared`
 demo/bin/public start
 ```
 
-This starts a second demo and a Cloudflare quick tunnel under launchd. It prints the address and MCP connector URL. The second demo's credentials and passkey links are in `var/public-demo-setup.txt`; keep that file private. Its server uses port 8081 on this computer, which nothing else may use while it runs: `start` refuses while anything else holds that port, so the tunnel publishes nothing but this demo. Passkeys belong to a hostname, so a tunnel that comes back with a new one needs a fresh demo: `start` then says what it would replace and asks first. `demo/bin/public start --yes` answers yes, for use without a terminal.
+This starts a second demo and a Cloudflare quick tunnel under launchd. It prints the address and MCP connector URL. The second demo's credentials and passkey links are in `var/public-demo-setup.txt`; keep that file private. Its server uses port 8081 on this computer, and the tunnel publishes whatever answers there, so nothing else may use that port while the public demo runs. `start` refuses while anything else holds it. Passkeys belong to a hostname, so a tunnel that comes back with a new one needs a fresh demo: `start` then says what it would replace and asks first. `demo/bin/public start --yes` answers yes, for use without a terminal.
 
 1. Open the public address, sign in as its `editor`, and enroll a passkey through that editor's link. Use a passkey available on the phone if you want to approve there.
 2. In claude.ai, add the printed MCP URL as a custom connector, and sign in as the public demo's editor. The consent page should say the client was published by claude.ai and returns to claude.ai; choose **Allow**.
