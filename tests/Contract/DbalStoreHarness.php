@@ -179,6 +179,26 @@ abstract class DbalStoreHarness extends StoreHarness
         $writer->close();
     }
 
+    public function editRecord(string $requestId, string $part, \Closure $edit): void
+    {
+        [$table, $column, $key] = match ($part) {
+            'proposal', 'digest', 'status', 'result', 'proof' => [ApprovalSchema::REQUESTS, $part, 'id'],
+            'execution' => [ApprovalSchema::EXECUTIONS, 'record', 'request_id'],
+            'signature' => [ApprovalSchema::RECEIPTS, 'signature', 'request_id'],
+            default => throw new \InvalidArgumentException('Unknown part: '.$part),
+        };
+        $writer = $this->observer();
+        try {
+            $stored = $writer->fetchOne('SELECT '.$column.' FROM '.$table.' WHERE '.$key.' = ?', [$requestId]);
+            if (!\is_string($stored)) {
+                throw new \RuntimeException('Nothing is stored there.');
+            }
+            $writer->executeStatement('UPDATE '.$table.' SET '.$column.' = ? WHERE '.$key.' = ?', [$edit($stored), $requestId]);
+        } finally {
+            $writer->close();
+        }
+    }
+
     public function failInserts(string $what): void
     {
         $table = match ($what) {

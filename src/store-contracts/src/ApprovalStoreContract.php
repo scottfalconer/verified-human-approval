@@ -441,6 +441,116 @@ abstract class ApprovalStoreContract extends TestCase
         self::assertSame(Receipt::COMMIT, (new ReceiptVerifier())->verify(self::export($stored), $harness->receiptKeyId(), $harness->receiptPublicKey())['receiptSignedAt']);
     }
 
+    /**
+     * Edits someone with write access to the database could make to one part of a completed record.
+     *
+     * @return iterable<string, array{\Closure(StoreHarness, string): void}>
+     */
+    public static function editedRecords(): iterable
+    {
+        $edit = static fn (string $part, \Closure $change): \Closure => static fn (StoreHarness $harness, string $id) => $harness->editRecord($id, $part, $change);
+        // The proposal changed, and its digest with it, so the two still match.
+        $withDigest = static fn (\Closure $change): \Closure => static function (StoreHarness $harness, string $id) use ($change): void {
+            $edited = '';
+            $harness->editRecord($id, 'proposal', static function (string $proposal) use ($change, &$edited): string {
+                return $edited = $change($proposal);
+            });
+            $harness->editRecord($id, 'digest', static fn (): string => hash('sha256', $edited));
+        };
+        $character = static fn (string $proposal): string => str_replace('Summer Campaign', 'Summer Campaigm', $proposal);
+        $cut = static fn (string $json): string => substr($json, 0, 40);
+        yield 'one character of the proposal' => [$edit('proposal', $character)];
+        yield 'the digest' => [$edit('digest', static fn (string $digest): string => ('0' === $digest[0] ? '1' : '0').substr($digest, 1))];
+        yield 'the proposal and its digest, to match each other' => [$withDigest($character)];
+        yield 'the result, to text that is not JSON' => [$edit('result', static fn (): string => 'published')];
+        yield 'the result, to a JSON list' => [$edit('result', static fn (): string => '[]')];
+        yield 'the proof, cut short' => [$edit('proof', $cut)];
+        yield 'the execution record, cut short' => [$edit('execution', $cut)];
+        yield 'the status, to one that does not exist' => [$edit('status', static fn (): string => 'done')];
+        yield 'the status, to cancelled' => [$edit('status', static fn (): string => 'cancelled')];
+        yield 'the receipt signature, emptied' => [$edit('signature', static fn (): string => '')];
+    }
+
+    /**
+     * Whatever part of a completed record is edited, every read through the service answers record_integrity_error:
+     * never the stored outcome, never another refusal, never an exception of another kind, and nothing runs again.
+     * The store itself either reads the record back for the service to check, or refuses it with that reason and
+     * keeps what failed. A record that cannot be read does not show whose it is, so someone else who names it learns
+     * no more than that.
+     *
+     * @param \Closure(StoreHarness, string): void $edit
+     */
+    #[DataProvider('editedRecords')]
+    public function testAnEditedRecordIsAnIntegrityErrorWhereverItIsRead(\Closure $edit): void
+    {
+        $harness = $this->connect();
+        $request = $harness->service()->request($harness->actor(), 'article.publish', ['id' => 1], 'edited-record');
+        $ceremony = $harness->service()->begin($harness->reviewer(), $request->request->id);
+        $proof = $harness->proof($ceremony);
+        self::assertSame('completed', $harness->service()->complete($harness->reviewer(), $ceremony->id, $proof)->status);
+        $id = $request->request->id;
+        $edit($harness, $id);
+
+        $observer = $this->connect();
+        $service = $observer->service();
+        $reads = [
+            'the status' => static fn () => $service->get($observer->reviewer(), $id),
+            'the agent’s status read' => static fn () => $service->get($observer->actor(), $id),
+            'a retry with the same request key' => static fn () => $service->request($observer->actor(), 'article.publish', ['id' => 1], 'edited-record'),
+            'a new review' => static fn () => $service->begin($observer->reviewer(), $id),
+            'the finished ceremony' => static fn () => $service->complete($observer->reviewer(), $ceremony->id, $proof),
+            'a cancellation' => static fn () => $service->cancel($observer->reviewer(), $id),
+        ];
+        foreach ($reads as $read => $operation) {
+            try {
+                $operation();
+                self::fail($read.' presented an edited record.');
+            } catch (ApprovalException $error) {
+                self::assertSame('record_integrity_error', $error->reason, $read);
+            }
+        }
+        try {
+            $service->get(new Actor('bob', 'tenant-a'), $id);
+            self::fail('Someone else read an edited record.');
+        } catch (ApprovalException $error) {
+            self::assertContains($error->reason, ['not_found', 'record_integrity_error']);
+        }
+        try {
+            self::assertSame($id, $observer->store()->get($id)?->request->id, 'A record that reads back is left to the service to check.');
+        } catch (ApprovalException $error) {
+            self::assertSame('record_integrity_error', $error->reason);
+            self::assertNotNull($error->getPrevious(), 'What failed is kept.');
+        }
+        self::assertSame(['requests' => 1, 'effects' => 1, 'executions' => 1, 'receipts' => 1, 'credentialUses' => 1], $observer->counts(), 'Nothing ran again.');
+    }
+
+    /**
+     * A pending proposal that no longer reads back is refused the same way when a retry without a request key finds
+     * it: the agent is neither sent back to a damaged proposal nor given a second one in its place.
+     */
+    public function testAPendingProposalThatCannotBeReadIsAnIntegrityErrorForARetryWithoutAKey(): void
+    {
+        $harness = $this->connect();
+        $pending = $harness->service()->request($harness->actor(), 'article.publish', ['id' => 1]);
+        $harness->editRecord($pending->request->id, 'proposal', static fn (string $proposal): string => str_replace('Summer Campaign', 'Summer Campaigm', $proposal));
+
+        $service = $this->connect()->service();
+        $reads = [
+            'a retry without a key' => static fn () => $service->request($harness->actor(), 'article.publish', ['id' => 1]),
+            'the status' => static fn () => $service->get($harness->reviewer(), $pending->request->id),
+            'a review' => static fn () => $service->begin($harness->reviewer(), $pending->request->id),
+        ];
+        foreach ($reads as $read => $operation) {
+            try {
+                $operation();
+                self::fail($read.' presented a damaged proposal.');
+            } catch (ApprovalException $error) {
+                self::assertSame('record_integrity_error', $error->reason, $read);
+            }
+        }
+        self::assertSame(['requests' => 1, 'effects' => 0, 'executions' => 0, 'receipts' => 0, 'credentialUses' => 0], $this->connect()->counts());
+    }
+
     public function testALockTimeoutLeavesNothingHalfDoneAndRunsNothingTwice(): void
     {
         $harness = $this->connect();

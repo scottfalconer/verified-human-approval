@@ -11,6 +11,7 @@ use VerifiedHumanApproval\StoreContracts\ApprovalStoreContract;
 final class SqliteApprovalStoreContractTest extends ApprovalStoreContract
 {
     use ApprovalHistoryContract;
+    use RecentApprovalsContract;
 
     protected static function harness(): string
     {

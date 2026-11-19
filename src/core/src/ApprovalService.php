@@ -350,6 +350,8 @@ final class ApprovalService
 
     private function owned(Actor $actor, string $requestId): ApprovalState
     {
+        // A record the store cannot read back fails here with record_integrity_error, before its owner is known:
+        // it no longer shows whose it is, so whoever names its id learns that it cannot be read, and nothing else.
         $state = $this->store->get($requestId) ?? throw new ApprovalException('not_found', 'The approval request was not found.');
         $this->assertOwnedRecord($actor, $state);
 

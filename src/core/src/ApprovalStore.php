@@ -19,7 +19,9 @@ namespace VerifiedHumanApproval\Core;
  *    protected from concurrent change until commit; locking the approval row alone does not do that.
  * 4. Run the callback once per call. Never retry it on deadlock, timeout or an uncertain commit.
  * 5. Keep canonical data exact. Stored proposals, proofs and records come back with the same bytes, and
- *    JSON keeps null, an empty object and an empty array apart.
+ *    JSON keeps null, an empty object and an empty array apart. A record that no longer reads back as it was
+ *    written is reported, never repaired or skipped: read it with ApprovalState::fromStorage(), whose
+ *    record_integrity_error get() and the lookups pass on.
  * 6. Enforce identity and immutability. A frozen proposal or a terminal record cannot be overwritten through
  *    this API, and database constraints back the identities and the request-key rules.
  * 7. Handle every Throwable. Roll back before rethrowing, reset any transaction bookkeeping, and if the
@@ -40,12 +42,21 @@ interface ApprovalStore
     /** Stores a new proposal. A second one with the same id, or the same actor and request key, must fail. */
     public function insert(ApprovalState $state, ?string $idempotencyKey, string $fingerprint): void;
 
+    /** @throws ApprovalException record_integrity_error when the stored record cannot be read back */
     public function get(string $id): ?ApprovalState;
 
-    /** @return array{state: ApprovalState, fingerprint: string}|null */
+    /**
+     * @return array{state: ApprovalState, fingerprint: string}|null
+     *
+     * @throws ApprovalException record_integrity_error when the stored record cannot be read back
+     */
     public function findByKey(Actor $actor, string $idempotencyKey): ?array;
 
-    /** The newest still-pending proposal this actor made with these exact arguments. */
+    /**
+     * The newest still-pending proposal this actor made with these exact arguments.
+     *
+     * @throws ApprovalException record_integrity_error when the stored record cannot be read back
+     */
     public function findPending(Actor $actor, string $fingerprint): ?ApprovalState;
 
     /** Records a new status, proof, execution and receipt. A terminal record refuses to change (`immutable_approval`). */

@@ -8,11 +8,11 @@ use Doctrine\DBAL\Connection;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalHistory;
-use VerifiedHumanApproval\Core\ApprovalRequest;
 use VerifiedHumanApproval\Core\ApprovalState;
 use VerifiedHumanApproval\Core\ApprovalStore;
 use VerifiedHumanApproval\Core\CanonicalJson;
 use VerifiedHumanApproval\Core\Ceremony;
+use VerifiedHumanApproval\Core\UnreadableApproval;
 
 /**
  * Proposals, ceremonies and their outcomes on the application's DBAL connection, with PdoApprovalStore's rules.
@@ -24,7 +24,7 @@ use VerifiedHumanApproval\Core\Ceremony;
  */
 final readonly class DbalApprovalStore implements ApprovalStore, ApprovalHistory
 {
-    private const SELECT = 'SELECT r.id, r.proposal, r.digest, r.status, r.reason, r.result, r.proof, e.record AS execution, c.key_id AS receipt_key_id, c.manifest AS receipt_manifest, c.signature AS receipt_signature
+    private const SELECT = 'SELECT r.id, r.tenant_id, r.proposal, r.digest, r.status, r.reason, r.result, r.proof, e.record AS execution, c.key_id AS receipt_key_id, c.manifest AS receipt_manifest, c.signature AS receipt_signature
         FROM '.ApprovalSchema::REQUESTS.' r LEFT JOIN '.ApprovalSchema::EXECUTIONS.' e ON e.request_id = r.id LEFT JOIN '.ApprovalSchema::RECEIPTS.' c ON c.request_id = r.id';
 
     private Connection $connection;
@@ -160,23 +160,26 @@ final readonly class DbalApprovalStore implements ApprovalStore, ApprovalHistory
     {
         $this->transaction->usePrimary();
         $sql = $this->connection->getDatabasePlatform()->modifyLimitQuery(self::SELECT.' WHERE r.tenant_id = ? AND r.resource_key = ? ORDER BY r.seq DESC', max(1, min($limit, 1000)));
-        $states = array_map(self::state(...), $this->connection->fetchAllAssociative($sql, [$tenantId, self::resourceKey($resource)]));
+        $listed = array_map(self::listed(...), $this->connection->fetchAllAssociative($sql, [$tenantId, self::resourceKey($resource)]));
 
-        return array_values(array_filter($states, static fn (ApprovalState $state): bool => $state->request->actor()->tenantId === $tenantId
-            && self::resourceKey($state->request->prepared()->target['resource'] ?? null) === self::resourceKey($resource)));
+        // A row whose proposal reads back must name this resource itself, not only in the columns. One that cannot be
+        // read stays where its columns put it: it shows no more than that it cannot be read.
+        return array_values(array_filter($listed, static fn (ApprovalState|UnreadableApproval $entry): bool => $entry instanceof UnreadableApproval
+            || ($entry->request->actor()->tenantId === $tenantId && self::resourceKey($entry->request->prepared()->target['resource'] ?? null) === self::resourceKey($resource))));
     }
 
     /**
-     * The newest requests first, for an administrator's audit view. The host filters them by tenant.
+     * The newest requests first, for an administrator's audit view. The host filters them by tenant: a request that
+     * cannot be read back is an UnreadableApproval, with the tenant its row is filed under.
      *
-     * @return list<ApprovalState>
+     * @return list<ApprovalState|UnreadableApproval>
      */
     public function recent(int $limit = 200): array
     {
         $this->transaction->usePrimary();
         $sql = $this->connection->getDatabasePlatform()->modifyLimitQuery(self::SELECT.' ORDER BY r.seq DESC', max(1, min($limit, 1000)));
 
-        return array_map(self::state(...), $this->connection->fetchAllAssociative($sql));
+        return array_map(self::listed(...), $this->connection->fetchAllAssociative($sql));
     }
 
     /** Whether reads lock rows: inside the approval transaction, on a database without SQLite's single writer. */
@@ -207,20 +210,36 @@ final readonly class DbalApprovalStore implements ApprovalStore, ApprovalHistory
         return \is_string($resource) || \is_int($resource) ? hash('sha256', (string) $resource) : null;
     }
 
-    /** @param array<string, mixed> $row */
+    /**
+     * @param array<string, mixed> $row
+     *
+     * @throws ApprovalException record_integrity_error when the row cannot be read back
+     */
     private static function state(array $row): ApprovalState
     {
-        $decode = static fn (mixed $json): ?array => null === $json ? null : CanonicalJson::map(CanonicalJson::decode((string) $json));
+        $text = static fn (mixed $value): ?string => null === $value ? null : (string) $value;
         $receipt = null === $row['receipt_manifest'] ? null : ['manifest' => (string) $row['receipt_manifest'], 'keyId' => (string) $row['receipt_key_id'], 'signature' => (string) $row['receipt_signature']];
 
-        return new ApprovalState(
-            new ApprovalRequest((string) $row['id'], (string) $row['proposal'], (string) $row['digest']),
+        return ApprovalState::fromStorage(
+            (string) $row['id'],
+            (string) $row['proposal'],
+            (string) $row['digest'],
             (string) $row['status'],
-            null === $row['reason'] ? null : (string) $row['reason'],
-            $decode($row['result']),
-            $decode($row['execution']),
-            $decode($row['proof']),
+            $text($row['reason']),
+            $text($row['result']),
+            $text($row['execution']),
+            $text($row['proof']),
             $receipt,
         );
+    }
+
+    /** @param array<string, mixed> $row */
+    private static function listed(array $row): ApprovalState|UnreadableApproval
+    {
+        try {
+            return self::state($row);
+        } catch (ApprovalException $error) {
+            return new UnreadableApproval((string) $row['id'], null === $row['tenant_id'] ? null : (string) $row['tenant_id'], $error);
+        }
     }
 }

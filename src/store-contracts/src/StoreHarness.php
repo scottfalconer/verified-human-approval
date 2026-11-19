@@ -83,6 +83,15 @@ abstract class StoreHarness
     /** Replaces an article's title and body, as an editor would, from a connection of its own. */
     abstract public function writeArticle(int $id, string $title, string $body): void;
 
+    /**
+     * Rewrites one stored part of a request's record from a connection of its own, as someone with write access to
+     * the database could: its 'proposal', 'digest', 'status', 'result' or 'proof', its 'execution' record, or its
+     * receipt's 'signature'. $edit is given the text stored there and returns the text that replaces it.
+     *
+     * @param \Closure(string): string $edit
+     */
+    abstract public function editRecord(string $requestId, string $part, \Closure $edit): void;
+
     /** Makes the next insert of an execution record or a receipt fail inside the storage itself. */
     abstract public function failInserts(string $what): void;
 
