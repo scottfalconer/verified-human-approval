@@ -28,6 +28,8 @@ PHP_CLI_SERVER_WORKERS=4 php -S localhost:8080 -t demo/public demo/public/index.
 
 Keep the setup output private. It contains the demo accounts' passwords, personal tokens and first-passkey links.
 
+The demo answers only at the address it was set up for. If port 8080 is taken, [set it up for another port](demo/README.md#if-port-8080-is-taken).
+
 With the server running, continue at [Add the editor's passkey](demo/README.md#2-add-the-editors-passkey). Use the **editor** account: its rule requires passkey approval. The walkthrough uses the included PHP MCP client, so no model API key or agent application is needed.
 
 You should see four things:
@@ -35,7 +37,7 @@ You should see four things:
 1. `publish_alert` returns `pending` with a review link. The alert is still unpublished.
 2. The review page shows the exact proposed public page and statement.
 3. Approving with the editor's passkey publishes the alert and records a signed receipt.
-4. Checking status or retrying with the same request key returns `completed` without publishing again.
+4. Checking status, or retrying with the same request key, returns `completed` without publishing again. The retry says it is the earlier request's recorded outcome and that nothing ran now.
 
 The guide also covers [agent clients and phone approval](demo/README.md#use-an-agent-client). The [Symfony AI example](examples/README.md#symfony-ai-example) uses a real `Agent` and `McpToolbox`; run it with `--scripted` to use scripted model responses without a model API key.
 
