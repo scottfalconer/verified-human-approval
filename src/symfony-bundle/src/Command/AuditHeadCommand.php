@@ -53,7 +53,8 @@ final class AuditHeadCommand extends Command
         }
         $head = $this->audit->head();
         if ($input->getOption('json')) {
-            $output->writeln(json_encode($head, \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES));
+            // For a script to store, exactly as encoded.
+            $output->writeln(json_encode($head, \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES), OutputInterface::OUTPUT_RAW);
         } elseif (null === $head) {
             $output->writeln('The audit log is empty: there is no entry to keep yet.');
         } else {

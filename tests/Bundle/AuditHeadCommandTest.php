@@ -24,6 +24,7 @@ final class AuditHeadCommandTest extends TestCase
     private const OPENED = '2026-11-01T00:00:00Z';
     private const ROTATED = '2026-11-09T12:00:00Z';
 
+    private \PDO $database;
     private PdoAuditStore $store;
     private MockClock $clock;
     private SodiumEvidenceSigner $old;
@@ -31,13 +32,25 @@ final class AuditHeadCommandTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->store = new PdoAuditStore(new \PDO('sqlite::memory:', options: [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]));
+        $this->database = new \PDO('sqlite::memory:', options: [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
+        $this->store = new PdoAuditStore($this->database);
         $this->store->initialize();
         $this->clock = new MockClock('2026-11-05T09:00:00Z');
         $this->old = new SodiumEvidenceSigner('application-1', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
         $this->new = new SodiumEvidenceSigner('application-2', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
-        (new AuditLog($this->store, $this->old, new TrustedKeys([new TrustedKey('application-1', $this->old->publicKey(), TrustedKey::time(self::OPENED))]), $this->clock))
-            ->append('tenant-a', 'passkey.enrolled', 'cred-1', ['userId' => 'alice']);
+        $this->opened()->append('tenant-a', 'passkey.enrolled', 'cred-1', ['userId' => 'alice']);
+    }
+
+    public function testItsJsonIsTheHeadAsStoredEvenWhereAValueLooksLikeFormatting(): void
+    {
+        // The stored key id is not signed: whoever can write the table can put anything in it.
+        $this->database->exec("UPDATE verified_human_approval_audit SET key_id = '<fg=green>application-1</>' WHERE seq = 1");
+
+        $head = $this->auditHead($this->opened(), ['--json' => true]);
+
+        self::assertSame(Command::FAILURE, $head->getStatusCode());
+        $json = json_decode(trim($head->getDisplay()), true, 4, \JSON_THROW_ON_ERROR);
+        self::assertSame(['<fg=green>application-1</>', false], [$json['keyId'] ?? null, $json['intact'] ?? null]);
     }
 
     public function testItNamesTheFailingEntryAndTheRotationToRecordAfterAKeyChange(): void
@@ -77,6 +90,12 @@ final class AuditHeadCommandTest extends TestCase
         $after = $this->auditHead($log);
         self::assertSame(Command::SUCCESS, $after->getStatusCode());
         self::assertStringNotContainsString('application-1', $after->getDisplay());
+    }
+
+    /** The log as the application kept it before the rotation: the old key signs, and it is trusted from OPENED on. */
+    private function opened(): AuditLog
+    {
+        return new AuditLog($this->store, $this->old, new TrustedKeys([new TrustedKey('application-1', $this->old->publicKey(), TrustedKey::time(self::OPENED))]), $this->clock);
     }
 
     private function rotated(): AuditLog
