@@ -30,6 +30,7 @@ use VerifiedHumanApproval\Demo\DemoDatabase;
 use VerifiedHumanApproval\Demo\DemoKernel;
 use VerifiedHumanApproval\Demo\DemoSetup;
 use VerifiedHumanApproval\Mcp\ApprovalCard;
+use VerifiedHumanApproval\Mcp\ApprovalFlow;
 use VerifiedHumanApproval\Mcp\UrlPrompt;
 use VerifiedHumanApproval\Testing\VirtualAuthenticator;
 
@@ -73,7 +74,9 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame(['app'], json_decode(json_encode($tools['approval_handoff'], \JSON_THROW_ON_ERROR), true)['_meta']['ui']['visibility'], 'Only the card can ask for a phone code.');
         self::assertArrayNotHasKey('actor', $tools['publish_alert']->inputSchema['properties']);
         self::assertArrayNotHasKey('user_id', $tools['publish_alert']->inputSchema['properties']);
-        self::assertNotEmpty($tools['publish_alert']->inputSchema['properties']['request_key']['description'] ?? null, 'Parameters are described.');
+        self::assertSame(ApprovalFlow::REQUEST_KEY_DESCRIPTION, $tools['publish_alert']->inputSchema['properties']['request_key']['description'] ?? null, 'The request key is described so that an agent leaves it out.');
+        self::assertNotContains('request_key', $tools['publish_alert']->inputSchema['required'] ?? []);
+        self::assertStringNotContainsString('request_key', (string) $tools['publish_alert']->description, 'The tool does not tell an agent to send a key.');
         foreach ($tools as $name => $tool) {
             $declared = json_decode(json_encode($tool, \JSON_THROW_ON_ERROR), true);
             self::assertNotEmpty($declared['title'] ?? null, $name.' has a title.');

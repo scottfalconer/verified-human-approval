@@ -625,7 +625,7 @@ final readonly class PublishDocumentTool
     #[McpTool(
         name: 'publish_document',
         title: 'Publish a document',
-        description: 'Request publication of a draft. When pending, show the review URL and wait for the person to approve. Reuse request_key for retries. Read approval_status afterwards; pending does not mean published.',
+        description: 'Request publication of a draft. When pending, show the review URL and wait for the person to approve. Read approval_status afterwards; pending does not mean published. To retry, call again with the same arguments.',
         annotations: new ToolAnnotations(readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false),
         meta: ApprovalCard::TOOL_META,
         outputSchema: ApprovalFlow::OUTPUT_SCHEMA,
@@ -633,7 +633,7 @@ final readonly class PublishDocumentTool
     public function publish(
         RequestContext $context,
         #[Schema(description: 'The existing document ID in the authenticated tenant.')] string $document_id,
-        #[Schema(description: 'Reuse this value when retrying the same request.')] ?string $request_key = null,
+        #[Schema(description: ApprovalFlow::REQUEST_KEY_DESCRIPTION)] ?string $request_key = null,
     ): CallToolResult|InputRequiredResult {
         try {
             $actor = $this->actors->current();
@@ -668,6 +668,8 @@ final readonly class PublishDocumentTool
 ```
 
 `ApprovalFlow::errorResult()` builds the error result every tool should return: `status`, `reason` and `message`, as text and as structured content that fits `ApprovalFlow::OUTPUT_SCHEMA`. A refusal is `rejected`. A stored request that fails the [integrity check](index.md#stored-receipts-and-later-verification) is `integrity_error`: the site cannot vouch for its outcome, so the agent must not report it as refused or as not having happened.
+
+Describe the request key argument with `ApprovalFlow::REQUEST_KEY_DESCRIPTION`. A request key suits a client that generates a unique id for each new request. A language model asked for one builds it from the arguments and the date, and often builds the same key again in a later conversation. The application then returns the earlier request and its outcome, and the person is not asked again. The description has a model leave the argument out. Without a key, a repeated call returns the same pending request, and a new request once the earlier one has finished.
 
 Register this class with the MCP configuration in the [integration guide](index.md#4-register-the-mcp-tools-and-card). Ask the tool to publish a real document belonging to the signed-in tenant. The caller needs an active account with publication permission and a personal grant containing `document.publish` and `approval.read`.
 

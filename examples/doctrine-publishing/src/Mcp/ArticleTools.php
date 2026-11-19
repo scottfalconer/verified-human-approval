@@ -55,7 +55,7 @@ final readonly class ArticleTools
         'required' => ['id', 'status', 'revision', 'draft', 'live'],
     ];
 
-    private const ASKS = 'Nothing changes yet: the result is pending, with a review_url. Show it to the person, who approves the exact change on the site with their passkey. Then call approval_status. Reuse request_key to retry safely.';
+    private const ASKS = 'Nothing changes yet: the result is pending, with a review_url. Show it to the person, who approves the exact change on the site with their passkey. Then call approval_status. To retry, call again with the same arguments: while the request is pending, this returns the same request.';
 
     public function __construct(
         private ApprovalService $approvals,
@@ -124,7 +124,7 @@ final readonly class ArticleTools
     public function publish(
         RequestContext $context,
         #[Schema(description: 'The article’s id, as list_articles reports it.')] string $article_id,
-        #[Schema(description: 'Your own id for this request. Reuse it to retry: the same key returns the same request.')] ?string $request_key = null,
+        #[Schema(description: ApprovalFlow::REQUEST_KEY_DESCRIPTION)] ?string $request_key = null,
     ): CallToolResult|InputRequiredResult {
         return $this->ask($context, 'publish_article', PublishArticle::ID, ['article_id' => $article_id], $request_key);
     }
@@ -142,7 +142,7 @@ final readonly class ArticleTools
         #[Schema(description: 'The live article’s id, as list_articles reports it.')] string $article_id,
         #[Schema(description: 'The new title, up to 200 characters.')] string $title,
         #[Schema(description: 'The new text.')] string $body,
-        #[Schema(description: 'Your own id for this request. Reuse it to retry: the same key returns the same request.')] ?string $request_key = null,
+        #[Schema(description: ApprovalFlow::REQUEST_KEY_DESCRIPTION)] ?string $request_key = null,
     ): CallToolResult|InputRequiredResult {
         return $this->ask($context, 'edit_live_article', EditLiveArticle::ID, ['article_id' => $article_id, 'title' => $title, 'body' => $body], $request_key);
     }
@@ -159,7 +159,7 @@ final readonly class ArticleTools
     public function archive(
         RequestContext $context,
         #[Schema(description: 'The live articles’ ids, as list_articles reports them.', items: ['type' => 'string'], minItems: 1, maxItems: ArchiveArticles::LIMIT, uniqueItems: true)] array $article_ids,
-        #[Schema(description: 'Your own id for this request. Reuse it to retry: the same key returns the same request.')] ?string $request_key = null,
+        #[Schema(description: ApprovalFlow::REQUEST_KEY_DESCRIPTION)] ?string $request_key = null,
     ): CallToolResult|InputRequiredResult {
         return $this->ask($context, 'archive_articles', ArchiveArticles::ID, ['article_ids' => $article_ids], $request_key);
     }
@@ -175,7 +175,7 @@ final readonly class ArticleTools
     public function delete(
         RequestContext $context,
         #[Schema(description: 'The article’s id, as list_articles reports it.')] string $article_id,
-        #[Schema(description: 'Your own id for this request. Reuse it to retry: the same key returns the same request.')] ?string $request_key = null,
+        #[Schema(description: ApprovalFlow::REQUEST_KEY_DESCRIPTION)] ?string $request_key = null,
     ): CallToolResult|InputRequiredResult {
         return $this->ask($context, 'delete_article', DeleteArticle::ID, ['article_id' => $article_id], $request_key);
     }

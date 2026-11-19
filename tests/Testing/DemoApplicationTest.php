@@ -8,7 +8,9 @@ use Mcp\Client;
 use Mcp\Client\Transport\HttpTransport;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use PHPUnit\Framework\TestCase;
+use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
+use Symfony\Component\Console\Tester\CommandTester;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpFoundation\Request;
 use VerifiedHumanApproval\Core\CanonicalJson;
@@ -229,6 +231,43 @@ final class DemoApplicationTest extends TestCase
         self::assertSame(1, $this->mutationCount());
     }
 
+    public function testAskingAgainWithoutAKeyIsANewRequestOnceTheFirstHasFinished(): void
+    {
+        [$browser, $passkey] = $this->withAPasskey('editor');
+        $agent = $this->agent('editor');
+
+        // While the request waits, asking again returns it: an agent's retry never makes a second review page.
+        $first = $this->askedFor($agent);
+        self::assertSame($first, $this->askedFor($agent));
+        self::assertSame('completed', PasskeyPanel::open($browser, self::ORIGIN.'/approval/'.$first)->approve($passkey)->status);
+        $this->takeTheAlertDown();
+
+        // Once it has finished, asking again is a new decision for the person.
+        $second = $this->askedFor($agent);
+        self::assertNotSame($first, $second);
+        self::assertNull($this->database->liveAlert(), 'Nothing is live until the person approves again.');
+        self::assertSame('completed', PasskeyPanel::open($browser, self::ORIGIN.'/approval/'.$second)->approve($passkey)->status);
+        self::assertNotNull($this->database->liveAlert());
+        self::assertSame(2, $this->mutationCount());
+    }
+
+    /** Why the tool tells an agent to leave the request key out: a model often builds the same key in a later conversation. */
+    public function testARequestKeyUsedBeforeReturnsTheEarlierRequestAndAsksNobody(): void
+    {
+        [$browser, $passkey] = $this->withAPasskey('editor');
+        $arguments = ['alert_id' => self::ALERT, 'request_key' => 'riverside-evacuation-rev1-publish'];
+        $first = $this->agent('editor')->callTool('publish_alert', $arguments)->structuredContent['requestId'];
+        self::assertSame('completed', PasskeyPanel::open($browser, self::ORIGIN.'/approval/'.$first)->approve($passkey)->status);
+        $this->takeTheAlertDown();
+
+        $later = $this->agent('editor')->callTool('publish_alert', $arguments);
+
+        self::assertSame($first, $later->structuredContent['requestId']);
+        self::assertSame('completed', $later->structuredContent['status'], 'The key names the earlier request, so its outcome comes back.');
+        self::assertNull($this->database->liveAlert(), 'Nothing was issued.');
+        self::assertSame(1, $this->mutationCount());
+    }
+
     public function testAttemptsPastTheLimitAreRefusedAndTheRequestStaysPending(): void
     {
         $settings = json_decode((string) file_get_contents($this->runtime.'/settings.json'), true, 32, \JSON_THROW_ON_ERROR);
@@ -405,6 +444,18 @@ final class DemoApplicationTest extends TestCase
     private function editTheDraft(): void
     {
         $this->database->pdo->exec("UPDATE demo_alerts SET body = body || '!', revision = revision + 1 WHERE id = '".self::ALERT."'");
+    }
+
+    /** The demo's operator takes the live alert down, as between two runs of the demo. */
+    private function takeTheAlertDown(): void
+    {
+        $kernel = new DemoKernel($this->runtime, 'test');
+        try {
+            self::assertSame(0, (new CommandTester((new Application($kernel))->find('demo:all-clear')))->execute([]));
+        } finally {
+            $kernel->shutdown();
+        }
+        self::assertNull($this->database->liveAlert());
     }
 
     private function mutationCount(): int

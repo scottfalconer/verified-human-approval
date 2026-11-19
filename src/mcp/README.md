@@ -70,6 +70,16 @@ The SDK signs request state but does not encrypt it, and its expiry bounds repla
 
 A platform supplies a `ResultPresenter`: its review URL, its normal tool result, and its status tool's name.
 
+## The request key argument
+
+A protected tool may take an optional request key and pass it to `ApprovalService::request()`. Describe that argument with `ApprovalFlow::REQUEST_KEY_DESCRIPTION`:
+
+```php
+#[Schema(description: ApprovalFlow::REQUEST_KEY_DESCRIPTION)] ?string $request_key = null,
+```
+
+A request key suits a client that generates a unique id for each new request and resends it to retry. A language model is not such a client. Asked for "your own id for this request", Claude models built a key from the arguments and the date in every run we tried, and often built the same key again in a later conversation. A key used before returns that earlier request and its outcome: after an operator took the demo's alert down, a repeated key answered `completed` and nothing was issued. With this description the same models left the argument out. That is safe: a repeated call without a key returns the same pending request, and a new request once the earlier one has finished.
+
 ## Error results
 
 `ApprovalFlow::errorResult()` turns an `ApprovalException` into the error result a protected tool returns: `status`, `reason` and `message`, as text and as structured content that fits `ApprovalFlow::OUTPUT_SCHEMA`. Pass the request ID as the second argument when the tool knows it.

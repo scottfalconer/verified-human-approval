@@ -58,6 +58,7 @@ These results have different scopes and dates. They do not all describe the late
 | claude.ai, OAuth and physical iPhone | Successful approval recorded on November 8, 2026, at 17:46 UTC. | Earlier alert demo, run by Scott. The phone used the scoped review session and an enrolled passkey. |
 | Claude Desktop and physical Touch ID | Successful approval recorded on November 8, 2026, at 16:21 UTC. | Earlier announcement version of the demo, before the alert naming and later enrollment changes. |
 | Claude Code URL prompt | Successful run recorded on November 8, 2026. | Earlier code. The history records the client version and model used. |
+| Claude models and the request key | On November 18, 2026, Claude Code 2.1.319 left `request_key` out in all 38 new conversations that asked to publish (Opus 5.5, Fable 5.2, Sonnet 5.5 and Haiku 5.5). In a few more, Haiku showed the draft and asked before sending anything. With the earlier description, "Your own id for this request", it sent one in 24 of 24 (Opus 5.5, Fable 5.2 and Haiku 5.5), often the same one again. | `tests/claude_request_key.py` and the same check by hand with more models: print mode, a plain system prompt and the demo's HTTP endpoint. Not claude.ai, whose system prompt differs, and not the publishing example's tools. |
 | Symfony AI with a live model | Not established by the scripted integration check. | The [live example](../examples/README.md#live-model) requires a separate model call. |
 
 No physical-device rerun against `4ea04eb1` is recorded here. Keep that distinction when describing tested clients or preparing a demonstration.
@@ -87,6 +88,12 @@ PHP_BIN=php python3 tests/phone_smoke.py
 ```
 
 The scripts use Playwright's Chromium unless `CHROMIUM_BIN` or a system `chromium` selects another executable. The browser scripts use virtual authenticators. For a physical-device check, follow the [demo](../demo/README.md) on the device and client you intend to support. Record the commit, origin, browser, client and device alongside the outcome.
+
+`tests/claude_request_key.py` is an optional check with a real model: whether an agent leaves the request key out. It needs the Claude Code CLI and makes three short model calls:
+
+```bash
+CLAUDE_BIN=claude PHP_BIN=php python3 tests/claude_request_key.py
+```
 
 The [receipt walkthrough](evidence.md) provides a smaller check: verify an original record, change a copy, and confirm that verification fails.
 

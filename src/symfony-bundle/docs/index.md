@@ -224,7 +224,7 @@ Set `allowed_hosts` to your application's host. Keep the MCP route import (`reso
 
 The [tool example](first-action.md#6-expose-the-action-through-mcp) checks the validated token's `approval.read` scope **before** calling `ApprovalFlow::respond()`. This matters because a retry may return a stored result without executing the action again. The tool also declares `ApprovalFlow::OUTPUT_SCHEMA`, uses `ApprovalCard::TOOL_META` and returns structured errors.
 
-A pending response is a normal tool outcome. It contains a `requestId`, `review_url`, status and instructions. The agent must not say the action is completed while it is pending. Reuse a `request_key` for a retry; call `approval_status` to read the outcome. Status reads never perform the business mutation.
+A pending response is a normal tool outcome. It contains a `requestId`, `review_url`, status and instructions. The agent must not say the action is completed while it is pending. Call `approval_status` to read the outcome. Status reads never perform the business mutation. A client that generates a unique id for each new request can send it as `request_key` and resend it to retry. An agent should leave it out, as the [tool example](first-action.md#6-expose-the-action-through-mcp) explains.
 
 URL-mode elicitation is optional and off by default. Enable it only for clients you have tested. The card and review link do not depend on it. See [MCP presentation](https://github.com/scottfalconer/verified-human-approval/blob/main/src/mcp/README.md) for client and protocol details.
 
