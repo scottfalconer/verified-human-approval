@@ -6,6 +6,7 @@ namespace VerifiedHumanApproval\Bundle;
 
 use Doctrine\ORM\Tools\Event\GenerateSchemaEventArgs;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
+use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
@@ -16,6 +17,7 @@ use VerifiedHumanApproval\Bundle\Command\InstallStorageCommand;
 use VerifiedHumanApproval\Bundle\Command\RecordKeyRotationCommand;
 use VerifiedHumanApproval\Bundle\Controller\ApprovalController;
 use VerifiedHumanApproval\Bundle\Controller\VerificationController;
+use VerifiedHumanApproval\Bundle\DependencyInjection\CheckPhoneHandoffPass;
 use VerifiedHumanApproval\Bundle\DependencyInjection\CheckScopeChallengePass;
 use VerifiedHumanApproval\Bundle\Handoff\ApprovalHandoff;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp;
@@ -65,6 +67,8 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
     {
         parent::build($container);
         $container->addCompilerPass(new CheckScopeChallengePass());
+        // Once the MCP bundle's passes have told each server what to serve, and its arguments are positional.
+        $container->addCompilerPass(new CheckPhoneHandoffPass(), PassConfig::TYPE_BEFORE_REMOVING);
     }
 
     public function configure(DefinitionConfigurator $definition): void

@@ -42,6 +42,7 @@ final class ReviewKernel extends Kernel
      * @param string|null                               $templates    a Twig default path, whose bundles/VerifiedHumanApprovalBundle/ overrides the bundle's templates
      * @param list<class-string>|null                   $tools        the MCP server's tools, beside the fixture's PublishArticleTool and the card; or no MCP server
      * @param array<string, class-string>               $services     services the application defines, by id, in place of any the bundle defines under that id
+     * @param array<string, list<class-string>>         $servers      further MCP servers beside it, by name, each at /mcp/<name> with these tools and the card
      */
     public function __construct(
         private readonly string $runtime,
@@ -52,6 +53,7 @@ final class ReviewKernel extends Kernel
         private readonly ?array $realTranslator = null,
         private readonly ?array $tools = null,
         private readonly array $services = [],
+        private readonly array $servers = [],
     ) {
         parent::__construct('test', false);
     }
@@ -145,11 +147,19 @@ final class ReviewKernel extends Kernel
         }
         if (null !== $this->tools) {
             // Stateless MCP 2026-07-28 calls, as the agent's client makes them; the connection is alice's.
-            $container->extension('mcp', ['servers' => ['application' => [
+            $servers = ['application' => [
                 'http' => ['path' => '/mcp', 'allowed_hosts' => ['app.example']],
                 'session' => ['store' => 'memory'],
                 'registry' => ['tools' => [PublishArticleTool::class, ...$this->tools], 'apps' => [ApprovalCardApp::class]],
-            ]]]);
+            ]];
+            foreach ($this->servers as $name => $tools) {
+                $servers[$name] = [
+                    'http' => ['path' => '/mcp/'.$name, 'allowed_hosts' => ['app.example']],
+                    'session' => ['store' => 'memory'],
+                    'registry' => ['tools' => $tools, 'apps' => [ApprovalCardApp::class]],
+                ];
+            }
+            $container->extension('mcp', ['servers' => $servers]);
             $services->set(PublishArticleTool::class)->autoconfigure();
         }
         if (null !== $this->translations) {
@@ -173,6 +183,6 @@ final class ReviewKernel extends Kernel
         $shared = getenv('VERIFIED_HUMAN_APPROVAL_TEST_CACHE');
         $root = \is_string($shared) && '' !== $shared ? $shared : sys_get_temp_dir().'/verified-human-approval-review-kernel';
 
-        return $root.'/review-kernel-'.hash('xxh128', serialize([$this->approval, $this->translations, $this->templates, $this->realTranslator, $this->tools, $this->services]));
+        return $root.'/review-kernel-'.hash('xxh128', serialize([$this->approval, $this->translations, $this->templates, $this->realTranslator, $this->tools, $this->services, $this->servers]));
     }
 }

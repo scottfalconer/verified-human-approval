@@ -6,6 +6,7 @@ namespace VerifiedHumanApproval\Tests\Bundle;
 
 use PHPUnit\Framework\TestCase;
 use Symfony\AI\McpBundle\Exception\LogicException;
+use Symfony\Component\DependencyInjection\Exception\LogicException as ContainerLogicException;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpFoundation\Request;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool;
@@ -98,28 +99,65 @@ final class McpToolsTest extends TestCase
         }
     }
 
-    /** @return list<string> the names of the tools the server lists */
-    private function tools(ReviewKernel $kernel): array
+    public function testWhileThePhoneCodeIsOnEachServerThatServesTheCardServesThePhoneTool(): void
     {
-        return array_column($this->call($kernel, null)['tools'] ?? [], 'name');
+        // On, as it is by default, and the server lists the status tool and the card but leaves the phone tool out.
+        self::assertSame(
+            'The MCP server "application" serves the approval card without '.ApprovalHandoffTool::class.', which the card calls for "Approve on your phone". List the tool under mcp.servers.application.registry.tools, or set verified_human_approval.phone_handoff to false.',
+            $this->refusal(new ReviewKernel($this->runtime, tools: [ApprovalStatusTool::class])),
+        );
+
+        // Beside a server that has it, the servers that do not are named.
+        $several = new ReviewKernel($this->runtime, tools: [ApprovalStatusTool::class, ApprovalHandoffTool::class], servers: [
+            'editors' => [ApprovalStatusTool::class], 'phones' => [ApprovalStatusTool::class, ApprovalHandoffTool::class], 'readers' => [ApprovalStatusTool::class],
+        ]);
+        self::assertSame(
+            'The MCP servers "editors", "readers" serve the approval card without '.ApprovalHandoffTool::class.', which the card calls for "Approve on your phone". List the tool under mcp.servers.editors.registry.tools, mcp.servers.readers.registry.tools, or set verified_human_approval.phone_handoff to false.',
+            $this->refusal($several),
+        );
+
+        // Listed beside the card on each, it is served by each.
+        $each = $this->kernel(servers: ['editors' => [ApprovalStatusTool::class, ApprovalHandoffTool::class]]);
+        self::assertContains(ApprovalHandoffTool::NAME, $this->tools($each, '/mcp/editors'));
+        self::assertSame(ApprovalHandoffTool::NAME, $this->card($each, '/mcp/editors')['handoffTool']);
+    }
+
+    /** Why the kernel's container does not build. */
+    private function refusal(ReviewKernel $kernel): string
+    {
+        try {
+            $kernel->boot();
+        } catch (ContainerLogicException $error) {
+            return $error->getMessage();
+        } finally {
+            $kernel->shutdown();
+        }
+        self::fail('The container built.');
+    }
+
+    /** @return list<string> the names of the tools the server at this path lists */
+    private function tools(ReviewKernel $kernel, string $path = '/mcp'): array
+    {
+        return array_column($this->send($kernel, 'tools/list', path: $path)['tools'] ?? [], 'name');
     }
 
     /**
-     * @param array<string, mixed>        $approval
-     * @param array<string, class-string> $services
+     * @param array<string, mixed>              $approval
+     * @param array<string, class-string>       $services
+     * @param array<string, list<class-string>> $servers
      */
-    private function kernel(array $approval = [], ?array $tools = null, array $services = []): ReviewKernel
+    private function kernel(array $approval = [], ?array $tools = null, array $services = [], array $servers = []): ReviewKernel
     {
-        $kernel = new ReviewKernel($this->runtime, $approval, tools: $tools ?? [ApprovalStatusTool::class, ApprovalHandoffTool::class], services: $services);
+        $kernel = new ReviewKernel($this->runtime, $approval, tools: $tools ?? [ApprovalStatusTool::class, ApprovalHandoffTool::class], services: $services, servers: $servers);
         $kernel->boot();
 
         return $this->kernels[] = $kernel;
     }
 
-    /** @return array<string, mixed> what the card the server serves is written for: its origin and its tools */
-    private function card(ReviewKernel $kernel): array
+    /** @return array<string, mixed> what the card the server at this path serves is written for: its origin and its tools */
+    private function card(ReviewKernel $kernel, string $path = '/mcp'): array
     {
-        $card = $this->send($kernel, 'resources/read', ['uri' => ApprovalCard::URI], ApprovalCard::URI)['contents'][0] ?? [];
+        $card = $this->send($kernel, 'resources/read', ['uri' => ApprovalCard::URI], ApprovalCard::URI, $path)['contents'][0] ?? [];
         self::assertSame(1, preg_match('#<script type="application/json" id="card-application">(.*?)</script>#', $card['text'] ?? '', $application));
 
         return json_decode($application[1], true, 512, \JSON_THROW_ON_ERROR);
@@ -140,17 +178,18 @@ final class McpToolsTest extends TestCase
     /**
      * @param array<string, mixed> $params
      * @param string|null          $name   what the request names, for its Mcp-Name header
+     * @param string               $path   the MCP server's endpoint
      *
      * @return array<string, mixed> the JSON-RPC result, or the error with the HTTP status under "http"
      */
-    private function send(ReviewKernel $kernel, string $method, array $params = [], ?string $name = null): array
+    private function send(ReviewKernel $kernel, string $method, array $params = [], ?string $name = null, string $path = '/mcp'): array
     {
         $params += ['_meta' => [
             'io.modelcontextprotocol/protocolVersion' => '2026-07-28',
             'io.modelcontextprotocol/clientCapabilities' => new \stdClass(),
             'io.modelcontextprotocol/clientInfo' => ['name' => 'mcp-tools-test', 'version' => '1.0'],
         ]];
-        $request = Request::create('https://app.example/mcp', 'POST', server: ['HTTPS' => 'on'], content: json_encode(['jsonrpc' => '2.0', 'id' => 1, 'method' => $method, 'params' => $params], \JSON_THROW_ON_ERROR));
+        $request = Request::create('https://app.example'.$path, 'POST', server: ['HTTPS' => 'on'], content: json_encode(['jsonrpc' => '2.0', 'id' => 1, 'method' => $method, 'params' => $params], \JSON_THROW_ON_ERROR));
         $request->headers->add(['Content-Type' => 'application/json', 'Accept' => 'application/json, text/event-stream', 'Mcp-Method' => $method, 'MCP-Protocol-Version' => '2026-07-28'] + (null === $name ? [] : ['Mcp-Name' => $name]));
         $response = $kernel->handle($request);
         ob_start();
