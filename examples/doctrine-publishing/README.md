@@ -92,7 +92,7 @@ Read it in this order. Everything is in `src/`, `config/` and `templates/`.
 | A batch is all or nothing | One article of a batch changes after the request: none is archived. Approved, all of them are, under one request id |
 | Delete removes only what was frozen | Only the named article disappears; a changed draft is not deleted; its approvals stay on record |
 | The tripwire | Changing live text, archiving, deleting or inserting a live article through the ORM, outside an approval: `approval_required`, nothing written; a draft still saves |
-| The tripwire's limit | A DQL `UPDATE` of an article's live text and a DQL `DELETE` of a live article, through the entity manager outside an approval: neither is refused, and the edited article no longer shows the badge |
+| The tripwire's limit | A DQL `UPDATE` of an article's live text and a DQL `DELETE` of a live article, through the entity manager outside an approval: neither is refused, and the edited article loses its badge |
 | The badge | Shown for approved live text; gone after a plain SQL edit of the live text, after archiving, and for an article put back live by SQL |
 | The locks | While an approval's checks are open, another connection cannot change the role, the connection or the article it read |
 | One path | The browser and the agent make the identical proposal; a retry with the same key returns the same request and publishes once; the agent reads the signed receipt; a reader's token, and a reader with a write scope by mistake, ask for nothing |
