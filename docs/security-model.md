@@ -8,9 +8,9 @@ One proposal can commit the protected effect at most once **within that transact
 
 The application code, action adapter, authorization provider, review page, credential enrollment process and evidence signing key are trusted components. The agent is an ordinary client with delegated access. Tool arguments do not select the authenticated user, add a passkey, change an approval rule or provide approval.
 
-`ExecutionGuard` gives the protected mutation service a capability to run only the exact prepared action for the exact actor. Approval and ordinary authorization are both required checks. Configure every supported route, CLI command and job to use that boundary. The optional Doctrine protected-entity listener also rejects unapproved unit-of-work writes; DQL bulk updates/deletes and raw SQL remain outside that listener and must stay behind the guarded service.
+`ExecutionGuard` gives the protected mutation service a capability to run only the exact prepared action for the exact actor. Approval and ordinary authorization are both required checks. Configure every supported route, CLI command and job to use that boundary. The optional Doctrine protected-entity listener also rejects unapproved unit-of-work writes to protected entities and fields. It does not catch DQL bulk updates and deletes, raw SQL, or a change inside an embedded object (`#[ORM\Embedded]`) marked `#[RequiresApproval]`; those must stay behind the guarded service.
 
-This is an application boundary, not a sandbox for someone who can change application code or write directly to its database. If a demonstration is meant to show independence from a coding agent, the running application, database and secrets must be outside that agent's write access.
+This is an application boundary, not a sandbox. Whoever can change the application's code, write directly to its database or read its signing key is inside the boundary, and so is an agent given that access, such as a coding agent that can edit the running application's files or database. An agent the approval is meant to hold back must reach the application only through its tools.
 
 ## Transaction boundary
 
@@ -18,7 +18,7 @@ The PDO implementation supports SQLite and uses `BEGIN IMMEDIATE`. The Doctrine 
 
 The initiating user and approving browser user must be the same account in the same tenant. Completion rechecks the original delegation's current permissions; the browser's broader privileges do not replace them. The adapter checks current resource versions before writing and checks the resulting business state before commit.
 
-Failures roll back the protected effect, credential updates, consumed approval and result together. The service retires a failed ceremony. If the commit outcome is uncertain, it checks persisted state before reporting success, failure or uncertainty. A caller should read the existing request's status rather than start a new action blindly.
+Failures roll back the protected effect, credential updates, consumed approval and result together. When the action fails after the passkey check, the service retires that ceremony, so trying again needs a fresh passkey assertion. A refused assertion leaves the ceremony as it was until it expires; the bundle's review page still needs a fresh one, because it ends the browser's pairing with a ceremony before completing it. If the commit outcome is uncertain, it checks persisted state before reporting success, failure or uncertainty. A caller should read the existing request's status rather than start a new action blindly.
 
 This transaction does not include remote HTTP or MCP calls, email, payments or nontransactional hooks. The supplied PDO and Doctrine adapters are covered by storage contracts. Another database adapter must preserve those contracts and pass the contention and rollback checks.
 
@@ -30,7 +30,7 @@ The WebAuthn challenge binds a fresh 32-byte nonce to the digest of the frozen p
 
 The browser review page displays the business proposal. The operating system's passkey prompt verifies access to the credential; it does not independently display or attest all business content. Approval establishes that the enrolled credential approved this proposal. It does not establish who wrote the content or whether a person understood it.
 
-The demo uses registration without attestation. It therefore does not establish that the credential lives in particular hardware or prevent a deliberately enrolled software authenticator. User verification also does not establish which biometric or device unlock method was used.
+The WebAuthn package registers passkeys without attestation: `WebAuthnVerifier` asks for none and accepts only the `none` attestation format, so no host can require attestation through it. Registration therefore does not establish that a credential lives in particular hardware, and does not prevent a deliberately enrolled software authenticator. User verification also does not establish which biometric or device unlock method was used.
 
 ## What must be frozen
 
@@ -58,12 +58,12 @@ Recorded times remain application claims, and an old assertion does not independ
 
 ## Signing keys and rotation
 
-Receipts and audit entries are checked against the application's trusted keys: every public key it has signed with, each with the window it signed in. A record names its key. A key the verifier was not given verifies nothing, and a record whose own time falls outside its key's window fails: a receipt's `recordedAt`, which it signs, or an entry's `at`. One current key signs new records. Rotating it adds the new key, closes the old key's window, and appends a `signing_key.rotated` entry, signed with the new key, so the chain records where trust moved. The audit log then refuses any later entry the old key signs, whatever time it claims. The bundle publishes the keys at `/approval/receipt-keys.json`, and gives the same keys to the approval service for its read check; the [evidence guide](evidence.md#rotate-the-signing-key) gives the procedure.
+Receipts and audit entries are checked against the application's trusted keys: every public key it has signed with, each with the window it signed in. A record names its key. A key the verifier was not given verifies nothing, and a record whose own time falls outside its key's window fails: a receipt's `recordedAt`, which it signs, or an entry's `at`. One current key signs new records. Rotating it adds the new key, closes the old key's window, and appends a `signing_key.rotated` entry, signed with the new key, so the chain records where trust moved. While that entry verifies, the audit log refuses any later entry the old key signs, whatever time it claims. The bundle publishes the keys at `/approval/receipt-keys.json`, and gives the same keys to the approval service for its read check; the [evidence guide](evidence.md#rotate-the-signing-key) gives the procedure.
 
 Rotation limits future exposure. It cannot stop someone who stole a key from backdating records into that key's window, because the times a record carries are the application's own claims:
 
 - **Receipts** are not in the chain, so a backdated receipt signed with a stolen key verifies. Only the key's window bounds it.
-- **Audit entries** must also fit the chain. Once a rotation is recorded, the old key cannot add an entry at its end. A backdated entry has to replace one from before the rotation, which breaks the chain at the next entry; `AuditLog::verify()`, which the audit page runs, reports it. `AuditLog::find()`, which passkey anchoring uses, counts an entry signed with a key whose window has closed only if a later entry signed with a key in use links back to it through the chain, so an entry replaced or inserted after the new key first signed anchors nothing.
+- **Audit entries** must also fit the chain. While the rotation entry verifies, the old key cannot add an entry at its end, and a backdated entry has to replace one from before the rotation, which breaks the chain at the next entry; `AuditLog::verify()`, which the audit page runs, reports it. `AuditLog::find()`, which passkey anchoring uses, counts an entry signed with a key whose window has closed only if a later entry signed with a key in use links back to it through the chain, so such a replaced entry anchors nothing. If the rotation entry itself is damaged, the log no longer treats the old key as rotated away: someone who holds that key and can write to the database can then append an entry, backdated into its window, that the application's next entry links to and so vouches for. `AuditLog::verify()` reports the damaged rotation entry.
 - **Cutting the chain back** to before the rotation and rewriting it from there is shown only by a checkpoint kept outside the application.
 
 So keep independent checkpoints of the audit head: its newest sequence and hash, where the application cannot write, on a schedule and after every rotation. `verified-human-approval:audit-head` prints one and checks a kept one; `AuditLog::head()` returns it without the bundle. If a key may have been exposed, follow the [compromise procedure](evidence.md#if-the-signing-key-is-compromised).
@@ -77,13 +77,13 @@ A token's scopes are checked where they are used: a tool decides with the valida
 The demo keeps bearer-authenticated MCP access separate from human sessions, enrollment and administration. Its account controls illustrate responsibilities a production host must implement:
 
 - A first approval passkey requires a one-time enrollment link and the owner's signed-in session. Setup issues initial links; an administrator needs fresh passkey confirmation to issue another.
-- Adding another passkey requires fresh confirmation with an existing passkey. A password alone cannot enroll an approval credential.
+- Adding another passkey requires the owner's signed-in session and either a fresh confirmation with one of their existing passkeys or a new one-time link from an administrator. A password alone cannot enroll an approval credential.
 - Passkey and agent-connection revocations are recorded and checked for subsequent use.
 - Changing who must approve is itself a passkey-approved action. Its approval rule is fixed in code, so an administrator cannot switch off approval of rule changes through that rule editor.
 
-The phone handoff code opens one request for one person, once, within two minutes. A Continue step avoids accidental redemption by link previewers. Redemption is locked; the scoped session can approve but cannot cancel or download the receipt. The tool that creates codes checks read scope and a rate budget. Its app-only visibility is a host convention, not authorization.
+The phone handoff code opens one request for one person, once, within two minutes. It is a pre-authenticated link: whoever redeems it first gets that one review. A Continue step avoids accidental redemption by link previewers. Redemption is locked; the scoped session can approve with the person's passkey but cannot cancel or download the receipt. The tool that creates codes checks read scope and a rate budget. Its app-only visibility is a host convention, not authorization.
 
-The demo's OAuth metadata fetch uses `NoPrivateNetworkHttpClient`, with bounded responses and a timeout, to reject private-network destinations and pin resolved addresses. Its OAuth server and personal tokens are reference implementations. A production host must connect its own identity and recovery processes.
+The demo fetches client ID metadata documents through `NoPrivateNetworkHttpClient`, with a size limit, a time limit and no redirects, so a client cannot make it reach a private network. Its OAuth integration (League's OAuth2 server bundle and the MCP OAuth bundle, with the demo's own storage and consent page) and its personal tokens are reference code. A production host connects its own identity provider and account recovery.
 
 ## Deployment responsibilities
 
