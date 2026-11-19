@@ -140,7 +140,8 @@ final class PdoApprovalTransactionTest extends TestCase
                 });
                 self::fail('A transaction that ended underneath was reported as committed when '.$how.'.');
             } catch (\Throwable $error) {
-                self::assertInstanceOf($fails ? \RuntimeException::class : \PDOException::class, $error, $how);
+                // The callback's own failure is the one reported; otherwise the store says its transaction ended.
+                self::assertInstanceOf($fails ? \RuntimeException::class : \LogicException::class, $error, $how);
             }
             self::assertFalse($pdo->inTransaction(), $how);
             self::assertSame('ran', $store->transaction(static fn (): string => 'ran'), 'The next transaction begins when '.$how.'.');

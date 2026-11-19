@@ -144,6 +144,14 @@ class SqliteStoreHarness extends StoreHarness
     {
         $this->action->failAfterWrite = 'after_write' === $how;
         $this->action->alterAfterWrite = 'postcondition' === $how;
+        $pdo = $this->pdo;
+        $this->action->afterPostconditions = match ($how) {
+            'commit' => static fn () => $pdo->commit(),
+            'roll_back' => static fn () => $pdo->rollBack(),
+            'begin_again' => static fn () => $pdo->rollBack() && $pdo->beginTransaction(),
+            'sql_roll_back' => static fn () => $pdo->exec('ROLLBACK'),
+            default => null,
+        };
     }
 
     public function attempt(string $change, int $milliseconds): bool

@@ -12,7 +12,9 @@ namespace VerifiedHumanApproval\Core;
  *
  * 1. Own the root transaction. transaction() refuses, with a LogicException, to start inside an unrelated
  *    transaction, and a normal return means the root transaction committed durably: not that the callback
- *    finished, and not that a nested savepoint was released. Writes outside it are refused the same way.
+ *    finished, and not that a nested savepoint was released. Writes outside it are refused the same way, and so
+ *    is every write once code on the connection has committed, rolled back or replaced it, or the database has
+ *    rolled it back after an error: such a write would commit on its own.
  * 2. Include every authoritative write. The protected business change, the credential update, the proof,
  *    the execution record, the ceremony changes and the receipt signed at commit share that one transaction.
  * 3. Serialize the writers that matter. The source state, permissions and grants the decision reads must be

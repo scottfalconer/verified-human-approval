@@ -134,6 +134,33 @@ abstract class DbalTransactionTestCase extends TestCase
         self::assertSame([1, 5], $this->notes(), 'The connection works afterwards.');
     }
 
+    public function testAWriteAfterTheRootEndedPastDbalIsRefused(): void
+    {
+        $native = $this->connection->getNativeConnection();
+        self::assertInstanceOf(\PDO::class, $native);
+        foreach ([
+            'committed it through the driver' => static fn () => $native->commit(),
+            'rolled it back through the driver' => static fn () => $native->rollBack(),
+            'rolled it back through the driver and began another' => static fn () => $native->rollBack() && $native->beginTransaction(),
+            'rolled it back in SQL' => fn () => $this->connection->executeStatement('ROLLBACK'),
+        ] as $what => $end) {
+            try {
+                $this->transaction->run(function () use ($end): void {
+                    $end();
+                    // DBAL still counts the root here, so only the approval transaction's own check can tell.
+                    self::assertTrue($this->transaction->isActive());
+                    $this->transaction->assertActive();
+                });
+                self::fail('A write was allowed after the callback '.$what.'.');
+            } catch (\LogicException $error) {
+                self::assertStringContainsString('before the approval finished', $error->getMessage(), $what);
+            }
+            self::assertFalse($this->connection->isTransactionActive(), 'Nothing is left open after it '.$what.'.');
+        }
+        $this->transaction->run(fn () => $this->note(1));
+        self::assertSame([1], $this->notes(), 'The connection works afterwards.');
+    }
+
     public function testAStatementThatFailedInsideItNeverReadsAsACommit(): void
     {
         try {

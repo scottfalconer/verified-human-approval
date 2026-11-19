@@ -71,7 +71,13 @@ abstract class StoreHarness
     /** @return array{revision: int, body: string, published: bool} the article as durably stored */
     abstract public function article(int $id = 1): array;
 
-    /** Makes the protected action fail after its write ('after_write'), or break its postcondition ('postcondition'); null mends it. */
+    /**
+     * Makes the protected action fail after its write ('after_write'), or break its postcondition ('postcondition'),
+     * or end the approval transaction itself once its postconditions hold, as code on the adapter's connection could
+     * without the adapter: commit it ('commit'), roll it back ('roll_back'), roll it back and begin another
+     * ('begin_again'), or roll it back in SQL ('sql_roll_back'), as some databases do by themselves after an error.
+     * Null mends it.
+     */
     abstract public function breakAction(?string $how): void;
 
     /**

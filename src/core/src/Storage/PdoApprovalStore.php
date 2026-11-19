@@ -16,6 +16,9 @@ use VerifiedHumanApproval\Core\UnreadableApproval;
 /** Reference SQLite adapter. All protected application writers must use this same connection. */
 final class PdoApprovalStore implements ApprovalStore, ApprovalHistory
 {
+    /** Marks the transaction this store began, so that a write after it ended is refused: see releaseRoot(). */
+    private const ROOT = 'verified_human_approval_root';
+
     private bool $active = false;
 
     public function __construct(private readonly \PDO $pdo)
@@ -78,7 +81,9 @@ final class PdoApprovalStore implements ApprovalStore, ApprovalHistory
             // A write that changes nothing takes the write reservation, as BEGIN IMMEDIATE would, before any
             // authority or precondition is read, and holds it until the transaction ends.
             $this->pdo->exec('UPDATE verified_human_approval_requests SET id = id WHERE 0');
+            $this->pdo->exec('SAVEPOINT '.self::ROOT);
             $result = $callback();
+            $this->releaseRoot();
             $this->pdo->commit();
 
             return $result;
@@ -278,6 +283,23 @@ final class PdoApprovalStore implements ApprovalStore, ApprovalHistory
     {
         if (!$this->active) {
             throw new \LogicException('Approval writes require the application transaction.');
+        }
+        $this->releaseRoot();
+        $this->pdo->exec('SAVEPOINT '.self::ROOT);
+    }
+
+    /**
+     * Releases the savepoint that marks this store's transaction, which fails once that transaction has ended:
+     * committed or rolled back by code on the connection, through PDO or in SQL, rolled back by SQLite itself after
+     * an error, or replaced by another. PDO before PHP 8.4 notices none of these done in SQL, and each write after
+     * them would commit on its own.
+     */
+    private function releaseRoot(): void
+    {
+        try {
+            $this->pdo->exec('RELEASE SAVEPOINT '.self::ROOT);
+        } catch (\PDOException $error) {
+            throw new \LogicException('The approval transaction was committed, rolled back or replaced before the approval finished, so nothing more is written in it.', 0, $error);
         }
     }
 }

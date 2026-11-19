@@ -24,7 +24,7 @@ use Doctrine\DBAL\Connections\PrimaryReadReplicaConnection;
  */
 final class DbalTransaction
 {
-    /** Marks the root transaction, so a root that was ended or replaced underneath is caught before commit. */
+    /** Marks the root transaction, so a root that was ended or replaced underneath is caught before a write and before commit. */
     private const ROOT = 'verified_human_approval_root';
 
     private const NESTED = 'The approval service must own the outermost database transaction, and one is already open on this connection. Do not call ApprovalService inside Connection::transactional(), EntityManager::wrapInTransaction() or a Messenger handler behind the doctrine_transaction middleware: call it outside that transaction, or from a handler without that middleware.';
@@ -101,7 +101,7 @@ final class DbalTransaction
             }
             // Fails if the root was rolled back and begun again, committed implicitly (MySQL commits on a schema
             // change), or aborted by a failed statement, which PostgreSQL would answer COMMIT with a silent rollback.
-            $this->connection->executeStatement('RELEASE SAVEPOINT '.self::ROOT);
+            $this->releaseRoot();
             $this->connection->commit();
             if ($this->connection->isTransactionActive() || $this->nativeTransactionActive()) {
                 throw new \LogicException('The approval root transaction did not finish.');
@@ -130,11 +130,21 @@ final class DbalTransaction
         return $this->active && $this->connection->isTransactionActive();
     }
 
-    /** Refuses a write outside the approval transaction. */
+    /**
+     * Refuses a write outside the approval transaction, including one after code on the connection ended or replaced
+     * the root past DBAL, through the driver or in SQL, or the database rolled it back by itself after an error. DBAL
+     * still counts the root then, and the write would commit on its own. At the root level, releasing the root's
+     * savepoint and setting it again shows whether the root is still open; inside a nested transaction, which that
+     * would end, DBAL's count is all there is, and the release before commit catches the rest.
+     */
     public function assertActive(): void
     {
         if (!$this->isActive()) {
             throw new \LogicException('Approval writes require the approval transaction (DbalTransaction::run()).');
+        }
+        if (1 === $this->connection->getTransactionNestingLevel()) {
+            $this->releaseRoot();
+            $this->connection->executeStatement('SAVEPOINT '.self::ROOT);
         }
     }
 
@@ -216,6 +226,16 @@ final class DbalTransaction
             } catch (\Throwable) {
                 // Nothing more can be done here; the original error is the one reported.
             }
+        }
+    }
+
+    /** Releases the savepoint that marks the root, which fails once the root is no longer the open transaction. */
+    private function releaseRoot(): void
+    {
+        try {
+            $this->connection->executeStatement('RELEASE SAVEPOINT '.self::ROOT);
+        } catch (\Throwable $error) {
+            throw new \LogicException('The approval transaction was committed, rolled back, replaced or aborted before the approval finished, so nothing more is written in it.', 0, $error);
         }
     }
 

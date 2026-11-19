@@ -150,6 +150,21 @@ abstract class DbalStoreHarness extends StoreHarness
     {
         $this->action->failAfterWrite = 'after_write' === $how;
         $this->action->alterAfterWrite = 'postcondition' === $how;
+        // Past DBAL, which still counts the transaction afterwards: through the driver's own connection, or in SQL.
+        $connection = $this->connection;
+        $native = static function () use ($connection): \PDO {
+            $pdo = $connection->getNativeConnection();
+            \assert($pdo instanceof \PDO);
+
+            return $pdo;
+        };
+        $this->action->afterPostconditions = match ($how) {
+            'commit' => static fn () => $native()->commit(),
+            'roll_back' => static fn () => $native()->rollBack(),
+            'begin_again' => static fn () => $native()->rollBack() && $native()->beginTransaction(),
+            'sql_roll_back' => static fn () => $connection->executeStatement('ROLLBACK'),
+            default => null,
+        };
     }
 
     public function attempt(string $change, int $milliseconds): bool

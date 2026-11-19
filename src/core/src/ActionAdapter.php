@@ -4,7 +4,11 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Core;
 
-/** All application mutation and final checks must share the ApprovalStore transaction. */
+/**
+ * All application mutation and final checks must share the ApprovalStore transaction, and never end it. An action
+ * that commits, rolls back or replaces that transaction gets no outcome recorded: the store refuses to write after
+ * it, so the approval reads as not executed, even where the action's own writes were committed.
+ */
 interface ActionAdapter
 {
     public function id(): string;

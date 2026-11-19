@@ -129,6 +129,69 @@ abstract class ApprovalStoreContract extends TestCase
         self::assertSame(['requests' => 1, 'effects' => 1, 'executions' => 1, 'receipts' => 1, 'credentialUses' => 1], $this->connect()->counts());
     }
 
+    /** @return iterable<string, array{'roll_back'|'begin_again'|'sql_roll_back'}> */
+    public static function transactionsTheActionRollsBack(): iterable
+    {
+        yield 'it rolls the transaction back' => ['roll_back'];
+        yield 'it rolls the transaction back and begins another' => ['begin_again'];
+        yield 'it rolls the transaction back in SQL' => ['sql_roll_back'];
+    }
+
+    /**
+     * An action that rolls the approval transaction back itself and returns as if it had succeeded leaves nothing to
+     * record: the store refuses every write after it, which would otherwise commit on its own or in a transaction
+     * that is not the approval's, so no outcome claims an effect that was undone.
+     *
+     * @param 'roll_back'|'begin_again'|'sql_roll_back' $how
+     */
+    #[DataProvider('transactionsTheActionRollsBack')]
+    public function testAnActionThatRollsTheTransactionBackGetsNothingRecorded(string $how): void
+    {
+        $harness = $this->connect();
+        [$request, $ceremony] = $this->pending($harness);
+        $harness->breakAction($how);
+        try {
+            $harness->service()->complete($harness->reviewer(), $ceremony->id, $harness->proof($ceremony));
+            self::fail('An approval whose action rolled its transaction back was reported as completed.');
+        } catch (ApprovalException $error) {
+            self::assertSame('execution_failed', $error->reason);
+            self::assertInstanceOf(\LogicException::class, $error->getPrevious(), 'The store refused to write outside its transaction.');
+        }
+
+        $observer = $this->connect();
+        self::assertSame(['requests' => 1, 'effects' => 0, 'executions' => 0, 'receipts' => 0, 'credentialUses' => 0], $observer->counts());
+        $stored = $observer->service()->get($harness->actor(), $request->request->id);
+        self::assertSame(['pending', null, null, null], [$stored->status, $stored->proof, $stored->execution, $stored->receipt]);
+
+        // The connection is left usable: once mended, a fresh ceremony completes the request, once.
+        $harness->breakAction(null);
+        $fresh = $harness->service()->begin($harness->reviewer(), $request->request->id);
+        self::assertSame('completed', $harness->service()->complete($harness->reviewer(), $fresh->id, $harness->proof($fresh))->status);
+        self::assertSame(['requests' => 1, 'effects' => 1, 'executions' => 1, 'receipts' => 1, 'credentialUses' => 1], $this->connect()->counts());
+    }
+
+    /**
+     * An action that commits the approval transaction itself takes its own write, and what came before it, out of
+     * the approval. The store records no outcome for it: no execution record, no receipt, no completed status.
+     */
+    public function testAnActionThatCommitsTheTransactionItselfGetsNoOutcomeRecorded(): void
+    {
+        $harness = $this->connect();
+        [$request, $ceremony] = $this->pending($harness);
+        $harness->breakAction('commit');
+        try {
+            $harness->service()->complete($harness->reviewer(), $ceremony->id, $harness->proof($ceremony));
+            self::fail('An approval whose action committed its transaction itself was reported as completed.');
+        } catch (ApprovalException $error) {
+            self::assertInstanceOf(\LogicException::class, $error->getPrevious(), 'The store refused to write outside its transaction.');
+        }
+
+        $observer = $this->connect();
+        self::assertSame(['requests' => 1, 'effects' => 1, 'executions' => 0, 'receipts' => 0, 'credentialUses' => 1], $observer->counts(), 'Only what the action committed itself is there.');
+        $stored = $observer->service()->get($harness->actor(), $request->request->id);
+        self::assertSame(['pending', null, null, null], [$stored->status, $stored->proof, $stored->execution, $stored->receipt]);
+    }
+
     public function testACommitWhoseAnswerWasLostIsRecoveredNotRepeated(): void
     {
         $harness = $this->connect();
