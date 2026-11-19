@@ -2,7 +2,7 @@
 
 An independent Symfony application that the tests use to check the Verified Human Approval packages from the outside. It is a small publishing desk. Editors save drafts freely; publishing, editing a live page, archiving and deleting each wait for the editor's passkey, whether the editor asks in the browser or through an agent over MCP. Its publisher role is exempt, and those changes are recorded as made without a passkey.
 
-It has its own `App` namespace, accounts, form login, bearer tokens for agents, workflow, entity and MCP tools, and it stores approvals with the bundle's Doctrine storage on SQLite. It loads no code from the demo or the publishing example: it installs the packages with Composer, as any other project would. It was first written against the packages at commit `c6a99c30`, which its `composer.json` records. Like the rest of this repository, it is MIT licensed.
+It has its own `App` namespace, accounts, form login, bearer tokens for agents, workflow, entity and MCP tools, and it stores approvals with the bundle's Doctrine storage on SQLite. It loads no code from the demo or the publishing example: it installs the packages with Composer, as any other project would. Its `composer.json` names the package commit it was written against (`c6a99c30`). Like the rest of this repository, it is MIT licensed.
 
 ## Run it
 
