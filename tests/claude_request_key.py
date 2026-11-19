@@ -4,7 +4,8 @@
 A request key is for a client that generates a unique id for each new request. Asked for "your own
 id for this request", Claude models built one from the alert, its revision and the date, and often
 built the same one in a later conversation, where it returns the earlier request and its outcome.
-The tools now describe the argument with ApprovalFlow::REQUEST_KEY_DESCRIPTION.
+The tools describe the argument with ApprovalFlow::REQUEST_KEY_DESCRIPTION, which says to leave it
+out unless the client generates such ids.
 
 This runs Claude Code in print mode against the demo's MCP endpoint over HTTP: a new conversation
 for each run, a plain system prompt, and a request that says nothing about arguments. It fails if

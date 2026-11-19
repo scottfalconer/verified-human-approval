@@ -3,7 +3,7 @@
 
 Runs Claude Code in the stream-json host mode the Claude desktop app uses, against the demo's
 MCP endpoint over HTTP. When the native prompt reaches the host, it approves on the review page
-in Chrome with a virtual passkey, then answers "accept" the way a person clicking "I'm done"
+in Chromium with a virtual passkey, then answers "accept" the way a person clicking "I'm done"
 would. The retried tool call must return the outcome the application recorded. One small model
 call; no physical biometrics.
 
