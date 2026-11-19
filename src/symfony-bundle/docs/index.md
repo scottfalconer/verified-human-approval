@@ -304,6 +304,10 @@ Give every action a clear `display.title`: what will change. Add `display.conseq
 
 The review pages can sit in your own layout and use your own wording without loosening the policy that protects them.
 
+### The stylesheet
+
+The base template always links the bundle's `approval.css`, and its rules are not scoped to the review sheet yet: besides its own classes, it styles bare elements such as `button`, `a`, `table`, `label`, `input` and `:root`. Inside your own layout they restyle your header and footer too. To keep them off your layout, replace `base.html.twig` instead of extending it, with the `title` and `body` blocks the pages fill and its `approval.js` script, and style the pages with your own stylesheet.
+
 ### The content security policy
 
 The bundle's routes, and any route of yours that sets `_verified_human_approval_headers`, get this policy, which replaces any set earlier for the response:
@@ -360,6 +364,8 @@ en: fr
 Keep placeholders such as `%agent%` as they are. The message `en` is the pages' language, used for their `lang` attribute: a translation gives its own language tag. Your application's catalogues take precedence over the bundle's, so `translations/VerifiedHumanApproval.en.yaml` rewords the English without overriding a template.
 
 `approval.js` takes its wording from the page: the review template renders the translated messages as JSON in `data-messages` on the passkey panel and on the return panel. Any message missing there stays in the script's own English. A page of your own that uses the script, such as passkey enrollment, can hand over its wording the same way, with the keys of `ENGLISH` in `approval.js`.
+
+Two parts are English only for now: the approval card, whose wording is in its own script, and the `message` of a refusal from the review pages' JSON routes, which `approval.js` shows as the site sent it. Each refusal also carries its `reason` code.
 
 Only a request an agent made mentions the agent. Set `agent_name` (default `your AI assistant`) to the name your people know it by, as in "You can close this tab and return to Claude". When the card's host names itself Claude in its answer to `ui/initialize`, the approval card adds `#return=` to the review link it opens: with `claude-desktop` or `claude-mobile`, the finished page also offers a button that opens the `claude://` app link; with `claude-web`, one that closes the tab. In any other host the card adds `#return=agent`, and the page keeps that line.
 
