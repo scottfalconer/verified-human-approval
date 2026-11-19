@@ -1,43 +1,68 @@
 #!/bin/sh
 # Runs the demo site under launchd on macOS, so it keeps running after the terminal that started it
 # closes. Usage: server start | stop | restart | status
-# PORT (default 8080) and VERIFIED_HUMAN_APPROVAL_RUNTIME (default var/demo) select another copy, such as the public one.
+# VERIFIED_HUMAN_APPROVAL_RUNTIME (default var/demo) selects another copy, such as the public one. The site answers
+# only at the address it was set up for: one set up for http://localhost:<port> is served on that port, and one set
+# up for an https address, which a proxy or tunnel forwards here, on localhost at PORT (default 8080).
 set -eu
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 PHP=${PHP_BIN:-$(command -v php)}
-PORT=${PORT:-8080}
+COMMAND=${1:-status}
+case "$COMMAND" in
+  start | stop | restart | status) ;;
+  *) echo "Usage: $0 start | stop | restart | status"; exit 2 ;;
+esac
 RUNTIME=${VERIFIED_HUMAN_APPROVAL_RUNTIME:-$ROOT/var/demo}
+SETUP="php demo/bin/setup.php"
+[ -z "${VERIFIED_HUMAN_APPROVAL_RUNTIME:-}" ] || SETUP="VERIFIED_HUMAN_APPROVAL_RUNTIME='$RUNTIME' $SETUP"
+# The origin the runtime was set up for, read from its settings.json as setup.php and the demo kernel read it.
+ORIGIN=$("$PHP" -r '$s = json_decode((string) @file_get_contents($argv[1]), true); echo is_array($s) && is_string($s["origin"] ?? null) ? $s["origin"] : "";' "$RUNTIME/settings.json")
+case "$ORIGIN" in
+  http://localhost) OWN_PORT=80 ;;
+  http://localhost:*) OWN_PORT=${ORIGIN#http://localhost:} ;;
+  *) OWN_PORT= ;;
+esac
+if [ -n "$OWN_PORT" ] && [ "${PORT:-$OWN_PORT}" != "$OWN_PORT" ]; then
+  echo "This demo was set up for $ORIGIN, so it is served on port $OWN_PORT. Leave PORT out: $0 $COMMAND"
+  echo "To serve it on port $PORT, set it up for that address first, which replaces its accounts and passkeys:"
+  echo "  VERIFIED_HUMAN_APPROVAL_ORIGIN=http://localhost:$PORT $SETUP --reset"
+  exit 1
+fi
+PORT=${OWN_PORT:-${PORT:-8080}}
 LABEL=dev.verified-human-approval.demo.$PORT
 LOG="$ROOT/var/demo-server-$PORT.log"
 
-running() { lsof -nP -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1; }
+running() { lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; }
+# The local address, and for a demo behind a proxy or tunnel, the one people open.
+site() { if [ -z "$OWN_PORT" ] && [ -n "$ORIGIN" ]; then echo "http://localhost:$PORT for $ORIGIN"; else echo "http://localhost:$PORT"; fi; }
 
 start() {
-  if running; then echo "Already serving http://localhost:$PORT"; return 0; fi
+  [ -n "$ORIGIN" ] || { echo "No demo is set up in $RUNTIME. Set one up first: $SETUP"; exit 1; }
+  if running; then echo "Already serving $(site)"; return 0; fi
   mkdir -p "$ROOT/var"
   # The demo kernel runs without debug, so compiled container and template caches are rebuilt on each start; code changes take effect.
   rm -rf "$RUNTIME/cache"
   VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" "$PHP" "$ROOT/demo/bin/console" assets:install "$ROOT/demo/public" --symlink --relative >/dev/null
-  launchctl submit -l "$LABEL" -o "$LOG" -e "$LOG" -- /usr/bin/env PHP_CLI_SERVER_WORKERS=4 VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" "$PHP" -S localhost:$PORT -t "$ROOT/demo/public" "$ROOT/demo/public/index.php"
+  launchctl submit -l "$LABEL" -o "$LOG" -e "$LOG" -- /usr/bin/env PHP_CLI_SERVER_WORKERS=4 VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" "$PHP" -S "localhost:$PORT" -t "$ROOT/demo/public" "$ROOT/demo/public/index.php"
   i=0
   while [ $i -lt 40 ]; do running && break; sleep 0.25; i=$((i + 1)); done
-  if running; then echo "Serving http://localhost:$PORT (log: $LOG)"; else echo "It did not start; see $LOG"; exit 1; fi
+  if running; then echo "Serving $(site) (log: $LOG)"; else echo "It did not start; see $LOG"; exit 1; fi
 }
 
 stop() {
   launchctl remove "$LABEL" 2>/dev/null || true
   [ "$PORT" = 8080 ] && launchctl remove dev.verified-human-approval.demo 2>/dev/null || true
-  # Also stops a server started by hand, including worker processes left behind.
-  pkill -f "php -S localhost:$PORT" 2>/dev/null || true
+  # Also stops a server started by hand, including worker processes left behind. The space ends the port, so port 80
+  # does not match 8080.
+  pkill -f "php -S localhost:$PORT " 2>/dev/null || true
   i=0
   while [ $i -lt 20 ]; do running || break; sleep 0.25; i=$((i + 1)); done
   if running; then echo "Port $PORT is still in use"; exit 1; else echo "Stopped"; fi
 }
 
-case "${1:-status}" in
+case "$COMMAND" in
   start) start ;;
   stop) stop ;;
   restart) stop; start ;;
-  status) if running; then echo "Serving http://localhost:$PORT"; else echo "Not running"; fi ;;
-  *) echo "Usage: $0 start | stop | restart | status"; exit 2 ;;
+  status) if running; then echo "Serving $(site)"; else echo "Not running"; fi ;;
 esac

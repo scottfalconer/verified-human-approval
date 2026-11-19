@@ -71,7 +71,7 @@ case "${1:-status}" in
       *) echo "$USAGE"; exit 2 ;;
     esac ;;
   stop) stop ;;
-  status) echo "Tunnel: $(tunnel_url)"; PORT=$PORT "$SERVER" status ;;
+  status) echo "Tunnel: $(tunnel_url)"; PORT=$PORT VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" "$SERVER" status ;;
   all-clear) VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" php "$ROOT/demo/bin/console" demo:all-clear ;;
   reset)
     ORIGIN=$(demo_origin)
