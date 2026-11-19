@@ -422,7 +422,7 @@ final class OAuthTest extends TestCase
     }
 
     #[DataProvider('redirectUrisNamedOrLeftOut')]
-    public function testDontAllowForAClientThatChoseItsOwnReturnAddressEndsOnThisSite(?string $redirectUri): void
+    public function testDontAllowForAClientThatRegisteredItselfAndReturnsToAnotherComputerEndsOnThisSite(?string $redirectUri): void
     {
         // RFC 9700 §4.11.2: anyone can register a client that returns to a site of their own. A person who refuses
         // it, because something looks wrong, must not be sent there all the same.
