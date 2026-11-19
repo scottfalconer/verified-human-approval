@@ -45,7 +45,7 @@ final readonly class ApprovalController
         private ?EvidenceExporter $receipts = null,
         private ?ReceiptKey $receiptKey = null,
         // What the pages call the agent's app when they send the person back to it.
-        private string $agentName = 'Claude',
+        private string $agentName = 'your AI assistant',
     ) {
     }
 

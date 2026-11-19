@@ -143,7 +143,7 @@ for (const reject of [false, true]) {
 
 // The finished page's way back, as approval.js sets it from the fragment the approval card added.
 function returnPage(hash) {
-    const hint = {textContent: 'You can close this tab and return to Claude.'};
+    const hint = {textContent: 'You can close this tab and return to your AI assistant.'};
     const app = {hidden: true}, tab = {hidden: true, handlers: {}, addEventListener(name, handler) { this.handlers[name] = handler; }};
     const panel = {hidden: true, dataset: {messages: '{}'}, querySelector: selector => ({'[data-return-app]': app, '[data-return-tab]': tab})[selector] ?? null};
     const context = vm.createContext({
@@ -164,12 +164,14 @@ test('the way back opens Claude only for the card in Claude, and any other host 
     const web = returnPage('#return=claude-web');
     assert.equal(web.tab.hidden, false);
     assert.equal(web.app.hidden, true);
+    assert.equal(web.hint.textContent, 'Switch back to your Claude tab to see the result.');
+    assert.equal(returnPage('#return=handoff').hint.textContent, 'Done. Return to your AI assistant on your computer to see the result.');
     for (const hash of ['#return=agent', '', '#return=something-else']) {
         const page = returnPage(hash);
         assert.equal(page.panel.hidden, true, hash);
         assert.equal(page.app.hidden, true, hash);
         assert.equal(page.tab.hidden, true, hash);
-        assert.equal(page.hint.textContent, 'You can close this tab and return to Claude.', hash);
+        assert.equal(page.hint.textContent, 'You can close this tab and return to your AI assistant.', hash);
     }
 });
 

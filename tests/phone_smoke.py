@@ -175,7 +175,7 @@ def main():
                 phone.goto(f"{ORIGIN}/approval/{request_id}#return=handoff")
                 phone.locator("[data-approve]").click()
                 expect(phone.locator(".notice")).to_contain_text("completed", timeout=15000)
-                expect(phone.locator("[data-return-hint]")).to_contain_text("Claude on your computer")
+                expect(phone.locator("[data-return-hint]")).to_contain_text("on your computer to see the result")
                 if SHOTS:
                     phone.screenshot(path=str(SHOTS / "phone-2-approved.png"))
                 assert row()["mutation_count"] == 1 and row()["published_revision"] == 1

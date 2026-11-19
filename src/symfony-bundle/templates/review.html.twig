@@ -26,9 +26,9 @@
             {% if return_path %}<div class="actions sheet-back"><a class="button" href="{{ return_path }}">{{ 'Back to %application%'|trans({'%application%': application}) }}</a></div>{% endif %}
             {% if agent %}
             <div class="actions" data-return hidden data-messages="{{ {
-                returnApp: 'Claude already shows the result. This tab can be closed.'|trans,
-                returnHandoff: 'Done. %agent% on your computer already shows the result.'|trans({'%agent%': agent_name}),
-                returnTab: 'Switch back to your Claude tab: it already shows the result.'|trans,
+                returnApp: 'Return to Claude to see the result. You can close this tab.'|trans,
+                returnHandoff: 'Done. Return to %agent% on your computer to see the result.'|trans({'%agent%': agent_name}),
+                returnTab: 'Switch back to your Claude tab to see the result.'|trans,
             }|json_encode }}">
                 {# These answer the approval card in Claude, which asks for them with #return=claude-…: they open Claude, so
                    they say Claude whatever agent_name is. The visible wording below uses agent_name. #}
