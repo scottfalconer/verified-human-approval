@@ -16,16 +16,27 @@ use VerifiedHumanApproval\Core\UnreadableApproval;
 /** Reference SQLite adapter. All protected application writers must use this same connection. */
 final class PdoApprovalStore implements ApprovalStore, ApprovalHistory
 {
+    /** Marks the transaction this store began, so that a write after it ended is refused: see releaseRoot(). */
+    private const ROOT = 'verified_human_approval_root';
+
+    private const THROWS = 'This adapter needs a connection that throws on errors: set PDO::ATTR_ERRMODE to PDO::ERRMODE_EXCEPTION.';
+
     private bool $active = false;
 
+    /**
+     * Works on the application's connection as it is, and changes none of its settings. One that does not throw on
+     * errors (PDO::ERRMODE_EXCEPTION, PHP's default) is refused, here and at each transaction and write: a write that
+     * failed quietly could be taken for one that happened. How long an approval waits for another writer is the
+     * connection's busy timeout (PDO::ATTR_TIMEOUT, 60 seconds unless set).
+     */
     public function __construct(private readonly \PDO $pdo)
     {
         if ('sqlite' !== $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME)) {
             throw new \InvalidArgumentException('This reference adapter supports SQLite only; supply another transactional adapter for other databases.');
         }
-        $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
-        $pdo->exec('PRAGMA foreign_keys = ON');
-        $pdo->exec('PRAGMA busy_timeout = 10000');
+        if (!$this->throwsOnErrors()) {
+            throw new \InvalidArgumentException(self::THROWS);
+        }
     }
 
     public function initialize(): void
@@ -67,6 +78,9 @@ final class PdoApprovalStore implements ApprovalStore, ApprovalHistory
         if ($this->active || $this->pdo->inTransaction()) {
             throw new \LogicException($nested);
         }
+        if (!$this->throwsOnErrors()) {
+            throw new \LogicException(self::THROWS);
+        }
         try {
             $this->pdo->beginTransaction();
         } catch (\PDOException $error) {
@@ -78,7 +92,9 @@ final class PdoApprovalStore implements ApprovalStore, ApprovalHistory
             // A write that changes nothing takes the write reservation, as BEGIN IMMEDIATE would, before any
             // authority or precondition is read, and holds it until the transaction ends.
             $this->pdo->exec('UPDATE verified_human_approval_requests SET id = id WHERE 0');
+            $this->pdo->exec('SAVEPOINT '.self::ROOT);
             $result = $callback();
+            $this->releaseRoot();
             $this->pdo->commit();
 
             return $result;
@@ -265,7 +281,7 @@ final class PdoApprovalStore implements ApprovalStore, ApprovalHistory
         $statement->execute([$id]);
         $row = $statement->fetch(\PDO::FETCH_ASSOC);
 
-        return false === $row ? null : new Ceremony($row['id'], $row['request_id'], $row['nonce'], $row['challenge'], $row['expires_at'], CanonicalJson::map(CanonicalJson::decode($row['options'])), (bool) $row['consumed']);
+        return false === $row ? null : Ceremony::fromStorage((string) $row['id'], (string) $row['request_id'], (string) $row['nonce'], (string) $row['challenge'], (string) $row['expires_at'], (string) $row['options'], (bool) $row['consumed']);
     }
 
     public function retireCeremony(string $id): void
@@ -278,6 +294,32 @@ final class PdoApprovalStore implements ApprovalStore, ApprovalHistory
     {
         if (!$this->active) {
             throw new \LogicException('Approval writes require the application transaction.');
+        }
+        $this->releaseRoot();
+        $this->pdo->exec('SAVEPOINT '.self::ROOT);
+    }
+
+    private function throwsOnErrors(): bool
+    {
+        return \PDO::ERRMODE_EXCEPTION === $this->pdo->getAttribute(\PDO::ATTR_ERRMODE);
+    }
+
+    /**
+     * Releases the savepoint that marks this store's transaction, which fails once that transaction has ended:
+     * committed or rolled back by code on the connection, through PDO or in SQL, rolled back by SQLite itself after
+     * an error, or replaced by another. PDO before PHP 8.4 notices none of these done in SQL, and each write after
+     * them would commit on its own.
+     */
+    private function releaseRoot(): void
+    {
+        // Code on the connection can switch it to quiet errors at any time, and the release would then fail unseen.
+        if (!$this->throwsOnErrors()) {
+            throw new \LogicException(self::THROWS);
+        }
+        try {
+            $this->pdo->exec('RELEASE SAVEPOINT '.self::ROOT);
+        } catch (\PDOException $error) {
+            throw new \LogicException('The approval transaction was committed, rolled back or replaced before the approval finished, so nothing more is written in it.', 0, $error);
         }
     }
 }

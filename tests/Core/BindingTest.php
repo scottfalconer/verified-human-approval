@@ -149,6 +149,16 @@ final class BindingTest extends TestCase
         yield 'a number for the statement' => [static fn (array $payload): array => ['statement' => 5] + $payload];
         yield 'an expiry that is not a time' => [static fn (array $payload): array => ['expiresAt' => 'soon'] + $payload];
         yield 'no policy digest' => [static fn (array $payload): array => array_diff_key($payload, ['policyDigest' => true])];
+        // A key taken out of the actor or the action fails the same way, without a warning on the way.
+        foreach (['actor' => ['userId', 'tenantId', 'delegationId'], 'action' => ['actionId', 'version', 'target', 'effect', 'placeholders']] as $part => $keys) {
+            foreach ($keys as $key) {
+                yield 'no '.$key.' in the '.$part => [static function (array $payload) use ($part, $key): array {
+                    unset($payload[$part]->{$key});
+
+                    return $payload;
+                }];
+            }
+        }
     }
 
     /**

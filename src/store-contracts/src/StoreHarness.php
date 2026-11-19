@@ -71,7 +71,15 @@ abstract class StoreHarness
     /** @return array{revision: int, body: string, published: bool} the article as durably stored */
     abstract public function article(int $id = 1): array;
 
-    /** Makes the protected action fail after its write ('after_write'), or break its postcondition ('postcondition'); null mends it. */
+    /**
+     * Makes the protected action fail after its write ('after_write'), or break its postcondition ('postcondition'),
+     * or end the approval transaction itself once its postconditions hold, as code on the adapter's connection could
+     * without the adapter: commit it ('commit'), roll it back ('roll_back'), roll it back and begin another
+     * ('begin_again'), roll it back in SQL ('sql_roll_back'), as some databases do by themselves after an error, or
+     * roll it back from inside a nested transaction of the action's own, a savepoint, and carry on as if that
+     * best-effort work had merely failed ('nested_roll_back'), which can leave the adapter counting it as open.
+     * Null mends it.
+     */
     abstract public function breakAction(?string $how): void;
 
     /**
@@ -91,6 +99,14 @@ abstract class StoreHarness
      * @param \Closure(string): string $edit
      */
     abstract public function editRecord(string $requestId, string $part, \Closure $edit): void;
+
+    /**
+     * Rewrites one stored part of a passkey ceremony from a connection of its own, as editRecord() does for a
+     * request: its 'options', its 'nonce' or its expiry ('expires_at').
+     *
+     * @param \Closure(string): string $edit
+     */
+    abstract public function editCeremony(string $ceremonyId, string $part, \Closure $edit): void;
 
     /** Makes the next insert of an execution record or a receipt fail inside the storage itself. */
     abstract public function failInserts(string $what): void;

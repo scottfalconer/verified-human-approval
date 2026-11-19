@@ -143,7 +143,7 @@ final readonly class DbalApprovalStore implements ApprovalStore, ApprovalHistory
             return null;
         }
 
-        return new Ceremony((string) $row['id'], (string) $row['request_id'], (string) $row['nonce'], (string) $row['challenge'], (string) $row['expires_at'], CanonicalJson::map(CanonicalJson::decode((string) $row['options'])), (bool) (int) $row['consumed']);
+        return Ceremony::fromStorage((string) $row['id'], (string) $row['request_id'], (string) $row['nonce'], (string) $row['challenge'], (string) $row['expires_at'], (string) $row['options'], (bool) (int) $row['consumed']);
     }
 
     public function retireCeremony(string $id): void

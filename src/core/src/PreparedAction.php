@@ -44,9 +44,19 @@ final readonly class PreparedAction
         ];
     }
 
-    /** @param array<string, mixed> $data */
+    /**
+     * The action as toArray() wrote it, every key present.
+     *
+     * @param array<string, mixed> $data
+     *
+     * @throws \UnexpectedValueException when the data is not a prepared action's
+     */
     public static function fromArray(array $data): self
     {
-        return new self($data['actionId'], $data['version'], CanonicalJson::map($data['target']), CanonicalJson::map($data['effect']), CanonicalJson::map($data['preconditions']), CanonicalJson::map($data['display']), CanonicalJson::map($data['placeholders']));
+        if (!\is_string($data['actionId'] ?? null) || !\is_string($data['version'] ?? null)) {
+            throw new \UnexpectedValueException('A prepared action needs an action id and a version, as strings.');
+        }
+
+        return new self($data['actionId'], $data['version'], CanonicalJson::map($data['target'] ?? null), CanonicalJson::map($data['effect'] ?? null), CanonicalJson::map($data['preconditions'] ?? null), CanonicalJson::map($data['display'] ?? null), CanonicalJson::map($data['placeholders'] ?? null));
     }
 }

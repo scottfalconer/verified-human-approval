@@ -36,10 +36,23 @@ use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
  * from a key being retired (find()), is read from the whole chain, since an edited index or storage class can
  * hide a row from a lookup.
  *
+ * So the checks grow with the chain. A reading fetches every row and checks the signatures of the entries it reads,
+ * which is most of the cost. find() reads the chain only for an entry signed with a key that has an end, and
+ * standing() reads it once however many subjects it weighs. A log remembers up to 50,000 signatures that verified,
+ * the first it checks, and does not check those again, so its later readings, later in a request or in a
+ * long-running worker, cost a fraction of the first; in a longer chain, the entries beyond those are checked at each
+ * reading. A passkey's standing is read from its enrollment on, or from the first entry once an entry since is signed
+ * with a key that has an end, as after a rotation: an approval step in a request of its own reads the chain once, for
+ * all of the person's passkeys, and checks every signature in that stretch once. The chain grows with what is
+ * recorded here, passkeys enrolled and revoked, rotations and the host's own events, and never with approvals.
+ *
  * @phpstan-import-type AuditHead from AuditStore
  * @phpstan-import-type AuditRecord from AuditStore
+ *
+ * @phpstan-type Judgement array{row: AuditRecord, entry: ?array<string, mixed>, problem: ?string, fault: ?string, inUse: bool}
+ * @phpstan-type AuditReport array{entries: list<array{entry: ?array<string, mixed>, seq: int, valid: bool, problem: ?string, keyId: string, hash: string, unvouched: bool}>, intact: bool, newest: int}
  */
-final readonly class AuditLog
+final class AuditLog
 {
     public const FORMAT = 'verified-human-approval/audit/v1';
     /**
@@ -50,15 +63,21 @@ final readonly class AuditLog
     /** The tenant of an entry about the whole application, such as a key rotation: it concerns every tenant. */
     public const ALL_TENANTS = '';
 
+    /** How many verified signatures signed() remembers at most, which bounds its memory in a long-running worker. */
+    private const REMEMBERED = 50000;
+
+    /** @var array<string, true> the signatures that verified, by a digest of the key id, entry hash and signature */
+    private array $verified = [];
+
     /**
      * @param TrustedKeys $keys the keys that check entries, the signer's among them: for its key alone, without a
      *                          window, TrustedKeys::single($signer->keyId(), $signer->publicKey())
      */
     public function __construct(
-        private AuditStore $store,
-        private EvidenceSigner $signer,
-        private TrustedKeys $keys,
-        private ClockInterface $clock,
+        private readonly AuditStore $store,
+        private readonly EvidenceSigner $signer,
+        private readonly TrustedKeys $keys,
+        private readonly ClockInterface $clock,
     ) {
     }
 
@@ -151,25 +170,55 @@ final readonly class AuditLog
      */
     public function find(string $type, string $subject): ?array
     {
-        $now = $this->clock->now();
-        $verified = null;
-        // A damaged newer entry is passed over, never trusted; an older one that verifies is returned.
-        foreach ($this->store->recordsFor($type, $subject) as $row) {
-            ['entry' => $entry, 'problem' => $problem] = $this->check($row);
-            if (null === $entry || null !== $problem || $this->signedAfterRotation($row['key_id'], (int) $row['seq'])) {
-                continue;
-            }
-            if ($this->open($row['key_id'], $now)) {
+        $accepted = null;
+        foreach ($this->candidates($type, $subject) as [$row, $entry, $open]) {
+            if ($open) {
                 return $entry;
             }
-            // Each stored hash is the hash of its entry, which names its sequence: equal hashes are the same entry.
-            $verified ??= array_column(array_filter($this->verify()['entries'], static fn (array $item): bool => $item['valid']), 'seq', 'hash');
-            if (isset($verified[$row['hash']])) {
+            $accepted ??= self::accepted($this->verify());
+            if (isset($accepted[$row['hash']])) {
                 return $entry;
             }
         }
 
         return null;
+    }
+
+    /**
+     * For each of the subjects, the entry of $type that find() returns, while unrecorded() rules out an entry of
+     * $undoneBy for that subject since that entry: a passkey's enrollment that no revocation has undone, say. One
+     * reading of the chain answers for every subject, so weighing several costs about what weighing one does.
+     *
+     * @param list<string> $subjects
+     *
+     * @return array<string, array<string, mixed>> the entries that stand, by subject, in the order of $subjects
+     */
+    public function standing(string $type, array $subjects, string $undoneBy): array
+    {
+        $rows = null;
+        $judged = null;
+        $accepted = null;
+        $found = [];
+        $since = [];
+        foreach ($subjects as $subject) {
+            foreach ($this->candidates($type, $subject) as [$row, $entry, $open]) {
+                // Read and judged once, when the first entry needs it, the chain answers for every later one too.
+                if (!$open && null === $accepted) {
+                    $judged = $this->judged($rows = $this->rows());
+                    $accepted = self::accepted($this->report($judged));
+                }
+                if ($open || isset($accepted[$row['hash']])) {
+                    $found[$subject] = $entry;
+                    $since[$subject] = (int) $row['seq'];
+                    break;
+                }
+            }
+        }
+        if ([] === $since) {
+            return [];
+        }
+
+        return array_intersect_key($found, array_flip($this->ruledOut($undoneBy, $since, $rows ?? $this->rows(), $judged)));
     }
 
     /**
@@ -188,63 +237,7 @@ final readonly class AuditLog
      */
     public function unrecorded(string $type, array $since): array
     {
-        if ([] === $since) {
-            return [];
-        }
-        $from = min($since);
-        $now = $this->clock->now();
-        $rows = [];
-        // The keys a row's columns say were rotated away from: a rotation counts only once its row matches what was
-        // signed, columns included.
-        $rotated = [];
-        foreach ($this->store->records() as $row) {
-            $rows[] = $row;
-            if (self::KEY_ROTATED === $row['type']) {
-                $rotated[$row['subject']] = true;
-            }
-        }
-        // The chain before $from changes the verdict on a later entry only through rotations and damage, which count
-        // against a key that has an end, is not in use or was rotated away from. While every entry since is signed
-        // with some other key, what came before need not be checked.
-        $start = $from;
-        foreach ($rows as $row) {
-            if ((int) $row['seq'] >= $from && (!$this->open($row['key_id'], $now) || isset($rotated[$row['key_id']]))) {
-                $start = 1;
-                break;
-            }
-        }
-        // Each type and subject a row names, in its columns or in its entry, whether that verifies or not; and from
-        // $from on, the newest entry with something wrong apart from how it follows the one before it, and the
-        // newest the log refuses for any reason.
-        $named = [];
-        $newest = 0;
-        $faulty = 0;
-        $refused = 0;
-        foreach ($this->judged($rows, $start) as $item) {
-            $row = $item['row'];
-            $seq = (int) $row['seq'];
-            $named[$row['type']][$row['subject']] = true;
-            $read = $item['entry'] ?? self::read($row['entry']);
-            if (\is_string($read['type'] ?? null) && \is_string($read['subject'] ?? null)) {
-                $named[$read['type']][$read['subject']] = true;
-            }
-            $newest = max($newest, $seq);
-            if ($seq >= $from && null !== $item['fault']) {
-                $faulty = max($faulty, $seq);
-            }
-            if ($seq >= $from && null !== $item['problem']) {
-                $refused = max($refused, $seq);
-            }
-        }
-        $ruledOut = [];
-        foreach ($since as $subject => $at) {
-            // How a subject's own entry follows the one before it is not in question, only what follows it.
-            if (!isset($named[$type][$subject]) && $at <= $newest && $faulty < $at && $refused <= $at) {
-                $ruledOut[] = (string) $subject;
-            }
-        }
-
-        return $ruledOut;
+        return [] === $since ? [] : $this->ruledOut($type, $since, $this->rows());
     }
 
     /**
@@ -258,29 +251,7 @@ final readonly class AuditLog
      */
     public function verify(): array
     {
-        $checked = $this->judged($this->store->records());
-
-        // From the newest back: whether a later entry signed with a key in use vouches for each entry, which
-        // find() requires of one whose key's window has closed. Only entries the log accepts carry that back: one
-        // it refuses could belong to a rewrite, and cuts everything before it off from what comes later.
-        $unvouched = [];
-        $vouched = false;
-        for ($position = \count($checked) - 1; $position >= 0; --$position) {
-            $item = $checked[$position];
-            if (null === $item['problem'] && !$item['inUse'] && !$vouched) {
-                $unvouched[$position] = true;
-            }
-            $vouched = null === $item['problem'] && ($item['inUse'] || $vouched);
-        }
-        $entries = [];
-        foreach ($checked as $position => $item) {
-            $problem = isset($unvouched[$position])
-                ? \sprintf('it is signed with key "%s", whose window has closed, and no later entry signed with a key in use vouches for it', $item['row']['key_id'])
-                : $item['problem'];
-            $entries[] = ['entry' => $item['entry'], 'seq' => (int) $item['row']['seq'], 'valid' => null === $problem, 'problem' => $problem, 'keyId' => $item['row']['key_id'], 'hash' => $item['row']['hash'], 'unvouched' => isset($unvouched[$position])];
-        }
-
-        return ['entries' => $entries, 'intact' => [] === array_filter($entries, static fn (array $item): bool => !$item['valid']), 'newest' => [] === $entries ? 0 : $entries[\count($entries) - 1]['seq']];
+        return $this->report($this->judged($this->store->records()));
     }
 
     /**
@@ -362,6 +333,151 @@ final readonly class AuditLog
     }
 
     /**
+     * The rows of $type for $subject, newest first, whose entries verify and do not follow the rotation away from
+     * their key, each with its entry and whether its key is open: what such a key signed counts on its own, and
+     * anything else only once verify() accepts it. A damaged newer entry is passed over, never trusted.
+     *
+     * @return \Generator<int, array{AuditRecord, array<string, mixed>, bool}>
+     */
+    private function candidates(string $type, string $subject): \Generator
+    {
+        $now = $this->clock->now();
+        foreach ($this->store->recordsFor($type, $subject) as $row) {
+            ['entry' => $entry, 'problem' => $problem] = $this->check($row);
+            if (null !== $entry && null === $problem && !$this->signedAfterRotation($row['key_id'], (int) $row['seq'])) {
+                yield [$row, $entry, $this->open($row['key_id'], $now)];
+            }
+        }
+    }
+
+    /** @return list<AuditRecord> the whole chain, oldest first */
+    private function rows(): array
+    {
+        return iterator_to_array($this->store->records(), false);
+    }
+
+    /**
+     * What verify() reports of the chain judged from its first entry.
+     *
+     * @param list<Judgement> $judged
+     *
+     * @return AuditReport
+     */
+    private function report(array $judged): array
+    {
+        // From the newest back: whether a later entry signed with a key in use vouches for each entry, which
+        // find() requires of one whose key's window has closed. Only entries the log accepts carry that back: one
+        // it refuses could belong to a rewrite, and cuts everything before it off from what comes later.
+        $unvouched = [];
+        $vouched = false;
+        for ($position = \count($judged) - 1; $position >= 0; --$position) {
+            $item = $judged[$position];
+            if (null === $item['problem'] && !$item['inUse'] && !$vouched) {
+                $unvouched[$position] = true;
+            }
+            $vouched = null === $item['problem'] && ($item['inUse'] || $vouched);
+        }
+        $entries = [];
+        foreach ($judged as $position => $item) {
+            $problem = isset($unvouched[$position])
+                ? \sprintf('it is signed with key "%s", whose window has closed, and no later entry signed with a key in use vouches for it', $item['row']['key_id'])
+                : $item['problem'];
+            $entries[] = ['entry' => $item['entry'], 'seq' => (int) $item['row']['seq'], 'valid' => null === $problem, 'problem' => $problem, 'keyId' => $item['row']['key_id'], 'hash' => $item['row']['hash'], 'unvouched' => isset($unvouched[$position])];
+        }
+
+        return ['entries' => $entries, 'intact' => [] === array_filter($entries, static fn (array $item): bool => !$item['valid']), 'newest' => [] === $entries ? 0 : $entries[\count($entries) - 1]['seq']];
+    }
+
+    /**
+     * The sequences of the entries a report accepts, by hash. Each stored hash is the hash of its entry, which names
+     * its sequence: equal hashes are the same entry.
+     *
+     * @param AuditReport $report
+     *
+     * @return array<string, int>
+     */
+    private static function accepted(array $report): array
+    {
+        return array_column(array_filter($report['entries'], static fn (array $item): bool => $item['valid']), 'seq', 'hash');
+    }
+
+    /**
+     * unrecorded() over the chain as read. Judged from its first entry, as $judged is when given, the chain gives the
+     * same answer as judged from start(): what start() leaves unchecked cannot change the verdict on an entry from the
+     * earliest in $since on.
+     *
+     * @param non-empty-array<string, int> $since
+     * @param list<AuditRecord>            $rows   the whole chain, oldest first
+     * @param list<Judgement>|null         $judged $rows judged from the first entry
+     *
+     * @return list<string>
+     */
+    private function ruledOut(string $type, array $since, array $rows, ?array $judged = null): array
+    {
+        $from = min($since);
+        // Each type and subject a row names, in its columns or in its entry, whether that verifies or not; and from
+        // $from on, the newest entry with something wrong apart from how it follows the one before it, and the
+        // newest the log refuses for any reason.
+        $named = [];
+        $newest = 0;
+        $faulty = 0;
+        $refused = 0;
+        foreach ($judged ?? $this->judged($rows, $this->start($rows, $from)) as $item) {
+            $row = $item['row'];
+            $seq = (int) $row['seq'];
+            $named[$row['type']][$row['subject']] = true;
+            $read = $item['entry'] ?? self::read($row['entry']);
+            if (\is_string($read['type'] ?? null) && \is_string($read['subject'] ?? null)) {
+                $named[$read['type']][$read['subject']] = true;
+            }
+            $newest = max($newest, $seq);
+            if ($seq >= $from && null !== $item['fault']) {
+                $faulty = max($faulty, $seq);
+            }
+            if ($seq >= $from && null !== $item['problem']) {
+                $refused = max($refused, $seq);
+            }
+        }
+        $ruledOut = [];
+        foreach ($since as $subject => $at) {
+            // How a subject's own entry follows the one before it is not in question, only what follows it.
+            if (!isset($named[$type][$subject]) && $at <= $newest && $faulty < $at && $refused <= $at) {
+                $ruledOut[] = (string) $subject;
+            }
+        }
+
+        return $ruledOut;
+    }
+
+    /**
+     * Where to begin judging the chain to rule out entries from $from on. The chain before $from changes the verdict
+     * on a later entry only through rotations and damage, which count against a key that has an end, is not in use or
+     * was rotated away from. While every entry since is signed with some other key, what came before need not be
+     * checked.
+     *
+     * @param list<AuditRecord> $rows the whole chain, oldest first
+     */
+    private function start(array $rows, int $from): int
+    {
+        $now = $this->clock->now();
+        // The keys a row's columns say were rotated away from: a rotation counts only once its row matches what was
+        // signed, columns included.
+        $rotated = [];
+        foreach ($rows as $row) {
+            if (self::KEY_ROTATED === $row['type']) {
+                $rotated[$row['subject']] = true;
+            }
+        }
+        foreach ($rows as $row) {
+            if ((int) $row['seq'] >= $from && (!$this->open($row['key_id'], $now) || isset($rotated[$row['key_id']]))) {
+                return 1;
+            }
+        }
+
+        return $from;
+    }
+
+    /**
      * Every row, oldest first, with its entry once its signature verifies, and the first thing verify() finds wrong
      * with it, short of a later entry vouching for it; fault is the same leaving aside how it follows the entry
      * before it. Rows before $from pass through unchecked, with no entry and no problem, and the rotations and
@@ -369,7 +485,7 @@ final readonly class AuditLog
      *
      * @param iterable<AuditRecord> $rows the whole chain, oldest first
      *
-     * @return list<array{row: AuditRecord, entry: ?array<string, mixed>, problem: ?string, fault: ?string, inUse: bool}>
+     * @return list<Judgement>
      */
     private function judged(iterable $rows, int $from = 1): array
     {
@@ -441,7 +557,7 @@ final readonly class AuditLog
             return ['entry' => null, 'problem' => \sprintf('it is signed with key "%s", which is not one of the trusted keys', $row['key_id'])];
         }
         $broken = ['entry' => null, 'problem' => 'its signature or hash does not verify'];
-        if (!hash_equals(hash('sha256', $row['entry']), $row['hash']) || !$key->signed($row['entry'], $row['signature'])) {
+        if (!hash_equals(hash('sha256', $row['entry']), $row['hash']) || !$this->signed($key, $row)) {
             return $broken;
         }
         try {
@@ -461,6 +577,32 @@ final readonly class AuditLog
         }
 
         return ['entry' => $entry, 'problem' => null];
+    }
+
+    /**
+     * Whether $key signed the row's entry, for a row whose hash is already known to be its entry's. A signature that
+     * verified is not checked again: the answer depends only on the key, the entry, for which its hash stands, and the
+     * signature itself, and the Ed25519 check is most of what reading a long chain costs.
+     *
+     * @param AuditRecord $row
+     */
+    private function signed(TrustedKey $key, array $row): bool
+    {
+        // The key id's length comes first and the hash always has 64 characters, so two rows share this digest only
+        // when key, hash and signature are all the same.
+        $signature = hash('sha256', \strlen($key->keyId).':'.$key->keyId.$row['hash'].$row['signature'], true);
+        if (isset($this->verified[$signature])) {
+            return true;
+        }
+        if (!$key->signed($row['entry'], $row['signature'])) {
+            return false;
+        }
+        // Kept, not replaced, once full: starting again would check every entry of a longer chain at each reading.
+        if (\count($this->verified) < self::REMEMBERED) {
+            $this->verified[$signature] = true;
+        }
+
+        return true;
     }
 
     /**

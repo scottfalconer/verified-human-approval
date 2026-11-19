@@ -10,6 +10,7 @@ use Symfony\Component\Clock\MockClock;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
+use VerifiedHumanApproval\Core\Audit\AuditStore;
 use VerifiedHumanApproval\Core\CanonicalJson;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
 use VerifiedHumanApproval\Core\Evidence\TrustedKey;
@@ -192,6 +193,49 @@ final class AnchoredKeyRotationTest extends TestCase
         $audit->recordRotation('application-1');
         self::assertSame([], $after->unvouched($this->actor));
         self::assertTrue($this->approves($after, $laptop));
+    }
+
+    public function testEachApprovalStepReadsTheChainOnceHoweverManyPasskeysItWeighs(): void
+    {
+        $before = $this->repository($this->old, new TrustedKeys([new TrustedKey('application-1', $this->old->publicKey(), TrustedKey::time('2026-11-01T00:00:00Z'))]));
+        $passkeys = [new VirtualAuthenticator(), new VirtualAuthenticator(), new VirtualAuthenticator()];
+        foreach ($passkeys as $passkey) {
+            $this->enroll($before, $passkey);
+        }
+        $this->rotate();
+
+        // Each passkey was enrolled under the retired key, so whether it stands is read from the whole chain.
+        $store = new class($this->auditStore) implements AuditStore {
+            public int $readings = 0;
+
+            public function __construct(private AuditStore $inner)
+            {
+            }
+
+            public function append(callable $buildRecord): array
+            {
+                return $this->inner->append($buildRecord);
+            }
+
+            public function recordsFor(string $type, string $subject): iterable
+            {
+                return $this->inner->recordsFor($type, $subject);
+            }
+
+            public function records(): iterable
+            {
+                ++$this->readings;
+
+                return $this->inner->records();
+            }
+        };
+        $verifier = new WebAuthnVerifier(new Configuration('approval.test', 'https://approval.test'), new AnchoredCredentialRepository($this->stored, new AuditLog($store, $this->new, $this->rotatedKeys(), $this->clock)));
+        $challenge = random_bytes(32);
+        $options = $verifier->requestOptions($this->actor, $challenge);
+        self::assertCount(3, $options['allowCredentials'] ?? []);
+        self::assertSame(1, $store->readings, 'Opening the review weighs all three passkeys from one reading of the chain.');
+        $verifier->verify($this->actor, $challenge, $passkeys[1]->assertion($options));
+        self::assertSame(2, $store->readings, 'Approving reads it once more.');
     }
 
     public function testAnEnrollmentRecordClaimingATimeOutsideItsKeysWindowAnchorsNothing(): void
