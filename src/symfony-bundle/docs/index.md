@@ -422,7 +422,7 @@ Add the approving passkey's trusted registration record as a third file to check
 
 ## Test your integration
 
-Install the [testing package](testing.md) as a development dependency. It supplies a software passkey with real signatures, a BrowserKit helper for the enrollment and review pages, and an in-process MCP HTTP client. Test your own application services and routes rather than copying this repository's private test fixtures. The guide covers test environment settings, isolated rate limits, and verifying the exported receipt.
+Install the [testing package](testing.md) as a development dependency. It supplies a software passkey with real signatures, a BrowserKit helper for the enrollment and review pages, and a PSR-18 client that sends an MCP client's requests through your kernel in the test's process. Test your own application services and routes rather than copying this repository's own test fixtures, which no package ships. The guide covers test environment settings, isolated rate limits, and verifying the exported receipt.
 
 ## Before deployment
 
