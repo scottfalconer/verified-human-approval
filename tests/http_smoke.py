@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import socket
 import sqlite3
 import subprocess
@@ -27,7 +28,8 @@ with tempfile.TemporaryDirectory(prefix="verified-human-approval-http-") as temp
     credentials = json.loads(setup.stdout)["accounts"]
     env.update({"VERIFIED_HUMAN_APPROVAL_MCP_URL": origin + "/mcp", "VERIFIED_HUMAN_APPROVAL_TOKEN": credentials["editor"]["personal_token"]})
     with open(Path(temporary) / "server.log", "w+") as log:
-        server = subprocess.Popen([PHP, "-S", f"localhost:{port}", "-t", str(ROOT / "demo/public"), str(ROOT / "demo/public/index.php")], env=env, stdout=log, stderr=log)
+        # In a process group of its own, so that stopping it also stops any workers it forks.
+        server = subprocess.Popen([PHP, "-S", f"localhost:{port}", "-t", str(ROOT / "demo/public"), str(ROOT / "demo/public/index.php")], env=env, stdout=log, stderr=log, start_new_session=True)
         try:
             for _ in range(100):
                 try:
@@ -60,9 +62,9 @@ with tempfile.TemporaryDirectory(prefix="verified-human-approval-http-") as temp
                 assert db.execute("SELECT COUNT(*) FROM verified_human_approval_executions").fetchone()[0] == 0
             print(json.dumps({"passed": True, "checks": ["real HTTP MCP discovery", "read the draft alert", "request returns approval URL", "status remains pending", "request retry reuses proposal", "Symfony AI Agent + McpToolbox over real HTTP", "zero protected mutations without human approval"], "transport": "official MCP SDK and Symfony MCP Bundle", "live_model_calls": 0, "model_mode": "Symfony MockPlatformFactory scripted responses", "browser_or_physical_device_tested": False}, indent=2))
         finally:
-            server.terminate()
+            os.killpg(server.pid, signal.SIGTERM)
             try:
                 server.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                server.kill()
+                os.killpg(server.pid, signal.SIGKILL)
                 server.wait()
