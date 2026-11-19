@@ -107,7 +107,7 @@ php src/webauthn/bin/verify-evidence.php \
   var/evidence-check/receipt-keys.json
 ```
 
-Expected result: `Verification failed: ...` and exit code `1`. The original file still verifies. Changes to the proposal, assertion, nonce or execution result also invalidate the evidence. Changing a field directly in the stored execution record has the same effect: the site answers `record_integrity_error` the next time it reads that request, and the record no longer verifies against its receipt.
+Expected result: exit code `1`, and a line that begins `Verification failed:` and says the record is not what the application signed. The original file still verifies. Changes to the proposal, assertion, nonce or execution result also invalidate the evidence. Changing a field directly in the stored execution record has the same effect: the site answers `record_integrity_error` the next time it reads that request, and the record no longer verifies against its receipt.
 
 Deleting the original receipt does not reset this protection. The site answers `record_integrity_error` for a completed request whose receipt is gone, and the exporter, called directly, refuses it (`receipt_missing`). Neither creates a fresh signature over possibly altered data. A receipt the person already downloaded stays valid on its own.
 
