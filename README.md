@@ -16,21 +16,26 @@ Built for the [Symfony AI & MCP Hackathon](https://symfony.com/hackathon/project
 
 ## Try it locally
 
-You need PHP, Composer and a browser with passkey support. See the [demo prerequisites](demo/README.md) for PHP extensions and platform requirements.
+You need PHP, Composer and a browser with passkey support. See the [demo prerequisites](demo/README.md#1-start-the-application) for PHP extensions and platform requirements.
 
 ```bash
 git clone https://github.com/scottfalconer/verified-human-approval.git
 cd verified-human-approval
 composer install
 php demo/bin/setup.php
+```
+
+Setup shows each demo account's password, personal token and first-passkey link once. Save them privately before you start the server: its log scrolls them off the screen. If you lose them, stop the server, run `php demo/bin/setup.php --reset` for a fresh demo with new ones, and start the server again.
+
+Then start the server. It keeps this terminal:
+
+```bash
 PHP_CLI_SERVER_WORKERS=4 php -S localhost:8080 -t demo/public demo/public/index.php
 ```
 
-Keep the setup output private. It contains the demo accounts' passwords, personal tokens and first-passkey links.
+The demo answers only at the address it was set up for. If port 8080 is taken, PHP stops with `Failed to listen on localhost:8080 (reason: Address already in use)`. Then [set the demo up for another port](demo/README.md#if-port-8080-is-taken).
 
-The demo answers only at the address it was set up for. If port 8080 is taken, [set it up for another port](demo/README.md#if-port-8080-is-taken).
-
-With the server running, continue at [Add the editor's passkey](demo/README.md#2-add-the-editors-passkey). Use the **editor** account: its rule requires passkey approval. The walkthrough uses the included PHP MCP client, so no model API key or agent application is needed.
+With the server running, continue at [Add the editor's passkey](demo/README.md#2-add-the-editors-passkey). Use the **editor** account: its rule requires passkey approval. The walkthrough runs the included PHP MCP client in a second terminal, so no model API key or agent application is needed.
 
 You should see four things:
 
