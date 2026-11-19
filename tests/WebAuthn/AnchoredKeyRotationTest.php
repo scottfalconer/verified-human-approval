@@ -205,30 +205,7 @@ final class AnchoredKeyRotationTest extends TestCase
         $this->rotate();
 
         // Each passkey was enrolled under the retired key, so whether it stands is read from the whole chain.
-        $store = new class($this->auditStore) implements AuditStore {
-            public int $readings = 0;
-
-            public function __construct(private AuditStore $inner)
-            {
-            }
-
-            public function append(callable $buildRecord): array
-            {
-                return $this->inner->append($buildRecord);
-            }
-
-            public function recordsFor(string $type, string $subject): iterable
-            {
-                return $this->inner->recordsFor($type, $subject);
-            }
-
-            public function records(): iterable
-            {
-                ++$this->readings;
-
-                return $this->inner->records();
-            }
-        };
+        $store = $this->counted();
         $verifier = new WebAuthnVerifier(new Configuration('approval.test', 'https://approval.test'), new AnchoredCredentialRepository($this->stored, new AuditLog($store, $this->new, $this->rotatedKeys(), $this->clock)));
         $challenge = random_bytes(32);
         $options = $verifier->requestOptions($this->actor, $challenge);
@@ -236,6 +213,27 @@ final class AnchoredKeyRotationTest extends TestCase
         self::assertSame(1, $store->readings, 'Opening the review weighs all three passkeys from one reading of the chain.');
         $verifier->verify($this->actor, $challenge, $passkeys[1]->assertion($options));
         self::assertSame(2, $store->readings, 'Approving reads it once more.');
+    }
+
+    public function testOpeningAReviewThatNoPasskeyCanApproveReadsTheChainOnce(): void
+    {
+        $before = $this->repository($this->old, new TrustedKeys([new TrustedKey('application-1', $this->old->publicKey(), TrustedKey::time('2026-11-01T00:00:00Z'))]));
+        foreach ([new VirtualAuthenticator(), new VirtualAuthenticator()] as $passkey) {
+            $this->enroll($before, $passkey);
+        }
+        // The old key's window has closed and the new key has signed nothing yet, so nothing vouches for either passkey.
+        $this->clock->modify(self::ROTATED);
+        $this->clock->sleep(60);
+
+        $store = $this->counted();
+        $verifier = new WebAuthnVerifier(new Configuration('approval.test', 'https://approval.test'), new AnchoredCredentialRepository($this->stored, new AuditLog($store, $this->new, $this->rotatedKeys(), $this->clock)));
+        try {
+            $verifier->requestOptions($this->actor, random_bytes(32));
+            self::fail('A passkey was offered.');
+        } catch (ApprovalException $error) {
+            self::assertSame('credential_unvouched', $error->reason);
+        }
+        self::assertSame(1, $store->readings, 'Which refusal to give comes from the same reading of the chain.');
     }
 
     public function testAnEnrollmentRecordClaimingATimeOutsideItsKeysWindowAnchorsNothing(): void
@@ -265,6 +263,35 @@ final class AnchoredKeyRotationTest extends TestCase
             new TrustedKey('application-2', $this->new->publicKey(), TrustedKey::time(self::ROTATED)),
             new TrustedKey('application-1', $this->old->publicKey(), TrustedKey::time('2026-11-01T00:00:00Z'), TrustedKey::time(self::ROTATED)),
         ]);
+    }
+
+    /** The fixture's audit store, counting how often the whole chain is read. */
+    private function counted(): AuditStore
+    {
+        return new class($this->auditStore) implements AuditStore {
+            public int $readings = 0;
+
+            public function __construct(private AuditStore $inner)
+            {
+            }
+
+            public function append(callable $buildRecord): array
+            {
+                return $this->inner->append($buildRecord);
+            }
+
+            public function recordsFor(string $type, string $subject): iterable
+            {
+                return $this->inner->recordsFor($type, $subject);
+            }
+
+            public function records(): iterable
+            {
+                ++$this->readings;
+
+                return $this->inner->records();
+            }
+        };
     }
 
     private function repository(SodiumEvidenceSigner $signer, TrustedKeys $keys, ?MockClock $clock = null): AnchoredCredentialRepository

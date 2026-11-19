@@ -118,10 +118,21 @@ final readonly class AnchoredCredentialRepository implements CredentialRepositor
      */
     public function unvouched(Actor $actor): array
     {
+        return $this->weighed($actor)['unvouched'];
+    }
+
+    /**
+     * The owner's stored passkeys, split into those forActor() returns and those unvouched() does, both from one
+     * reading of the chain.
+     *
+     * @return array{vouched: list<Credential>, unvouched: list<Credential>}
+     */
+    public function weighed(Actor $actor): array
+    {
         $credentials = $this->credentials->forActor($actor);
         $vouched = $this->vouchedFor($credentials);
 
-        return array_values(array_filter($credentials, static fn (Credential $credential): bool => !\in_array($credential, $vouched, true)));
+        return ['vouched' => $vouched, 'unvouched' => array_values(array_filter($credentials, static fn (Credential $credential): bool => !\in_array($credential, $vouched, true)))];
     }
 
     public function anchored(Credential $credential): bool
