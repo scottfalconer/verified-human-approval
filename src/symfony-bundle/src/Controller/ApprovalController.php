@@ -29,6 +29,8 @@ use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
 /**
  * The review page and its JSON actions. A stranger is sent to sign in; once someone is reviewing,
  * every refusal on a JSON route is a JSON answer the page's script can show.
+ *
+ * @internal the bundle's routes reach it by its service id; link to the routes
  */
 final readonly class ApprovalController
 {

@@ -19,6 +19,8 @@ use Symfony\Component\HttpFoundation\RequestMatcherInterface;
  *
  * It matches by route name, which the router sets before the firewall runs, so it follows the
  * bundle's routes wherever you mount them and never widens to routes of your own.
+ *
+ * @internal name it by its service id, as above
  */
 final class ReviewRequestMatcher implements RequestMatcherInterface
 {

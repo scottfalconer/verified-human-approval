@@ -16,6 +16,8 @@ use VerifiedHumanApproval\Bundle\Verification\VerifiedApproval;
  * `verified_human_approval_badge(requestId, resource, shows)` renders "Approved with a passkey" only when
  * PublicVerification says so, and nothing otherwise. `verified_human_approval(...)` returns the same check's
  * result, or null, for a page that draws its own badge.
+ *
+ * @internal the bundle registers it; call its Twig functions
  */
 final class VerificationExtension extends AbstractExtension
 {
