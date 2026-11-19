@@ -70,7 +70,7 @@ final readonly class ApprovalController
             'csrf' => $this->csrf->getToken('verified_human_approval.'.$id)->getValue(),
             // Who asked: an agent's request should not look like the person's own.
             'requested_by' => $this->requesters?->describe($state->request->actor()),
-            'scoped' => null !== $this->handoff?->personFor($request, $id),
+            'scoped' => $this->phoneOnly($request, $id),
             // Whether this site signs receipts, so a completed request offers the person their copy.
             'receipts' => null !== $this->receipts,
             // Where a request made on this site came from, so the finished page can lead back there.
@@ -263,6 +263,25 @@ final readonly class ApprovalController
     private function reviewer(Request $request, string $id): Actor
     {
         return $this->handoff?->personFor($request, $id) ?? $this->actors->interactive();
+    }
+
+    /**
+     * Whether this browser reviews only through a phone session, so the page offers neither Cancel nor the receipt.
+     * A browser also signed in as that same person keeps both: cancelling and the download check the signed-in person.
+     */
+    private function phoneOnly(Request $request, string $id): bool
+    {
+        $phone = $this->handoff?->personFor($request, $id);
+        if (null === $phone) {
+            return false;
+        }
+        try {
+            $signedIn = $this->actors->interactive();
+        } catch (AccessDeniedException) {
+            return true;
+        }
+
+        return $signedIn->userId !== $phone->userId || $signedIn->tenantId !== $phone->tenantId;
     }
 
     /**

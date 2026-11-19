@@ -164,6 +164,26 @@ final class HandoffTest extends TestCase
         self::assertSame(200, $owner->getResponse()->getStatusCode(), (string) $owner->getResponse()->getContent());
     }
 
+    public function testTheOwnerWhoOpensTheirCodeWhereTheyAreSignedInKeepsCancelAndTheReceipt(): void
+    {
+        $agent = $this->mcp('editor');
+        $id = $agent->callTool('publish_alert', ['alert_id' => 'riverside-evacuation'])->structuredContent['requestId'];
+        [$browser, $authenticator] = $this->enrollOnComputer('editor');
+
+        $continue = $browser->request('GET', $agent->callTool('approval_handoff', ['request_id' => $id])->structuredContent['url']);
+        $browser->submit($continue->selectButton('Continue')->form());
+        $review = $browser->request('GET', self::ORIGIN.'/approval/'.$id);
+        self::assertCount(1, $review->filter('[data-cancel]'), 'Signed in as the same person, the browser keeps Cancel.');
+
+        $csrf = (string) $review->filter('[data-passkey-panel]')->attr('data-csrf');
+        $ceremony = $this->post($browser, '/approval/'.$id.'/options', $csrf, []);
+        self::assertSame('completed', $this->post($browser, '/approval/'.$id.'/complete', $csrf, ['ceremony_id' => $ceremony['ceremony_id'], 'credential' => $authenticator->assertion($ceremony['publicKey'])])['status']);
+        $receipt = $browser->request('GET', self::ORIGIN.'/approval/'.$id)->filter('.approval-sheet .receipt');
+        self::assertSame('Download your receipt', $receipt->filter('a')->text(), 'The receipt is offered where it downloads.');
+        $browser->request('GET', self::ORIGIN.'/approval/'.$id.'/evidence');
+        self::assertSame(200, $browser->getResponse()->getStatusCode());
+    }
+
     public function testCodesAreKeptInACachePoolOfTheirOwn(): void
     {
         $agent = $this->mcp('editor');
