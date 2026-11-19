@@ -20,6 +20,8 @@ $verifier = new WebAuthnVerifier(
 );
 ```
 
+Wired this way, the verifier trusts the table: a passkey row inserted or changed in the database approves, and so does a revoked one marked active again. To accept only passkeys that a signed enrollment vouches for, give the verifier an `AnchoredCredentialRepository` over the raw repository instead, as [Trusted enrollment](#trusted-enrollment) describes. `PdoCredentialRepository` uses the connection as it is and refuses one that does not throw on errors (`PDO::ERRMODE_EXCEPTION`, PHP's default).
+
 Pass `$verifier` to the approval core. The core constructs the proposal-bound challenge, persists the ceremony, and controls its expiry and one-time consumption. A WebAuthn signature counter is not a substitute for those rules: many valid passkeys always return a zero counter.
 
 ## Application identity and credentials
