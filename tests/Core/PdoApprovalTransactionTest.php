@@ -148,6 +148,51 @@ final class PdoApprovalTransactionTest extends TestCase
         }
     }
 
+    /**
+     * A connection switched to quiet errors after the store was built, which no check when it is built can see, gets
+     * no outcome recorded: the check that the transaction is still open, like any write, would fail without a word.
+     */
+    public function testAConnectionThatStopsThrowingOnErrorsGetsNoOutcomeRecorded(): void
+    {
+        $pdo = $this->open();
+        $signer = new SodiumEvidenceSigner('app-key', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
+        $guard = new ExecutionGuard();
+        $publish = new FixtureAction($pdo, $guard);
+        $service = $this->service($pdo, $guard, $publish, $signer);
+        $alice = new Actor('alice', 'tenant-a');
+        $pending = $service->request(new Actor('alice', 'tenant-a', 'agent-1'), 'article.publish', ['id' => 1]);
+        $ceremony = $service->begin($alice, $pending->request->id);
+        $publish->afterPostconditions = static function () use ($pdo): void {
+            $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_SILENT);
+            $pdo->rollBack();
+        };
+        try {
+            $service->complete($alice, $ceremony->id, ['test_only' => true, 'challenge' => $ceremony->challenge, 'user' => 'alice', 'tenant' => 'tenant-a', 'credential' => 'alice-key']);
+            self::fail('An approval on a connection that stopped throwing on errors was reported as completed.');
+        } catch (ApprovalException $error) {
+            // Nothing can be read back on that connection either, so the outcome is reported as unconfirmed.
+            self::assertSame('execution_uncertain', $error->reason);
+            self::assertInstanceOf(\LogicException::class, $error->getPrevious());
+            self::assertStringContainsString('PDO::ERRMODE_EXCEPTION', $error->getPrevious()->getMessage());
+        }
+        $observer = new \PDO('sqlite:'.$this->path, options: [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
+        self::assertSame(['pending', 0, 0], [
+            $observer->query('SELECT status FROM verified_human_approval_requests')->fetchColumn(),
+            (int) $observer->query('SELECT COUNT(*) FROM verified_human_approval_receipts')->fetchColumn(),
+            (int) $observer->query('SELECT publication_count FROM test_articles WHERE id = 1')->fetchColumn(),
+        ]);
+
+        // While it stays switched, the next approval is refused before anything runs.
+        try {
+            $service->request(new Actor('alice', 'tenant-a', 'agent-1'), 'article.publish', ['id' => 2]);
+            self::fail('An approval began on a connection that does not throw on errors.');
+        } catch (\LogicException $error) {
+            self::assertStringContainsString('PDO::ERRMODE_EXCEPTION', $error->getMessage());
+        }
+        self::assertFalse($pdo->inTransaction());
+        self::assertSame(1, (int) $observer->query('SELECT COUNT(*) FROM verified_human_approval_requests')->fetchColumn());
+    }
+
     /** The fixture action, recording a signed audit entry for what it published, as an approved action may. */
     private static function recording(FixtureAction $publish, AuditLog $audit): ActionAdapter
     {

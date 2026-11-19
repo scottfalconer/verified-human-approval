@@ -19,21 +19,23 @@ final class PdoApprovalStore implements ApprovalStore, ApprovalHistory
     /** Marks the transaction this store began, so that a write after it ended is refused: see releaseRoot(). */
     private const ROOT = 'verified_human_approval_root';
 
+    private const THROWS = 'This adapter needs a connection that throws on errors: set PDO::ATTR_ERRMODE to PDO::ERRMODE_EXCEPTION.';
+
     private bool $active = false;
 
     /**
      * Works on the application's connection as it is, and changes none of its settings. One that does not throw on
-     * errors (PDO::ERRMODE_EXCEPTION, PHP's default) is refused: a write that failed quietly could be taken for one
-     * that happened. How long an approval waits for another writer is the connection's busy timeout
-     * (PDO::ATTR_TIMEOUT, 60 seconds unless set).
+     * errors (PDO::ERRMODE_EXCEPTION, PHP's default) is refused, here and at each transaction and write: a write that
+     * failed quietly could be taken for one that happened. How long an approval waits for another writer is the
+     * connection's busy timeout (PDO::ATTR_TIMEOUT, 60 seconds unless set).
      */
     public function __construct(private readonly \PDO $pdo)
     {
         if ('sqlite' !== $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME)) {
             throw new \InvalidArgumentException('This reference adapter supports SQLite only; supply another transactional adapter for other databases.');
         }
-        if (\PDO::ERRMODE_EXCEPTION !== $pdo->getAttribute(\PDO::ATTR_ERRMODE)) {
-            throw new \InvalidArgumentException('This adapter needs a connection that throws on errors: set PDO::ATTR_ERRMODE to PDO::ERRMODE_EXCEPTION.');
+        if (!$this->throwsOnErrors()) {
+            throw new \InvalidArgumentException(self::THROWS);
         }
     }
 
@@ -75,6 +77,9 @@ final class PdoApprovalStore implements ApprovalStore, ApprovalHistory
         $nested = 'Approval execution must own the outer database transaction.';
         if ($this->active || $this->pdo->inTransaction()) {
             throw new \LogicException($nested);
+        }
+        if (!$this->throwsOnErrors()) {
+            throw new \LogicException(self::THROWS);
         }
         try {
             $this->pdo->beginTransaction();
@@ -294,6 +299,11 @@ final class PdoApprovalStore implements ApprovalStore, ApprovalHistory
         $this->pdo->exec('SAVEPOINT '.self::ROOT);
     }
 
+    private function throwsOnErrors(): bool
+    {
+        return \PDO::ERRMODE_EXCEPTION === $this->pdo->getAttribute(\PDO::ATTR_ERRMODE);
+    }
+
     /**
      * Releases the savepoint that marks this store's transaction, which fails once that transaction has ended:
      * committed or rolled back by code on the connection, through PDO or in SQL, rolled back by SQLite itself after
@@ -302,6 +312,10 @@ final class PdoApprovalStore implements ApprovalStore, ApprovalHistory
      */
     private function releaseRoot(): void
     {
+        // Code on the connection can switch it to quiet errors at any time, and the release would then fail unseen.
+        if (!$this->throwsOnErrors()) {
+            throw new \LogicException(self::THROWS);
+        }
         try {
             $this->pdo->exec('RELEASE SAVEPOINT '.self::ROOT);
         } catch (\PDOException $error) {
