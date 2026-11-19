@@ -63,7 +63,7 @@ An entry the log refuses also stops the passkey, if it was recorded after the en
 
 ## What is required from the authenticator
 
-Both enrollment and approval request `userVerification: "required"`. Assertion verification also requires the user-presence flag. Ceremonies run in a top-level browser page on one explicitly configured origin: the verifier refuses cross-origin and embedded ceremonies, and allows no subdomain of the origin. The origin must use HTTPS; `http://localhost` is the explicit local-development exception. Do not derive configuration from untrusted Host headers or MCP tool arguments.
+Both enrollment and approval request `userVerification: "required"`. Assertion verification also requires the user-presence flag. Ceremonies run on the application's own pages, on one explicitly configured origin: the verifier refuses a ceremony embedded in a page of another origin, and allows no subdomain of the origin. The origin must use HTTPS; `http://localhost` is the explicit local-development exception. Do not derive configuration from untrusted Host headers or MCP tool arguments.
 
 User verification means the authenticator verified its user using a supported local method. It can be Touch ID, Face ID, a PIN or another supported method. It does not prove a fingerprint was used or that the user understood the application's statement. The application review page, credential enrollment and account binding remain trusted.
 
