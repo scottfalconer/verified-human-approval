@@ -5,11 +5,12 @@
 # The tunnel's hostname changes each time it starts, and passkeys are tied to the hostname, so a new
 # hostname needs a fresh public demo: start says what it would replace and asks first; --yes answers yes.
 # all-clear takes the live alert down for another take, keeping accounts, passkeys and connections.
-# reset starts a fresh public demo on the same address: new accounts, passkey links and connections.
+# reset starts a fresh public demo, with new accounts, passkey links and connections, on the same address, which
+# this checkout's tunnel must still answer at.
 # The tunnel publishes whatever answers on port 8081, so the public demo uses that port and nothing else may while
 # it runs: start and reset go no further while anything else holds it, and should either stop short of serving the
 # public demo, for whatever reason, this checkout's tunnel stops too. The tunnel's launchd label is one for the
-# whole computer, and start and stop touch only a tunnel that this checkout started.
+# whole computer, and start, stop and reset touch only a tunnel that this checkout started.
 set -eu
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 RUNTIME="$ROOT/var/public-demo"
@@ -54,14 +55,28 @@ close_tunnel_on_exit() {
   trap 'exit 1' HUP INT TERM
 }
 
-# Goes no further while anything but the public demo's own server holds PORT. $1 is the command to run again.
+# Goes no further while the tunnel job described in $1 is not this checkout's. Its label is one for the whole
+# computer, and that tunnel publishes whatever answers on PORT, so only one public demo runs at a time.
+guard_tunnel() {
+  if [ -z "$1" ] || started_here "$1"; then return 0; fi
+  other=$(checkout_of "$1")
+  if [ -n "$other" ]; then
+    echo "The tunnel job $LABEL was started from another checkout, $other. Only one public demo runs on this computer at a time: stop that one first, with $other/demo/bin/public stop."
+  else
+    echo "The tunnel job $LABEL was not started from this checkout. Only one public demo runs on this computer at a time: stop that one first, or remove its job: launchctl remove $LABEL"
+  fi
+  exit 1
+}
+
+# Goes no further while anything but the public demo's own server holds PORT. This checkout's tunnel stops, taking
+# its address with it, so the command to run again is start, even after a reset.
 guard_port() {
   held=0
   holder=$(server status) || held=$?
   [ "$held" -ne 0 ] && [ "$held" -ne 3 ] || return 0
   printf '%s\n' "$holder"
   close_tunnel
-  echo "The public demo uses port $PORT, which nothing else may use while it runs. Free the port, then run: $0 $1"
+  echo "The public demo uses port $PORT, which nothing else may use while it runs. Free the port, then run: $0 start"
   exit 1
 }
 
@@ -81,7 +96,7 @@ serve() {
     trap - EXIT HUP INT TERM
     return 0
   fi
-  guard_port "$1"
+  guard_port
   [ -z "$started" ] || printf '%s\n' "$started"
   exit 1
 }
@@ -90,16 +105,8 @@ start() {
   mkdir -p "$ROOT/var"
   close_tunnel_on_exit
   job=$(tunnel_job)
-  if [ -n "$job" ] && ! started_here "$job"; then
-    other=$(checkout_of "$job")
-    if [ -n "$other" ]; then
-      echo "The tunnel job $LABEL was started from another checkout, $other. Only one public demo runs on this computer at a time: stop that one first, with $other/demo/bin/public stop."
-    else
-      echo "The tunnel job $LABEL was not started from this checkout. Only one public demo runs on this computer at a time: stop that one first, or remove its job: launchctl remove $LABEL"
-    fi
-    exit 1
-  fi
-  guard_port start
+  guard_tunnel "$job"
+  guard_port
   # A tunnel that runs keeps its address; one that starts gets a new one.
   ORIGIN=
   [ -z "$job" ] || ORIGIN=$(tunnel_url)
@@ -121,7 +128,7 @@ start() {
       *) echo "Nothing was replaced. To replace it without being asked: $0 start --yes"; exit 1 ;;
     esac
     # An answer can take a while, so the port is looked at again before the tunnel starts or is kept.
-    guard_port start
+    guard_port
   fi
   if [ -z "$ORIGIN" ]; then
     [ -z "$job" ] || launchctl remove "$LABEL" 2>/dev/null || true
@@ -133,10 +140,29 @@ start() {
     [ -n "$ORIGIN" ] || { echo "The tunnel did not start; see $LOG"; exit 1; }
   fi
   [ "$CURRENT" = "$ORIGIN" ] || fresh "$ORIGIN"
-  serve start
+  serve
   echo "Public demo: $ORIGIN"
   echo "claude.ai connector URL: $ORIGIN/mcp"
   echo "The public demo uses port $PORT, which nothing else may use while it runs."
+}
+
+reset() {
+  close_tunnel_on_exit
+  ORIGIN=$(demo_origin)
+  [ -n "$ORIGIN" ] || { echo "No public demo to reset; run: $0 start"; exit 1; }
+  job=$(tunnel_job)
+  guard_tunnel "$job"
+  guard_port
+  # Only this checkout's running tunnel answers at the demo's address: one that has stopped has lost it, though its
+  # log still names it.
+  if ! started_here "$job" || [ "$(tunnel_url)" != "$ORIGIN" ]; then
+    echo "The public demo was set up for $ORIGIN, and this checkout's tunnel does not answer there."
+    close_tunnel
+    echo "A reset keeps that address. For a fresh public demo at a new one, run: $0 start"
+    exit 1
+  fi
+  fresh "$ORIGIN"
+  serve
 }
 
 stop() {
@@ -171,12 +197,6 @@ case "${1:-status}" in
   stop) stop ;;
   status) status ;;
   all-clear) VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" php "$ROOT/demo/bin/console" demo:all-clear ;;
-  reset)
-    ORIGIN=$(demo_origin)
-    [ -n "$ORIGIN" ] || { echo "No public demo to reset; run: $0 start"; exit 1; }
-    close_tunnel_on_exit
-    guard_port reset
-    fresh "$ORIGIN"
-    serve reset ;;
+  reset) reset ;;
   *) echo "$USAGE"; exit 2 ;;
 esac

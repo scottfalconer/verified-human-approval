@@ -534,6 +534,50 @@ final class DemoScriptsTest extends TestCase
         self::assertSame('https://new-tunnel-name.trycloudflare.com', self::settings($checkout.'/var/public-demo')['origin']);
     }
 
+    public function testPublicResetRefusesATakenPort(): void
+    {
+        $checkout = $this->checkout('https://tunnel-name.trycloudflare.com', 'var/public-demo');
+        $this->tunnel($checkout, 'https://tunnel-name.trycloudflare.com');
+        $program = $this->listen(8081, '/usr/bin/python3 -m http.server 8081');
+        // Its tunnel would publish the program, so it stops, taking the demo's address with it: the command to run again is start.
+        self::assertSame([1, "Not running. Port 8081 is in use by another program: PID $program (/usr/bin/python3 -m http.server 8081).\nStopped this checkout's tunnel, so that it publishes nothing else.\nThe public demo uses port 8081, which nothing else may use while it runs. Free the port, then run: $checkout/demo/bin/public start\n"], $this->publicDemo($checkout, 'reset'));
+        self::assertSame(['launchctl remove '.self::TUNNEL], $this->calls(), 'Nothing was set up or started.');
+
+        // With the port free, a reset would keep that address, where nothing answers now, so it still replaces nothing.
+        $this->stopEveryProcess();
+        $this->forgetCalls();
+        self::assertSame([1, "The public demo was set up for https://tunnel-name.trycloudflare.com, and this checkout's tunnel does not answer there.\nA reset keeps that address. For a fresh public demo at a new one, run: $checkout/demo/bin/public start\n"], $this->publicDemo($checkout, 'reset'));
+        self::assertSame([], $this->calls(), 'The demo and the passkeys enrolled in it are as they were.');
+        self::assertSame([3, "Tunnel: not running\nNot running\n"], $this->publicDemo($checkout, 'status'));
+    }
+
+    public function testPublicResetKeepsOnlyTheAddressThisCheckoutsTunnelAnswersAt(): void
+    {
+        $checkout = $this->publicTree('https://tunnel-name.trycloudflare.com', 'https://tunnel-name.trycloudflare.com');
+        [$status, $output] = $this->publicDemo($checkout, 'reset');
+        self::assertSame(0, $status, $output);
+        self::assertSame(['server status', 'server stop', 'setup --reset for https://tunnel-name.trycloudflare.com, registration 0', 'server start'], $this->calls());
+
+        // Once stopped, the tunnel no longer answers at the address its log still names.
+        $notThere = "The public demo was set up for https://tunnel-name.trycloudflare.com, and this checkout's tunnel does not answer there.\n";
+        $start = "A reset keeps that address. For a fresh public demo at a new one, run: $checkout/demo/bin/public start\n";
+        self::assertSame(0, $this->publicDemo($checkout, 'stop')[0]);
+        $this->forgetCalls();
+        self::assertSame([1, $notThere.$start], $this->publicDemo($checkout, 'reset'));
+        self::assertSame(['server status'], $this->calls(), 'Nothing was set up or started.');
+
+        // A tunnel that came back at another address publishes no demo set up for it, so it stops.
+        $this->tunnel($checkout, 'https://new-tunnel-name.trycloudflare.com');
+        self::assertSame([1, $notThere."Stopped this checkout's tunnel, so that it publishes nothing else.\n".$start], $this->publicDemo($checkout, 'reset'));
+        self::assertSame(['server status', 'launchctl remove '.self::TUNNEL], $this->calls());
+
+        // So does one that runs while no public demo is set up at all.
+        (new Filesystem())->remove($checkout.'/var/public-demo');
+        $this->tunnel($checkout, 'https://tunnel-name.trycloudflare.com');
+        self::assertSame([1, "No public demo to reset; run: $checkout/demo/bin/public start\nStopped this checkout's tunnel, so that it publishes nothing else.\n"], $this->publicDemo($checkout, 'reset'));
+        self::assertSame(['launchctl remove '.self::TUNNEL], $this->calls());
+    }
+
     /** @return iterable<string, array{string, string}> what keeps failing, and what the server's start says about it */
     public static function serverStartFailures(): iterable
     {
@@ -607,9 +651,10 @@ final class DemoScriptsTest extends TestCase
 
     public function testPublicStartAndStopLeaveAnotherCheckoutsPublicDemoAlone(): void
     {
-        // Two checkouts on one computer: one tunnel label and one port 8081 for both.
+        // Two checkouts on one computer: one tunnel label and one port 8081 for both. The second has a public demo of
+        // its own, set up for an earlier tunnel.
         $first = $this->checkout(name: 'first');
-        $second = $this->checkout(name: 'second');
+        $second = $this->checkout('https://second-tunnel.trycloudflare.com', 'var/public-demo', name: 'second');
         $this->tunnelAddress('https://first-tunnel.trycloudflare.com');
         [$status, $output] = $this->publicDemo($first, 'start');
         self::assertSame(0, $status, $output);
@@ -620,15 +665,18 @@ final class DemoScriptsTest extends TestCase
         $this->forgetCalls();
 
         self::assertSame([1, $another], $this->publicDemo($second, 'start'));
+        self::assertSame([1, $another], $this->publicDemo($second, 'reset'));
         self::assertSame([1, "Tunnel: started from another checkout, $first\n$theirs\n"], $this->publicDemo($second, 'status'));
         self::assertSame([1, 'The tunnel job '.self::TUNNEL." was started from another checkout, $first, and is left running.\nThe launchd job dev.verified-human-approval.demo.8081 was started from another checkout, $first, and is left alone: stop it from there.\n"], $this->publicDemo($second, 'stop'));
         self::assertSame([], $this->calls(), 'The second checkout submitted, removed and killed nothing.');
         self::assertSame($running, $this->processes());
 
-        // With only the first checkout's tunnel left, the second still does not take it over.
+        // With only the first checkout's tunnel left, the second still does not take it over, nor serve its own demo for
+        // that tunnel to publish.
         self::assertSame(0, $this->server($first, 'stop', ['VERIFIED_HUMAN_APPROVAL_RUNTIME' => $first.'/var/public-demo', 'PORT' => '8081'])[0]);
         $this->forgetCalls();
         self::assertSame([1, $another], $this->publicDemo($second, 'start'));
+        self::assertSame([1, $another], $this->publicDemo($second, 'reset'));
         self::assertSame([], $this->calls());
 
         // The first checkout stops its own.
