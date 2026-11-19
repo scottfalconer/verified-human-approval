@@ -7,6 +7,7 @@ namespace VerifiedHumanApproval\Tests\Core;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Clock\MockClock;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
+use VerifiedHumanApproval\Core\CanonicalJson;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
 use VerifiedHumanApproval\Core\Evidence\TrustedKey;
 use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
@@ -74,6 +75,53 @@ final class AuditKeyRotationTest extends TestCase
         self::assertSame('it is signed with key "application-1", which entry 2 rotated away from', $report['entries'][2]['problem']);
         self::assertNotNull($report['entries'][2]['entry'], 'Its signature verifies, so the administrator can see what it claims.');
         self::assertNotNull($after->find('passkey.enrolled', 'cred-1'), 'What the old key signed before the rotation still vouches.');
+    }
+
+    public function testDamagingTheRotationEntryLeavesWhatTheRetiredKeySignedCountingForNothing(): void
+    {
+        $this->before()->append('tenant-a', 'passkey.enrolled', 'cred-1', ['userId' => 'alice']);
+        $after = $this->rotate();
+
+        // Someone holding the old private key and the database breaks the rotation entry's signature, so it no
+        // longer shows that trust moved away from the old key, and appends a backdated enrollment signed with it.
+        $this->pdo->exec("UPDATE verified_human_approval_audit SET signature = (CASE substr(signature, 1, 1) WHEN 'A' THEN 'B' ELSE 'A' END) || substr(signature, 2) WHERE type = 'signing_key.rotated'");
+        $thief = new AuditLog($this->store, $this->old, TrustedKeys::single('application-1', $this->old->publicKey()), new MockClock('2026-11-08T10:00:00Z'));
+        $thief->append('tenant-a', 'passkey.enrolled', 'cred-thief', ['userId' => 'alice']);
+        // The application's next entry, signed with the new key, follows the forged one.
+        $after->append('tenant-b', 'connection.revoked', 'grant-1', ['userId' => 'bob']);
+
+        self::assertNull($after->find('passkey.enrolled', 'cred-thief'));
+        self::assertNull($after->find('passkey.enrolled', 'cred-1'), 'While the entries before the new key took over are damaged, nothing the old key signed counts.');
+        self::assertSame([
+            1 => 'it is signed with key "application-1", whose window has closed, and no later entry signed with a key in use vouches for it',
+            2 => 'its signature or hash does not verify',
+            3 => 'it is signed with key "application-1", whose window has closed, and an entry before it does not verify',
+            4 => null,
+        ], array_column($after->verify()['entries'], 'problem', 'seq'));
+    }
+
+    public function testAnEntrySlippedInFrontOfARewrittenRotationIsNotVouchedForThroughIt(): void
+    {
+        $this->before()->append('tenant-a', 'passkey.enrolled', 'cred-1', ['userId' => 'alice']);
+        $after = $this->rotate();
+
+        // The rotation is the newest entry. Someone holding the old private key and the database takes it off,
+        // appends a backdated enrollment signed with the old key, and puts the rotation back after it, renumbered.
+        $rotation = $this->pdo->query('SELECT * FROM verified_human_approval_audit WHERE seq = 2')->fetch(\PDO::FETCH_ASSOC);
+        self::assertIsArray($rotation);
+        $this->pdo->exec('DELETE FROM verified_human_approval_audit WHERE seq = 2');
+        $thief = new AuditLog($this->store, $this->old, TrustedKeys::single('application-1', $this->old->publicKey()), new MockClock('2026-11-08T10:00:00Z'));
+        $thief->append('tenant-a', 'passkey.enrolled', 'cred-thief', ['userId' => 'alice']);
+        $forged = (string) $this->pdo->query('SELECT entry FROM verified_human_approval_audit WHERE seq = 2')->fetchColumn();
+        $moved = CanonicalJson::encode(['seq' => 3, 'previous' => hash('sha256', $forged)] + CanonicalJson::map(CanonicalJson::decode($rotation['entry'])));
+        $this->pdo->prepare('INSERT INTO verified_human_approval_audit (seq, tenant_id, type, subject, entry, hash, key_id, signature) VALUES (3, ?, ?, ?, ?, ?, ?, ?)')
+            ->execute([$rotation['tenant_id'], $rotation['type'], $rotation['subject'], $moved, hash('sha256', $moved), $rotation['key_id'], $rotation['signature']]);
+        // The application's next entry follows the rewritten rotation, which links to the forged entry.
+        $after->append('tenant-b', 'connection.revoked', 'grant-1', ['userId' => 'bob']);
+
+        self::assertNull($after->find('passkey.enrolled', 'cred-thief'), 'Only entries that verify carry the new key\'s vouching back.');
+        $unvouched = 'it is signed with key "application-1", whose window has closed, and no later entry signed with a key in use vouches for it';
+        self::assertSame([1 => $unvouched, 2 => $unvouched, 3 => 'its signature or hash does not verify', 4 => null], array_column($after->verify()['entries'], 'problem', 'seq'));
     }
 
     public function testWhatAClosedKeySignedCountsOnceTheNewKeyHasSigned(): void

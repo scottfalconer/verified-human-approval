@@ -22,9 +22,12 @@ use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
  * Entries are checked against the application's TrustedKeys. A row names its key; a key the set does not
  * list verifies nothing, and an entry whose time ("at") falls outside its key's window is refused. Once the
  * chain records a rotation away from a key (recordRotation()), an entry after it signed with that key is
- * refused too, whatever time it claims. And once a key's window has closed, what it signed counts only while a
- * later entry signed with a key in use links back to it through the chain: the new key vouches for the old
- * key's entries as they stood when it first signed, so record the rotation as soon as the new key signs.
+ * refused too, whatever time it claims. And once a key's window has closed, what it signed counts only while
+ * a later entry signed with a key in use vouches for it, and every entry from the first through that one is
+ * kept as it was written: the new key vouches for the old key's entries as they stood when it first signed, so
+ * record the rotation as soon as the new key signs. An entry edited or removed anywhere in that stretch, the
+ * rotation itself included, leaves the old key's entries counting for nothing, as it could hide where trust
+ * moved.
  *
  * This class builds, signs and checks entries; an AuditStore keeps the rows. One chain spans every tenant.
  *
@@ -135,23 +138,30 @@ final readonly class AuditLog
 
     /**
      * The newest entry of a type for a subject that the trusted keys vouch for, or null. Its own hash, signature
-     * and key must verify. If its key's window has closed, as after a rotation, an entry signed with a key still
-     * in use must also vouch for it: a later entry, signed with such a key, that the chain links back to it.
-     * So once the new key has signed anything, such as the rotation entry, a stolen copy of the old key cannot
-     * swap in an entry of its own from before then, nor add one at the end.
+     * and key must verify. If its key's window has closed, as after a rotation, verify() must accept it too:
+     * a later entry signed with a key in use vouches for it, and every entry from the first through that one is
+     * kept as it was written. So once the new key has signed anything, such as the rotation entry, a stolen copy
+     * of the old key cannot swap in an entry of its own from before then, nor add one at the end, even after
+     * damaging the rotation entry.
      *
      * @return array<string, mixed>|null
      */
     public function find(string $type, string $subject): ?array
     {
         $now = $this->clock->now();
+        $verified = null;
         // A damaged newer entry is passed over, never trusted; an older one that verifies is returned.
         foreach ($this->store->recordsFor($type, $subject) as $row) {
             ['entry' => $entry, 'problem' => $problem] = $this->check($row);
             if (null === $entry || null !== $problem || $this->signedAfterRotation($row['key_id'], (int) $row['seq'])) {
                 continue;
             }
-            if ($this->inUse($row['key_id'], $now) || $this->vouchedFor($row, $now)) {
+            if ($this->inUse($row['key_id'], $now)) {
+                return $entry;
+            }
+            // Each stored hash is the hash of its entry, which names its sequence: equal hashes are the same entry.
+            $verified ??= array_column(array_filter($this->verify()['entries'], static fn (array $item): bool => $item['valid']), 'seq', 'hash');
+            if (isset($verified[$row['hash']])) {
                 return $entry;
             }
         }
@@ -160,10 +170,48 @@ final readonly class AuditLog
     }
 
     /**
+     * Whether the log holds an entry of this type for this subject, whether it verifies or not. Use it for an
+     * entry that only ever takes trust away, such as a revocation: one that was damaged still counts.
+     */
+    public function recorded(string $type, string $subject): bool
+    {
+        return [] !== [...$this->store->recordsFor($type, $subject)];
+    }
+
+    /**
+     * Whether entry $seq and every entry after it, up to the newest, are kept as they were written: each is
+     * signed by a trusted key over exactly what its row says, and follows the one before it. Check it before
+     * trusting that something was not recorded since, such as a revocation: no entry after $seq can then have
+     * been edited, retargeted or removed, except by cutting off the newest entries, which a checkpoint of the
+     * head kept where the application cannot write exposes (see checkpoint()). Whether each key was entitled to
+     * sign when it did, given its window and the rotations, is for verify() to report: it changes nothing here.
+     */
+    public function intactSince(int $seq): bool
+    {
+        $expected = $seq;
+        $previous = null;
+        foreach ($this->store->records() as $row) {
+            if ((int) $row['seq'] < $seq) {
+                continue;
+            }
+            $entry = $this->check($row)['entry'];
+            // Only what follows entry $seq is in question, not how it follows the entry before it.
+            if (null === $entry || (int) $row['seq'] !== $expected || ($expected > $seq && $entry['previous'] !== $previous)) {
+                return false;
+            }
+            $previous = $row['hash'];
+            ++$expected;
+        }
+
+        return $expected > $seq;
+    }
+
+    /**
      * Every entry, oldest first, each checked on its own and against the one before it. Each names the key
-     * its row says signed it and its hash; the entry itself is there once its signature verifies. "unvouched"
-     * marks an entry signed with a key whose window has closed that no later entry signed with a key in use
-     * vouches for, so find() does not count it (see unvouchedKeys()).
+     * its row says signed it and its hash; the entry itself is there once its signature verifies. An entry
+     * signed with a key whose window has closed is valid only while every entry before it is kept as it was
+     * written, and "unvouched" marks one that no later entry signed with a key in use vouches for, through
+     * entries kept as they were written, so find() does not count it (see unvouchedKeys()).
      *
      * @return array{entries: list<array{entry: ?array<string, mixed>, seq: int, valid: bool, problem: ?string, keyId: string, hash: string, unvouched: bool}>, intact: bool, newest: int}
      */
@@ -175,27 +223,35 @@ final readonly class AuditLog
         $now = $this->clock->now();
         // Where the chain moved trust away from each key: by key id, the sequence of that rotation.
         $rotatedAway = [];
+        // Whether an entry so far was edited, removed or put out of order, which could hide such a rotation.
+        $damaged = false;
         foreach ($this->store->records() as $row) {
             ['entry' => $entry, 'problem' => $problem] = $this->check($row);
-            if (null === $problem && null !== $entry) {
-                $problem = match (true) {
-                    (int) $row['seq'] !== $expected => 'an entry before it is missing',
-                    $entry['previous'] !== $previous => 'it does not follow the entry before it',
-                    isset($rotatedAway[$row['key_id']]) => \sprintf('it is signed with key "%s", which entry %d rotated away from', $row['key_id'], $rotatedAway[$row['key_id']]),
-                    default => null,
-                };
-                if (null === $problem && self::KEY_ROTATED === $entry['type']) {
-                    $rotatedAway[$entry['subject']] ??= (int) $row['seq'];
-                }
+            $inUse = $this->inUse($row['key_id'], $now);
+            $link = null === $entry ? null : match (true) {
+                (int) $row['seq'] !== $expected => 'an entry before it is missing',
+                $entry['previous'] !== $previous => 'it does not follow the entry before it',
+                default => null,
+            };
+            $problem ??= $link ?? match (true) {
+                isset($rotatedAway[$row['key_id']]) => \sprintf('it is signed with key "%s", which entry %d rotated away from', $row['key_id'], $rotatedAway[$row['key_id']]),
+                !$inUse && $damaged => \sprintf('it is signed with key "%s", whose window has closed, and an entry before it does not verify', $row['key_id']),
+                default => null,
+            };
+            if (null === $problem && null !== $entry && self::KEY_ROTATED === $entry['type']) {
+                $rotatedAway[$entry['subject']] ??= (int) $row['seq'];
             }
-            $checked[] = ['row' => $row, 'entry' => $entry, 'problem' => $problem, 'follows' => self::follows($row, $previous, $expected), 'inUse' => $this->inUse($row['key_id'], $now)];
+            // Kept as it was written: it says exactly what was signed, and follows the entry before it.
+            $kept = null !== $entry && null === $link;
+            $damaged = $damaged || !$kept;
+            $checked[] = ['row' => $row, 'entry' => $entry, 'problem' => $problem, 'kept' => $kept, 'inUse' => $inUse];
             $previous = $row['hash'];
             $expected = (int) $row['seq'] + 1;
         }
 
-        // From the newest back: whether a later entry signed with a key in use links back to each entry, which
-        // find() requires of one whose key's window has closed. A row that does not link to the one before it
-        // cuts everything before it off from what comes later.
+        // From the newest back: whether a later entry signed with a key in use vouches for each entry, which
+        // find() requires of one whose key's window has closed. Only entries kept as they were written carry that
+        // back: one that is not cuts everything before it off from what comes later.
         $unvouched = [];
         $vouched = false;
         for ($position = \count($checked) - 1; $position >= 0; --$position) {
@@ -203,7 +259,7 @@ final readonly class AuditLog
             if (null === $item['problem'] && !$item['inUse'] && !$vouched) {
                 $unvouched[$position] = true;
             }
-            $vouched = $item['follows'] && ((null === $item['problem'] && $item['inUse']) || $vouched);
+            $vouched = $item['kept'] && ((null === $item['problem'] && $item['inUse']) || $vouched);
         }
         $entries = [];
         foreach ($checked as $position => $item) {
@@ -374,59 +430,5 @@ final readonly class AuditLog
     private function inUse(string $keyId, \DateTimeImmutable $now): bool
     {
         return $this->keys->get($keyId)?->covers($now) ?? false;
-    }
-
-    /**
-     * Whether a later entry, signed with a key in use and verifying on its own, links back to $row through the
-     * chain. Each entry names the hash of the one before it, so that entry fixes every entry before it as it was
-     * stored when it was signed: a row swapped in or inserted since, even one signed with a retired key and
-     * backdated into its window, breaks the link.
-     *
-     * @param AuditRecord $row
-     */
-    private function vouchedFor(array $row, \DateTimeImmutable $now): bool
-    {
-        $hash = null;
-        $seq = 0;
-        foreach ($this->store->records() as $next) {
-            if (null === $hash) {
-                if ((int) $next['seq'] === (int) $row['seq'] && $next['entry'] === $row['entry']) {
-                    [$hash, $seq] = [hash('sha256', $next['entry']), (int) $next['seq']];
-                }
-                continue;
-            }
-            if (!self::follows($next, $hash, $seq + 1)) {
-                return false;
-            }
-            if ($this->inUse($next['key_id'], $now) && !$this->signedAfterRotation($next['key_id'], (int) $next['seq'])) {
-                ['entry' => $entry, 'problem' => $problem] = $this->check($next);
-                if (null !== $entry && null === $problem) {
-                    return true;
-                }
-            }
-            [$hash, $seq] = [$next['hash'], (int) $next['seq']];
-        }
-
-        return false;
-    }
-
-    /**
-     * Whether $row links to the row before it: it comes at the next sequence, its stored hash is its own, and
-     * its entry names $previous, the hash of the row before it, or null for the first.
-     *
-     * @param AuditRecord $row
-     */
-    private static function follows(array $row, ?string $previous, int $seq): bool
-    {
-        if ((int) $row['seq'] !== $seq || !hash_equals(hash('sha256', $row['entry']), $row['hash'])) {
-            return false;
-        }
-        try {
-            $entry = CanonicalJson::map(CanonicalJson::decode($row['entry']));
-        } catch (\Throwable) {
-            return false;
-        }
-
-        return ($entry['previous'] ?? null) === $previous;
     }
 }

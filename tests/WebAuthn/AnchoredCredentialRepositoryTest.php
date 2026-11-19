@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\WebAuthn;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Clock\MockClock;
 use VerifiedHumanApproval\Core\Actor;
@@ -25,6 +26,7 @@ final class AnchoredCredentialRepositoryTest extends TestCase
 {
     private \PDO $pdo;
     private PdoCredentialRepository $stored;
+    private AuditLog $audit;
     private AnchoredCredentialRepository $anchored;
     private WebAuthnVerifier $verifier;
     private Actor $actor;
@@ -37,8 +39,8 @@ final class AnchoredCredentialRepositoryTest extends TestCase
         $signer = new SodiumEvidenceSigner('app-key', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
         $auditStore = new PdoAuditStore($this->pdo);
         $auditStore->initialize();
-        $audit = new AuditLog($auditStore, $signer, $signer->publicKey(), new MockClock());
-        $this->anchored = new AnchoredCredentialRepository($this->stored, $audit);
+        $this->audit = new AuditLog($auditStore, $signer, $signer->publicKey(), new MockClock());
+        $this->anchored = new AnchoredCredentialRepository($this->stored, $this->audit);
         $this->verifier = new WebAuthnVerifier(new Configuration('approval.test', 'https://approval.test'), $this->anchored);
         $this->actor = new Actor('editor', 'acme');
     }
@@ -112,6 +114,70 @@ final class AnchoredCredentialRepositoryTest extends TestCase
         self::assertFalse($this->approves($authenticator));
     }
 
+    /** @return iterable<string, array{string}> */
+    public static function undoneRevocations(): iterable
+    {
+        yield 'its entry deleted' => ["DELETE FROM verified_human_approval_audit WHERE type = 'passkey.revoked'"];
+        yield 'its signature broken' => ["UPDATE verified_human_approval_audit SET signature = (CASE substr(signature, 1, 1) WHEN 'A' THEN 'B' ELSE 'A' END) || substr(signature, 2) WHERE type = 'passkey.revoked'"];
+        yield 'its subject column pointed elsewhere' => ["UPDATE verified_human_approval_audit SET subject = 'another-passkey' WHERE type = 'passkey.revoked'"];
+        yield 'its type column changed' => ["UPDATE verified_human_approval_audit SET type = 'passkey.renamed' WHERE type = 'passkey.revoked'"];
+    }
+
+    #[DataProvider('undoneRevocations')]
+    public function testARevokedPasskeyStaysRevokedWhenTheDatabaseUndoesItsRevocation(string $undo): void
+    {
+        $authenticator = new VirtualAuthenticator();
+        $credential = $this->enroll($authenticator);
+        self::assertTrue($this->anchored->revoke($this->actor, $credential->id, ['by' => 'editor', 'why' => 'laptop stolen']));
+        // Another entry after it: cutting the newest entries off the log is a limit of its own, below.
+        $this->audit->append('acme', 'connection.revoked', 'grant-1', ['by' => 'editor']);
+
+        // Someone who can write the database, and holds no signing key, flips the row back and hides the revocation.
+        $this->pdo->exec('UPDATE verified_human_approval_credentials SET revoked = 0');
+        $this->pdo->exec($undo);
+
+        self::assertFalse($this->approves($authenticator));
+        self::assertNull($this->anchored->find($credential->id));
+        self::assertFalse($this->audit->verify()['intact'], 'The audit page shows the damage too.');
+    }
+
+    public function testDamageAfterAnEnrollmentStopsThatPasskeyUntilItsOwnerEnrollsAnother(): void
+    {
+        $authenticator = new VirtualAuthenticator();
+        $this->enroll($authenticator);
+        $this->audit->append('acme', 'connection.revoked', 'grant-1', ['by' => 'editor']);
+        $this->pdo->exec("UPDATE verified_human_approval_audit SET entry = REPLACE(entry, 'editor', 'mallory') WHERE type = 'connection.revoked'");
+
+        // Any entry since the enrollment could have been its revocation, so the passkey stops, and says why.
+        self::assertFalse($this->approves($authenticator));
+        try {
+            $this->verifier->requestOptions($this->actor, random_bytes(32));
+            self::fail('The passkey was offered.');
+        } catch (ApprovalException $error) {
+            self::assertSame('credential_unvouched', $error->reason);
+        }
+        // Nothing damaged follows an enrollment made now.
+        $replacement = new VirtualAuthenticator();
+        $this->enroll($replacement);
+        self::assertTrue($this->approves($replacement));
+    }
+
+    public function testOnlyACheckpointShowsThatTheNewestEntriesWereCutOff(): void
+    {
+        $authenticator = new VirtualAuthenticator();
+        $credential = $this->enroll($authenticator);
+        self::assertTrue($this->anchored->revoke($this->actor, $credential->id, ['by' => 'editor']));
+        $checkpoint = $this->audit->head();
+        self::assertNotNull($checkpoint);
+
+        // The revocation is the newest entry: deleting it leaves a chain that verifies, so the log alone cannot tell.
+        $this->pdo->exec('DELETE FROM verified_human_approval_audit WHERE seq = (SELECT MAX(seq) FROM verified_human_approval_audit)');
+        $this->pdo->exec('UPDATE verified_human_approval_credentials SET revoked = 0');
+        self::assertTrue($this->audit->verify()['intact']);
+        self::assertTrue($this->approves($authenticator), 'This is the documented limit: the log cannot show its own newest entries cut off.');
+        self::assertSame('The log now ends at entry 1, before the kept entry 2: entries were cut off.', $this->audit->checkpoint($checkpoint['seq'], $checkpoint['hash']));
+    }
+
     public function testSignedEnrollmentCanWrapANonPdoRevocableRepository(): void
     {
         $credential = new Credential('portable-key', $this->actor->userId, $this->actor->tenantId,
@@ -131,6 +197,9 @@ final class AnchoredCredentialRepositoryTest extends TestCase
         });
         $store->method('recordsFor')->willReturnCallback(static function (string $type, string $subject) use (&$records): array {
             return array_values(array_filter(array_reverse($records), static fn (array $row): bool => $row['type'] === $type && $row['subject'] === $subject));
+        });
+        $store->method('records')->willReturnCallback(static function () use (&$records): array {
+            return $records;
         });
         $signer = new SodiumEvidenceSigner('portable-key', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
         $anchored = new AnchoredCredentialRepository($raw, new AuditLog($store, $signer, $signer->publicKey(), new MockClock()));

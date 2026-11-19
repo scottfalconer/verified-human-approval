@@ -13,6 +13,13 @@ use VerifiedHumanApproval\Core\Audit\AuditLog;
  * credential inserted or altered directly in the database can never approve anything, and an
  * administrator can re-check any past approval against the key that was actually enrolled.
  *
+ * Revocation is recorded in the same log, and the log is trusted to show it: a passkey approves nothing once
+ * any revocation entry names it, intact or damaged, nor while an entry since its enrollment no longer carries
+ * a trusted signature over what its row says, or no longer follows the one before it. So editing, retargeting
+ * or deleting a revocation does not restore the passkey. Cutting the newest entries off the log is the
+ * exception: only a checkpoint of its head, kept where the application cannot write (AuditLog::checkpoint()),
+ * shows that a revocation among them is gone.
+ *
  * It wraps any RevocableCredentialRepository, so a host can keep passkeys in its own storage. Wire the
  * verifier's CredentialRepository to this wrapper and give the wrapper the raw adapter, never itself.
  */
@@ -85,11 +92,8 @@ final readonly class AnchoredCredentialRepository implements CredentialRepositor
     public function enrolled(string $id): ?Credential
     {
         $record = $this->audit->find(self::ENROLLED, $id);
-        if (null === $record || !\is_string($record['data']->sourceJson ?? null) || !\is_string($record['data']->userId ?? null)) {
-            return null;
-        }
 
-        return new Credential($id, $record['data']->userId, $record['tenantId'], $record['data']->sourceJson, false, (string) ($record['data']->label ?? 'Passkey'));
+        return null === $record ? null : self::credential($id, $record);
     }
 
     /** @return array<string, mixed>|null the signed enrollment entry */
@@ -101,7 +105,8 @@ final readonly class AnchoredCredentialRepository implements CredentialRepositor
     /**
      * The owner's stored passkeys that no signed enrollment vouches for now, so they cannot approve: for example,
      * passkeys enrolled under a signing key whose window has closed before the rotation away from it was recorded
-     * (AuditLog::unvouchedKeys() lists such keys), or a record that was damaged.
+     * (AuditLog::unvouchedKeys() lists such keys), a record that was damaged, or a log damaged since the
+     * enrollment (AuditLog::verify() says where).
      *
      * @return list<Credential>
      */
@@ -112,9 +117,12 @@ final readonly class AnchoredCredentialRepository implements CredentialRepositor
 
     public function anchored(Credential $credential): bool
     {
-        $enrolled = $this->enrolled($credential->id);
+        $record = $this->audit->find(self::ENROLLED, $credential->id);
+        $enrolled = null === $record ? null : self::credential($credential->id, $record);
         if (null === $enrolled || !$enrolled->belongsTo(new Actor($credential->userId, $credential->tenantId))
-            || null !== $this->audit->find(self::REVOKED, $credential->id)) {
+            // A revocation only takes trust away, so any trace of one counts; and as one could be missing, nothing
+            // recorded since the enrollment may have been edited, retargeted or removed.
+            || $this->audit->recorded(self::REVOKED, $credential->id) || !$this->audit->intactSince((int) $record['seq'])) {
             return false;
         }
         $then = json_decode($enrolled->sourceJson, true);
@@ -129,5 +137,20 @@ final readonly class AnchoredCredentialRepository implements CredentialRepositor
         }
 
         return true;
+    }
+
+    /**
+     * The passkey a signed enrollment entry describes, or null if the entry lacks what one needs.
+     *
+     * @param array<string, mixed> $record
+     */
+    private static function credential(string $id, array $record): ?Credential
+    {
+        $data = $record['data'] ?? null;
+        if (!$data instanceof \stdClass || !\is_string($data->sourceJson ?? null) || !\is_string($data->userId ?? null) || !\is_string($record['tenantId'] ?? null)) {
+            return null;
+        }
+
+        return new Credential($id, $data->userId, $record['tenantId'], $data->sourceJson, false, (string) ($data->label ?? 'Passkey'));
     }
 }

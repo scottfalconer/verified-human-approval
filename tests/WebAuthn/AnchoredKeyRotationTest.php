@@ -82,6 +82,40 @@ final class AnchoredKeyRotationTest extends TestCase
         self::assertFalse($this->approves($after, $intruder));
     }
 
+    public function testAnEntryTheRetiredKeySignsAfterTheRotationStopsNoPasskeyEnrolledBeforeIt(): void
+    {
+        $laptop = new VirtualAuthenticator();
+        $this->enroll($this->repository($this->old, new TrustedKeys([new TrustedKey('application-1', $this->old->publicKey(), TrustedKey::time('2026-11-01T00:00:00Z'))])), $laptop);
+        $after = $this->rotate();
+
+        // A worker that still signs with the old key: its entry is refused, but it was kept as written, so nothing
+        // recorded since the laptop's enrollment can be missing.
+        (new AuditLog($this->auditStore, $this->old, TrustedKeys::single('application-1', $this->old->publicKey()), new MockClock('2026-11-08T10:00:00Z')))->append('acme', 'connection.revoked', 'grant-1', ['by' => 'worker']);
+
+        self::assertFalse((new AuditLog($this->auditStore, $this->new, $this->rotatedKeys(), $this->clock))->verify()['intact'], 'The audit page still shows it.');
+        self::assertTrue($this->approves($after, $laptop));
+    }
+
+    public function testTheRetiredKeyCannotAnchorAPasskeyByDamagingTheRotationEntry(): void
+    {
+        $laptop = new VirtualAuthenticator();
+        $this->enroll($this->repository($this->old, new TrustedKeys([new TrustedKey('application-1', $this->old->publicKey(), TrustedKey::time('2026-11-01T00:00:00Z'))])), $laptop);
+        $after = $this->rotate();
+
+        // Someone with the old private key and the database breaks the rotation entry's signature, adds their own
+        // passkey with an enrollment signed with the old key and backdated, then waits for the application's next
+        // entry, signed with the new key, to follow it.
+        $this->pdo->exec("UPDATE verified_human_approval_audit SET signature = (CASE substr(signature, 1, 1) WHEN 'A' THEN 'B' ELSE 'A' END) || substr(signature, 2) WHERE type = 'signing_key.rotated'");
+        $intruder = new VirtualAuthenticator();
+        $credential = $this->enroll($this->repository($this->old, TrustedKeys::single('application-1', $this->old->publicKey()), new MockClock('2026-11-08T10:00:00Z')), $intruder);
+        $this->clock->sleep(3600);
+        (new AuditLog($this->auditStore, $this->new, $this->rotatedKeys(), $this->clock))->append('acme', 'connection.revoked', 'grant-1', ['by' => 'mallory']);
+
+        self::assertNull($after->enrollmentRecord($credential->id));
+        self::assertFalse($this->approves($after, $intruder));
+        self::assertFalse($this->approves($after, $laptop), 'Until an operator looks, what the old key signed counts for nothing.');
+    }
+
     public function testAPasskeyEnrolledBeforeTheSwitchApprovesOnceTheNewKeyHasSigned(): void
     {
         $before = $this->repository($this->old, new TrustedKeys([new TrustedKey('application-1', $this->old->publicKey(), TrustedKey::time('2026-11-01T00:00:00Z'))]));
