@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-/* Install the independent private Editorial Desk application against the current packages. */
+/* Install the independent Editorial Desk application against the current packages. */
 $root = dirname(__DIR__, 2);
 $directory = sys_get_temp_dir().'/vha-editorial-consumer-'.bin2hex(random_bytes(6));
 mkdir($directory, 0700);
