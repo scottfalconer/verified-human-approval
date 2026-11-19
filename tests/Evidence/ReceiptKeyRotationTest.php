@@ -166,6 +166,44 @@ final class ReceiptKeyRotationTest extends TestCase
         self::assertSame('completed', $this->service($this->new)->get($this->fixture->actor, $id)->status);
     }
 
+    public function testTheServiceCommitsNothingWhoseReceiptItsOwnKeysWouldRefuse(): void
+    {
+        $why = static fn (string $keyId): string => \sprintf('The receipt signing key "%s" is not one of the trusted keys at this time, so its receipt would not verify. List it in the trusted keys with a window that includes now.', $keyId);
+        // A host whose clock runs a second behind the new key's window, then a worker still signing with the
+        // retired key after its window closed.
+        foreach (['2026-11-09T11:59:59Z' => $this->new, '2026-11-09T13:00:00Z' => $this->old] as $now => $signer) {
+            $this->fixture->clock->modify($now);
+            $service = $this->service($signer, $this->keys);
+            $pending = $service->request($this->fixture->actor, 'article.publish', ['id' => 1]);
+            $ceremony = $service->begin($this->fixture->reviewer, $pending->request->id);
+            try {
+                $service->complete($this->fixture->reviewer, $ceremony->id, $this->fixture->proof($ceremony));
+                self::fail('An action committed with a receipt its own keys refuse.');
+            } catch (ApprovalException $error) {
+                self::assertSame('execution_failed', $error->reason);
+                self::assertSame($why($signer->keyId()), $error->getPrevious()?->getMessage());
+            }
+            self::assertSame(0, $this->fixture->effectCount());
+            self::assertSame('pending', $service->get($this->fixture->actor, $pending->request->id)->status, 'Nothing was recorded either.');
+        }
+
+        // Where the policy lets the action run without approval, the request itself refuses the same way.
+        $this->fixture->pdo->exec("UPDATE test_policies SET required = 0 WHERE action_id = 'article.publish'");
+        try {
+            $this->service($this->old, $this->keys)->request($this->fixture->actor, 'article.publish', ['id' => 2]);
+            self::fail('An action ran with a receipt its own keys refuse.');
+        } catch (\LogicException $error) {
+            self::assertSame($why('application-1'), $error->getMessage());
+        }
+        self::assertSame(0, $this->fixture->effectCount());
+
+        // With the key whose window covers now, the action runs once and its outcome reads back.
+        $current = $this->service($this->new, $this->keys);
+        $state = $current->request($this->fixture->actor, 'article.publish', ['id' => 2]);
+        self::assertSame(['completed', 'completed'], [$state->status, $current->get($this->fixture->actor, $state->request->id)->status]);
+        self::assertSame(1, $this->fixture->effectCount());
+    }
+
     /** One approved action, signed at commit when a signer is given; the clock says when. */
     private function commit(?EvidenceSigner $signer, int $article, ?string $requestKey = null): ApprovalState
     {

@@ -82,8 +82,7 @@ final readonly class AuditLog
             $seq = null === $head ? 1 : $head['seq'] + 1;
             $now = $this->clock->now();
             $keyId = $this->signer->keyId();
-            $key = $this->keys->get($keyId);
-            if (null === $key || !hash_equals($key->publicKey, $this->signer->publicKey()) || !$key->covers($now)) {
+            if (!$this->keys->trusts($this->signer, $now)) {
                 throw new \LogicException(\sprintf('The signing key "%s" is not one of the trusted keys at this time, so its entries would not verify. List it in the trusted keys with a window that includes now.', $keyId));
             }
             $entry = CanonicalJson::encode([

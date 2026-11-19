@@ -264,19 +264,30 @@ final class ApprovalService
         } else {
             $this->assertCurrent($request);
         }
+        $recordedAt = $this->clock->now();
         $execution = [
             'format' => 'verified-human-approval/execution/v1', 'requestId' => $request->id, 'proposalDigest' => $request->digest,
             'actor' => (object) $actor->toArray(), 'actionId' => $action->actionId, 'actionVersion' => $action->version,
             'target' => (object) $action->target, 'result' => (object) $result,
-            'recordedAt' => ApprovalRequest::timestamp($this->clock->now()),
+            'recordedAt' => ApprovalRequest::timestamp($recordedAt),
             'approval' => null === $proof ? 'not_required' : 'user_verified',
         ];
-        // Signed before commit: if signing fails, nothing executes, so no action goes unrecorded.
+        // Signed before commit: if signing fails, nothing executes, so no action goes unrecorded. Nor does an
+        // action commit with a receipt that this service's own keys would refuse when it reads the outcome back.
+        if (null !== $this->receipts && !$this->receiptKeys($this->receipts)->trusts($this->receipts, $recordedAt)) {
+            throw new \LogicException(\sprintf('The receipt signing key "%s" is not one of the trusted keys at this time, so its receipt would not verify. List it in the trusted keys with a window that includes now.', $this->receipts->keyId()));
+        }
         $receipt = null === $this->receipts ? null : Receipt::sign($this->receipts, $request->digest, $proof, $execution, Receipt::COMMIT);
         $completed = new ApprovalState($request, 'completed', null, $result, $execution, $proof, $receipt);
         $this->store->save($completed);
 
         return $completed;
+    }
+
+    /** The keys this service's receipts are checked against: those it was given, or else its signer's own key alone. */
+    private function receiptKeys(EvidenceSigner $receipts): TrustedKeys
+    {
+        return $this->trustedKeys ?? TrustedKeys::single($receipts->keyId(), $receipts->publicKey());
     }
 
     /** After commit: tell each observer, and never let one change the result the caller gets. */
@@ -382,9 +393,8 @@ final class ApprovalService
             return;
         }
         try {
-            $keys = $this->trustedKeys ?? TrustedKeys::single($this->receipts->keyId(), $this->receipts->publicKey());
             // The exporter without a signer returns the stored receipt or nothing: it never signs one now.
-            $verified = (new ReceiptVerifier())->verify((new EvidenceExporter())->export($state), $keys);
+            $verified = (new ReceiptVerifier())->verify((new EvidenceExporter())->export($state), $this->receiptKeys($this->receipts));
             // A receipt signed at export vouches for the record as it stood then, which may be after an edit.
             if (Receipt::COMMIT !== $verified['receiptSignedAt']) {
                 throw new \UnexpectedValueException('The stored receipt was not signed as the action committed.');

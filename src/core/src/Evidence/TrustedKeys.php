@@ -131,6 +131,18 @@ final readonly class TrustedKeys
         return $this->keys[$keyId] ?? null;
     }
 
+    /**
+     * Whether what $signer signs at $time verifies against these keys: its key is listed, with the same public
+     * key, and its window covers that time. Check it before signing, so that nothing is signed that the
+     * application's own keys would then refuse.
+     */
+    public function trusts(EvidenceSigner $signer, \DateTimeImmutable $time): bool
+    {
+        $key = $this->get($signer->keyId());
+
+        return null !== $key && hash_equals($key->publicKey, $signer->publicKey()) && $key->covers($time);
+    }
+
     /** @return non-empty-list<TrustedKey> */
     public function all(): array
     {
