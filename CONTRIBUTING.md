@@ -8,7 +8,7 @@ You need PHP 8.3 or later with the extensions `composer.json` lists, and Compose
 
 ```bash
 composer install
-composer test        # PHPUnit, two to three minutes
+composer test        # PHPUnit, about three minutes
 composer analyse     # PHPStan at level 8
 composer cs          # the coding standard; composer cs:fix applies it
 node --test tests/card_lifecycle.mjs tests/approval_recovery.mjs
@@ -18,9 +18,11 @@ PHP_BIN=php python3 tests/oauth_http_smoke.py
 
 Without database servers, the PostgreSQL and MySQL tests skip; [Verification](README.md#verification) shows how to run them.
 
-A change to what a package requires or ships should also pass the package checks that CI runs. The first six install packages from this checkout's `src/` into a new Composer project in a temporary directory and check them there with that project's own autoloader. The last installs nothing: it checks what each package's archive ships.
+A change to a `composer.json`, or to what a package ships, should also pass the manifest and package checks that CI runs. The `composer validate` lines check the root manifest, then each package's. Of the package checks, the first six install packages from this checkout's `src/` into a new Composer project in a temporary directory and check them there with that project's own autoloader. The last installs nothing: it checks what each package's archive ships.
 
 ```bash
+composer validate --strict --no-check-publish --no-check-all
+for manifest in src/*/composer.json; do composer validate --strict --no-check-publish --no-check-lock "$manifest"; done
 php tests/Package/check-consumer.php webauthn   # core and WebAuthn
 php tests/Package/check-consumer.php mcp        # core, WebAuthn and MCP
 php tests/Package/check-consumer.php doctrine   # core, WebAuthn and the Doctrine storage
