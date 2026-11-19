@@ -108,7 +108,7 @@ Each server run creates and drops its own throwaway database. The repository's C
 
 This is an example to learn from and copy, not a finished newsroom:
 
-- **Accounts.** Two accounts with passwords, from setup. There is no account management, password reset or recovery; a person's first passkey comes from a link setup prints, and adding another, or revoking one, is left to your account process (the [demo](../../demo/README.md) shows both). Registration has no rate limit of its own: the one-time link, the signed-in session and CSRF gate it. Approvals do have one, the bundle's.
+- **Accounts.** Two accounts with passwords, from setup. There is no account management, password reset or recovery; a person's first passkey comes from a link setup prints, and adding another, or revoking one, is left to your account process (the [demo](../../demo/README.md) shows both). Registration has no rate limit of its own: the one-time link, the signed-in session and CSRF gate it. The bundle limits approval attempts, and agents' requests for a change, per person.
 - **Agent tokens.** Static bearer tokens, one per account, with no expiry, rotation, OAuth or page to revoke them; revoking means setting `revoked_at` on the connection. They are labeled example-grade where they are defined.
 - **Permissions.** One role per account, editor or reader, and one tenant. A multi-tenant application keeps the tenant on the article and checks it.
 - **Drafts.** Not versioned. A live article's text changes only through an approved live edit, which also updates its draft; there is no forward draft of a live article.
