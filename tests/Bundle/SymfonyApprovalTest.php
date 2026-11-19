@@ -857,6 +857,16 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame(1, $this->mutationCount());
     }
 
+    public function testAnEmptyRequestKeyIsNoKey(): void
+    {
+        $client = $this->mcp();
+        $first = $client->callTool('publish_alert', ['alert_id' => 'riverside-evacuation', 'request_key' => '']);
+        self::assertFalse($first->isError, json_encode($first->structuredContent));
+        self::assertSame('pending', $first->structuredContent['status']);
+        self::assertSame($first->structuredContent['requestId'], $client->callTool('publish_alert', ['alert_id' => 'riverside-evacuation', 'request_key' => ''])->structuredContent['requestId'], 'Asked again, it is the same request, as without a key.');
+        self::assertSame(1, $this->pendingRequests());
+    }
+
     public function testAClientTheApplicationHasNotListedGetsTheCardAndLinkOnly(): void
     {
         $result = $this->modernCall(['alert_id' => 'riverside-evacuation'], client: 'another-client');

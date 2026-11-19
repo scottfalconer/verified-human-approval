@@ -635,6 +635,8 @@ final readonly class PublishDocumentTool
         #[Schema(description: 'The existing document ID in the authenticated tenant.')] string $document_id,
         #[Schema(description: ApprovalFlow::REQUEST_KEY_DESCRIPTION)] ?string $request_key = null,
     ): CallToolResult|InputRequiredResult {
+        // A model that fills in every argument may send an empty key: that is no key.
+        $request_key = '' === $request_key ? null : $request_key;
         try {
             $actor = $this->actors->current();
             $token = $context->getAccessToken()
