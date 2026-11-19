@@ -415,7 +415,7 @@ try {
 }
 ```
 
-When `$showOutcome` is false, show the request as an integrity error, not with its stored outcome, as the demo's [audit page](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/src/Controller/AuditController.php) does. Only an executed action has a receipt, so a status other than completed rests on the database alone.
+When `$showOutcome` is false, show the request as an integrity error, not with its stored outcome, as the demo's [audit page](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/src/Controller/AuditController.php) and Editorial Desk's [history page](https://github.com/scottfalconer/verified-human-approval/blob/main/tests/EditorialDesk/src/Controller/DeskController.php) do. Only an executed action has a receipt, so a status other than completed rests on the database alone.
 
 ## Stored receipts and later verification
 
