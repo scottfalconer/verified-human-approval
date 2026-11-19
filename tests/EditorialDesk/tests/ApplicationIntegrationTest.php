@@ -534,6 +534,53 @@ final class ApplicationIntegrationTest extends TestCase
         }
     }
 
+    /** @return iterable<string, array{string, bool}> an edit that keeps a record's stored parts in agreement, and whether it is to the waiting request */
+    public static function editsThatAgree(): iterable
+    {
+        yield 'a waiting request, made out to have completed' => ['forge', true];
+        yield 'the receipt of a completed request, deleted' => ['delete receipt', false];
+        yield 'the result of a completed request, changed in both places it is stored' => ['change result', false];
+    }
+
+    /** Edited parts that agree pass assertConsistent(); only the receipt signed as the change committed shows the edit. */
+    #[DataProvider('editsThatAgree')]
+    public function testTheHistoryShowsACompletedOutcomeOnlyWhileItsReceiptVerifies(string $edit, bool $waiting): void
+    {
+        $id = $this->published('web', 'Recorded change', 'A page with an approval history.');
+        $publication = $this->row($id)['live_request_id'];
+        $archive = $this->ask('web', 'archive', $id);
+        $damaged = $waiting ? $archive : $publication;
+        if ('forge' === $edit) {
+            $result = (object) ['page_id' => $id, 'status' => Page::ARCHIVED, 'revision' => 2];
+            $digest = (string) $this->database->fetchOne('SELECT digest FROM '.ApprovalSchema::REQUESTS.' WHERE id = ?', [$damaged]);
+            $this->database->executeStatement('UPDATE '.ApprovalSchema::REQUESTS." SET status = 'completed', result = ? WHERE id = ?", [CanonicalJson::encode($result), $damaged]);
+            $this->database->insert(ApprovalSchema::EXECUTIONS, ['request_id' => $damaged, 'record' => CanonicalJson::encode((object) ['requestId' => $damaged, 'proposalDigest' => $digest, 'result' => $result])]);
+        } elseif ('delete receipt' === $edit) {
+            $this->database->executeStatement('DELETE FROM '.ApprovalSchema::RECEIPTS.' WHERE request_id = ?', [$damaged]);
+        } else {
+            $record = CanonicalJson::map(CanonicalJson::decode((string) $this->database->fetchOne('SELECT record FROM '.ApprovalSchema::EXECUTIONS.' WHERE request_id = ?', [$damaged])));
+            $record['result']->revision = 99;
+            $this->database->executeStatement('UPDATE '.ApprovalSchema::EXECUTIONS.' SET record = ? WHERE request_id = ?', [CanonicalJson::encode((object) $record), $damaged]);
+            $this->database->executeStatement('UPDATE '.ApprovalSchema::REQUESTS.' SET result = ? WHERE id = ?', [CanonicalJson::encode($record['result']), $damaged]);
+        }
+        foreach ($this->container()->get(ApprovalHistory::class)->forResource('editorial', $id) as $state) {
+            self::assertInstanceOf(ApprovalState::class, $state);
+            $state->assertConsistent();
+        }
+
+        $browser = $this->browser();
+        $rows = $browser->request('GET', self::ORIGIN.'/desk/history/'.$id)->filter('tbody tr');
+        self::assertSame(200, $browser->getResponse()->getStatusCode());
+        $cells = $rows->each(static fn (Crawler $row): array => $row->filter('td')->each(static fn (Crawler $cell): string => $cell->text()));
+        $untrusted = ['Integrity error', 'Cannot be confirmed', 'View request'];
+        self::assertSame([
+            ['Archive published page: Recorded change', ...($waiting ? $untrusted : ['pending', 'No passkey recorded', 'View request'])],
+            ['Publish working draft: Recorded change', ...($waiting ? ['completed', 'Passkey recorded', 'View request'] : $untrusted)],
+        ], $cells, 'The edited record is not shown with the outcome it claims; the other keeps its own.');
+        $browser->request('GET', self::ORIGIN.'/approval/'.$damaged);
+        self::assertSame(409, $browser->getResponse()->getStatusCode(), 'Its review page says the same.');
+    }
+
     public function testAskingAgainWhileTheWaitingRequestIsDamagedSaysItsOutcomeCannotBeConfirmed(): void
     {
         $id = $this->createDraft('web', 'Waiting change', 'A request whose record is then damaged.');
