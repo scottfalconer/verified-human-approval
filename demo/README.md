@@ -52,7 +52,7 @@ PHP_CLI_SERVER_WORKERS=4 php -S localhost:8090 -t demo/public demo/public/index.
 2. Open that account's `passkey_link` from the same setup output, in the same browser.
 3. Register a passkey using the browser's prompt.
 
-The first passkey requires this one-time link, which expires after seven days. A password alone cannot enroll it. Adding another passkey requires an existing passkey.
+The first passkey requires this one-time link, which expires after seven days. A password alone cannot enroll it. Adding another passkey requires confirming with an existing one, or a new one-time link from an administrator, who confirms with their own passkey to issue it.
 
 Your device may use a fingerprint, face recognition, or a device PIN to unlock the passkey. The application verifies a WebAuthn signature; it does not receive your biometric data.
 
