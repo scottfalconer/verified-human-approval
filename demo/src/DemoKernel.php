@@ -318,9 +318,8 @@ final class DemoKernel extends Kernel
             'approval_status' => ['approval.read'],
             'approval_handoff' => ['approval.read'],
         ]), service(ProtectedResourceMetadata::class)]);
-        // Client ID metadata documents are fetched through a client that stays off this server's network and stops at a size limit.
         $services->set(DeviceCodeManager::class);
-        // League still owns token protocol handling. The decorator holds the SQLite writer across
+        // League owns token protocol handling. The decorator holds the SQLite writer across
         // validation, single-use consumption and successor-token persistence.
         $services->set(AtomicTokenController::class)
             ->decorate('league.oauth2_server.controller.token')
@@ -334,6 +333,7 @@ final class DemoKernel extends Kernel
         // The consent step takes the place of the provider's listener, whose Allow any later authorization would pass:
         // the person is asked about the exact request League validated, and Allow approves that one only.
         $services->set(ConsentGate::class)->decorate(ConsentListener::class);
+        // Client ID metadata documents are fetched through a client that stays off this server's network and stops at a size limit.
         $services->set(ClientMetadataHttpClient::class);
         $services->set(ClientIdMetadataResolver::class)->arg('$httpClient', service(ClientMetadataHttpClient::class))->arg('$cache', service('cache.app'));
         $services->get(PublishAlert::class)->arg('$layoutFiles', '%env(json:DEMO_RUNTIME_LAYOUT_FILES)%');

@@ -15,7 +15,7 @@ use VerifiedHumanApproval\Demo\DemoDatabase;
 /**
  * Changing who must verify is itself high-stakes, so it is an action like any other: the administrator
  * approves the exact change with their own passkey, it executes once, and its receipt is signed at
- * commit. A password session alone can no longer switch verification off.
+ * commit. A password session alone cannot switch verification off.
  */
 final readonly class ChangeAlertRule implements ActionAdapter
 {
