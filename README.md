@@ -51,6 +51,22 @@ A client clicking **Accept** is not human approval. If the application permits a
 
 The application must route every supported write path through the guarded action service. The bundle cannot protect an unrelated raw SQL write. See the [architecture](docs/overview.md) and [security model](docs/security-model.md) for the boundary.
 
+## Built with Symfony AI and the PHP MCP SDK
+
+The [PHP MCP SDK](https://github.com/modelcontextprotocol/php-sdk) and the [MCP Bundle](https://symfony.com/doc/current/ai/bundles/mcp-bundle.html) from [Symfony AI](https://ai.symfony.com) let a Symfony application put a person's passkey in front of an MCP tool while the tool stays an ordinary tool. A client needs nothing written for this project: the approval travels in a standard tool result, an MCP App and a URL-mode elicitation, and no client holds anything that can approve.
+
+- **An ordinary tool.** The demo's `publish_alert` ([`DemoTools`](demo/src/Mcp/DemoTools.php)) is a service method with the SDK's `#[McpTool]` attribute, which the MCP Bundle serves at `/mcp`. After a scope check it makes one call, `ApprovalFlow::respond()`, around `ApprovalService::request()`.
+- **A structured result.** The tool declares `outputSchema: ApprovalFlow::OUTPUT_SCHEMA` and returns a `CallToolResult` whose `structuredContent` holds the status, the review link and, once the action has run, the signed receipt. Only `completed` means that the action ran.
+- **The approval card.** `meta: ApprovalCard::TOOL_META` links the tool to an MCP App resource, which the bundle serves through the MCP Bundle's `#[AsMcpApp]` attribute (`ApprovalCardApp`). The card opens the review page and shows the outcome the application recorded. It never runs the passkey ceremony.
+- **A prompt that does not hold the call open.** For the clients its configuration names, `UrlPrompt` ends the call with the SDK's `InputRequiredResult`: a URL-mode `ElicitRequest` for the review page, and request state signed by `RequestContext::mintRequestState()`. When the client retries, the tool checks that state and reads only the stored outcome.
+- **Authorization.** The host's Symfony Security firewall validates the bearer token and gives the SDK an `AccessToken`, which each tool reads from its `RequestContext` to check scopes. The bundle's `McpScopeChallengeSubscriber` applies the SDK's `ScopePolicy`, so a token without a scope a tool needs gets HTTP 403 with `WWW-Authenticate: Bearer error="insufficient_scope"`.
+
+Symfony carries the rest. The bundle is an `AbstractBundle` with validated configuration. It relies on the host's SecurityBundle firewall and login, renders the review pages with Twig, checks CSRF tokens, limits approval attempts with RateLimiter and makes each phone code single-use with Lock. Its console commands print the audit log's head, record a key rotation and, on Doctrine, install the tables. The [Doctrine package](src/doctrine/README.md) keeps approvals on the application's DBAL connection, in the same transaction as its entities.
+
+Symfony AI's agent is used as a client. [`examples/agent.php`](examples/agent.php) runs Symfony AI's `Agent` with an `McpToolbox` connected to the demo through the SDK's client, and `--scripted` replaces the model with `MockPlatformFactory`, so no API key is needed. The packages and the demo server do not depend on Symfony AI's agent or platform packages; only the repository root requires them, for the examples.
+
+The [examples guide](examples/README.md) explains what each example runs, and the [publishing example](examples/doctrine-publishing/README.md) is a complete application on Doctrine to copy from. The [conformance review](docs/conformance-review.md) records protocol choices and interoperability limits.
+
 ## What it refuses
 
 | Attempt | Result |
@@ -119,12 +135,6 @@ The [integration guide](src/symfony-bundle/docs/index.md) is the canonical insta
 The engine is independent of Symfony. The worked Symfony example uses a single SQLite transaction; the Doctrine storage passes the same contract on SQLite, PostgreSQL and MySQL. External effects, such as an email or another service's API, are outside the transaction and need their own design.
 
 On Doctrine ORM, start from the [publishing example](examples/doctrine-publishing/README.md): a runnable newsroom where publishing, editing live content, archiving (also a batch, under one approval) and deleting each wait for the person's passkey, from the web and from an agent alike, with entities that refuse any other write and a public page that marks approved live text. Its tests cover SQLite, PostgreSQL and MySQL.
-
-## Built with Symfony and MCP
-
-The project uses the official PHP MCP SDK, Symfony MCP Bundle, Symfony AI and the WebAuthn Framework. Protected actions remain ordinary MCP tools. MCP Apps show the approval card, URL-mode elicitation provides an optional native prompt, and every client receives a plain review link. The demo includes OAuth for remote clients.
-
-The [examples guide](examples/README.md) explains what each example runs, and the [publishing example](examples/doctrine-publishing/README.md) is a complete application on Doctrine to copy from. The [conformance review](docs/conformance-review.md) records protocol choices and interoperability limits.
 
 ## Verification
 
