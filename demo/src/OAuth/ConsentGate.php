@@ -54,9 +54,9 @@ final readonly class ConsentGate
     }
 
     /**
-     * Where the code goes: the request's redirect URI, or the client's only one, registered for the client and in
-     * a plain form, so the host the page names is the one the person's browser sends the code to. Any other is
-     * refused here, without a redirect and before anyone is asked.
+     * Where the code goes: the request's redirect URI, or the client's only one, registered for the client, on https
+     * or back to this computer, and in a plain form, so the host the page names is the one the person's browser sends
+     * the code to. Any other is refused here, without a redirect and before anyone is asked.
      */
     private static function returnAddress(AuthorizationRequestResolveEvent $event): ReturnAddress
     {
@@ -66,7 +66,7 @@ final readonly class ConsentGate
             throw OAuthServerException::invalidRequest('redirect_uri', 'The redirect URI is not registered for this client.');
         }
 
-        return ReturnAddress::of($redirectUri) ?? throw OAuthServerException::invalidRequest('redirect_uri', ReturnAddress::NOT_PLAIN);
+        return ReturnAddress::of($redirectUri) ?? throw OAuthServerException::invalidRequest('redirect_uri', ReturnAddress::REFUSED);
     }
 
     /**

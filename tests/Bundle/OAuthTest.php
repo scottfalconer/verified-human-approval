@@ -194,8 +194,6 @@ final class OAuthTest extends TestCase
 
         $unknown = $this->token($api, ['grant_type' => 'authorization_code', 'code' => 'x', 'redirect_uri' => self::CALLBACK, 'client_id' => 'client_unknown', 'code_verifier' => str_repeat('c', 43)]);
         self::assertSame('invalid_client', $unknown['error'] ?? null);
-        $bad = $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => ['http://attacker.example/callback'], 'client_name' => 'Claude']);
-        self::assertSame('invalid_redirect_uri', $bad['error'] ?? null, 'A redirect over plain HTTP is accepted only back to this computer.');
     }
 
     public function testTheConsentPageSaysWhatConnectingMeansAndCannotBeFramed(): void
@@ -254,8 +252,22 @@ final class OAuthTest extends TestCase
         yield 'one slash after the scheme' => ['https:/attacker.example/callback'];
     }
 
+    /** @return iterable<string, array{string}> redirect URIs in plain form, but neither on https nor back to this computer, as MCP requires */
+    public static function redirectUrisNeitherHttpsNorLocal(): iterable
+    {
+        // A browser's own link: Safari and Chrome on iOS open these as https://attacker.example/…, off this computer.
+        yield 'Safari’s own link' => ['x-safari-https://attacker.example/api/mcp/auth_callback'];
+        yield 'Chrome’s own link' => ['googlechromes://attacker.example/callback'];
+        // An application's own link goes to whichever application opens it, which the page cannot name.
+        yield 'an application’s own link' => ['cursor://anysphere.cursor-mcp/oauth/callback'];
+        yield 'a private-use scheme' => ['com.example.app:/oauth2redirect'];
+        // Plain HTTP would carry the code across the network.
+        yield 'plain HTTP to another computer' => ['http://attacker.example/callback'];
+    }
+
     #[DataProvider('redirectUrisReadTwoWays')]
-    public function testARedirectUriABrowserReadsAnotherWayIsRefusedBeforeAnyoneIsAsked(string $redirectUri): void
+    #[DataProvider('redirectUrisNeitherHttpsNorLocal')]
+    public function testARedirectUriWithNoReturnAddressIsRefusedBeforeAnyoneIsAsked(string $redirectUri): void
     {
         // Sent without json(): refused before the provider's controller, it raises no registration deprecation.
         $api = $this->client();
@@ -289,8 +301,6 @@ final class OAuthTest extends TestCase
         yield 'localhost' => ['http://localhost:6274/oauth/callback', 'localhost', true];
         yield 'a name under localhost' => ['https://app.localhost/callback', 'app.localhost', true];
         yield 'the IPv6 loopback address' => ['http://[::1]:8080/callback', '[::1]', true];
-        yield 'an application link' => ['cursor://anysphere.cursor-retrieval/oauth/callback', 'cursor://anysphere.cursor-retrieval', true];
-        yield 'a private-use scheme' => ['com.example.app:/oauth2redirect', 'com.example.app:', true];
     }
 
     #[DataProvider('plainRedirectUris')]
@@ -319,7 +329,6 @@ final class OAuthTest extends TestCase
         yield 'an IPv4 address with a trailing dot' => ['http://127.0.0.1./callback'];
         yield 'the IPv6 loopback address in full' => ['http://[0:0:0:0:0:0:0:1]/callback'];
         yield 'a port past 65535' => ['https://claude.ai:65536/callback'];
-        yield 'a scheme browsers parse like http' => ['ftp://claude.ai/callback'];
     }
 
     #[DataProvider('redirectUrisNotPlain')]

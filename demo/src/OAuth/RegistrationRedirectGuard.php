@@ -11,10 +11,10 @@ use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
 
 /**
- * Open registration (omouren/mcp-oauth-bundle's /oauth/register), where a runtime offers it, takes a redirect URI
- * only in the plain form whose host the consent page can name (ReturnAddress). ConsentGate checks every
- * authorization again, for clients named by a client ID metadata document. It runs after the registration budget,
- * before the registration controller.
+ * Open registration (omouren/mcp-oauth-bundle's /oauth/register), where a runtime offers it, takes only a redirect
+ * URI whose host the consent page can name (ReturnAddress): on https or back to this computer, in plain form. The
+ * controller would also take an application's own link scheme. ConsentGate checks every authorization again, for
+ * clients named by a client ID metadata document. It runs after the registration budget, before the controller.
  */
 #[AsEventListener(event: KernelEvents::REQUEST, priority: 3)]
 final readonly class RegistrationRedirectGuard
@@ -33,7 +33,7 @@ final readonly class RegistrationRedirectGuard
         $metadata = json_decode($request->getContent(), true);
         foreach (\is_array($metadata) && \is_array($metadata['redirect_uris'] ?? null) ? $metadata['redirect_uris'] : [] as $redirectUri) {
             if (\is_string($redirectUri) && null === ReturnAddress::of($redirectUri)) {
-                $event->setResponse(new JsonResponse(['error' => 'invalid_redirect_uri', 'error_description' => ReturnAddress::NOT_PLAIN], 400, ['Cache-Control' => 'no-store']));
+                $event->setResponse(new JsonResponse(['error' => 'invalid_redirect_uri', 'error_description' => ReturnAddress::REFUSED], 400, ['Cache-Control' => 'no-store']));
 
                 return;
             }

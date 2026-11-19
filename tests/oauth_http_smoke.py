@@ -134,6 +134,8 @@ with tempfile.TemporaryDirectory(prefix="verified-human-approval-oauth-http-") a
             assert status == 410 and "claude.ai" not in html, "A consent link cannot choose what the page shows."
             status, _, body = request("/oauth/register", data={"client_name": "Claude", "redirect_uris": ["https://attacker.example\\@claude.ai/api/mcp/auth_callback"]})
             assert status == 400 and json.loads(body)["error"] == "invalid_redirect_uri", "A redirect URI a browser reads with another host is refused."
+            status, _, body = request("/oauth/register", data={"client_name": "Claude", "redirect_uris": ["x-safari-https://attacker.example/api/mcp/auth_callback"]})
+            assert status == 400 and json.loads(body)["error"] == "invalid_redirect_uri", "A redirect URI is on https or back to this computer, never an application's own link."
             wrong = consent(client_id)
             wrong["code_verifier"] = "a" * 43
             assert tokens(wrong)[1]["error"] == "invalid_grant", "PKCE must reject a wrong verifier."
@@ -159,7 +161,7 @@ with tempfile.TemporaryDirectory(prefix="verified-human-approval-oauth-http-") a
             with sqlite3.connect(runtime / "application.sqlite") as database:
                 assert database.execute("SELECT mutation_count FROM demo_alerts WHERE id='riverside-evacuation'").fetchone()[0] == 0
                 assert database.execute("SELECT COUNT(*) FROM verified_human_approval_executions").fetchone()[0] == 0
-            print(json.dumps({"passed": True, "checks": ["real HTTP metadata and session login", "consent shows only the validated request", "redirect URIs only in plain form", "consent with issuer and state", "S256 verifier rejection", "single-use code exchange", "real SDK calls using issued access token", "publication remains pending", "refresh rotation and old access revocation", "browser connection revocation ends access and refresh", "zero protected mutations without passkey approval"], "issuer": "League OAuth2 server + omouren MCP OAuth bundle", "external_accounts_used": False, "physical_passkey_tested": False}, indent=2))
+            print(json.dumps({"passed": True, "checks": ["real HTTP metadata and session login", "consent shows only the validated request", "redirect URIs only in plain form, on https or back to this computer", "consent with issuer and state", "S256 verifier rejection", "single-use code exchange", "real SDK calls using issued access token", "publication remains pending", "refresh rotation and old access revocation", "browser connection revocation ends access and refresh", "zero protected mutations without passkey approval"], "issuer": "League OAuth2 server + omouren MCP OAuth bundle", "external_accounts_used": False, "physical_passkey_tested": False}, indent=2))
         finally:
             server.terminate()
             try:
