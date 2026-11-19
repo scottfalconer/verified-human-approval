@@ -84,9 +84,9 @@
   const waiting = new Map();
   // A host may also announce the card's own calls, as the specification's diagram draws: a tool-input with a call's
   // arguments, then that call's tool-result. The card leaves both alone, since the call's reply brings its result.
-  // Each announcement is matched to one call the card made with those arguments for the current view, and each
-  // tool-result after it to one announcement, so calls that overlap are told apart. A new request starts both counts
-  // again, so an announced call whose result never came cannot take a later result for itself.
+  // The status and phone tools take the same arguments, so the card counts: each announcement takes one call made
+  // with its arguments for the current view, and each tool-result after it one announcement. A new request starts
+  // both counts again, so an announced call whose result never came cannot take a later result for itself.
   const unannounced = new Map();
   function callTool(name, args) {
     const key = JSON.stringify(args);
