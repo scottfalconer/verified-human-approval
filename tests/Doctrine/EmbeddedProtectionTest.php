@@ -61,6 +61,7 @@ final class EmbeddedProtectionTest extends TestCase
             'the marked embedded object' => [static function (Page $page): void { $page->published->title = 'Not approved'; }, 'published.title'],
             'the embedded object the configuration names' => [static function (Page $page): void { $page->scheduled->body = 'Not approved'; }, 'scheduled.body'],
             'the field its embeddable marks' => [static function (Page $page): void { $page->review->signedOffBy = 'mallory'; }, 'review.signedOffBy'],
+            'the embedded object its embeddable marks' => [static function (Page $page): void { $page->listing->summary->title = 'Not approved'; }, 'listing.summary.title'],
         ];
         foreach ($changes as $what => [$change, $field]) {
             $page = $this->page();
@@ -68,12 +69,13 @@ final class EmbeddedProtectionTest extends TestCase
             $this->assertRefused($field, $what);
             $this->manager->clear();
         }
-        self::assertSame(['Approved title', 'Approved words.', null, null], $this->stored(['published_title', 'published_body', 'scheduled_body', 'review_signedOffBy']));
+        self::assertSame(['Approved title', 'Approved words.', null, null, null], $this->stored(['published_title', 'published_body', 'scheduled_body', 'review_signedOffBy', 'listing_summary_title']));
 
-        // The draft and the embeddable's unmarked field stay free to edit.
+        // The draft and the embeddables' unmarked fields stay free to edit.
         $page = $this->page();
         $page->draft = 'Edited draft.';
         $page->review->remark = 'Looks good.';
+        $page->listing->notes->body = 'Check the dates.';
         $this->manager->flush();
 
         // An approved action that permits the page may change what it approved.
@@ -82,7 +84,7 @@ final class EmbeddedProtectionTest extends TestCase
             $this->listener->permit($page);
             $this->manager->flush();
         }, new ExecutingApproval('apr_1', 'page.publish', 'user_verified'));
-        self::assertSame(['Edited draft.', 'Looks good.', 'Approved again'], $this->stored(['draft', 'review_remark', 'published_title']));
+        self::assertSame(['Edited draft.', 'Looks good.', 'Check the dates.', 'Approved again'], $this->stored(['draft', 'review_remark', 'listing_notes_body', 'published_title']));
     }
 
     public function testInsertingOrDeletingAnEmbeddedApprovedStateIsAProtectedChange(): void
