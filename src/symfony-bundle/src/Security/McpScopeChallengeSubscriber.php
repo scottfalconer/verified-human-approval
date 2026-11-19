@@ -49,7 +49,8 @@ use Symfony\Component\HttpKernel\KernelEvents;
  *   that needs a scope and carries no such attribute is answered `401`.
  * - A tool the policy does not name needs nothing beyond the policy's default scopes.
  * - It recognises the endpoint by the MCP bundle's controller, wherever the path is, so one policy
- *   covers every HTTP server the application serves.
+ *   covers every HTTP server the application serves. A container in which no service is that controller
+ *   does not build, since this would challenge nothing there.
  *
  * Keep the scope checks inside your tools as well: stdio has no HTTP status to answer with, and over HTTP
  * they hold if this is ever left unregistered.

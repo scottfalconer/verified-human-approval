@@ -283,7 +283,7 @@ Before relying on it:
 - **It is opt-in, and it is for OAuth.** With fixed personal tokens there is no authorization server for a client to ask. Leave the subscriber out and keep the refusal in the tool, where the model can read it; the [publishing example](https://github.com/scottfalconer/verified-human-approval/blob/main/examples/doctrine-publishing/README.md) does.
 - **A tool the policy does not name needs no scope** beyond the policy's `$default` list. Add every new tool to the map. The checks inside your tools are what holds if one is forgotten.
 - **Your authenticator must have run.** Require a role for the MCP path in `access_control`, and set the validated token as the `AccessToken::class` request attribute, as [section 3](#3-connect-existing-authentication) asks.
-- **It covers every HTTP MCP server the application serves.** It recognises the MCP bundle's controller, not a path.
+- **It covers every HTTP MCP server the application serves.** It recognises the MCP bundle's controller, not a path. A container with the subscriber and no such controller does not build: it would challenge nothing there.
 - **Keep the scope checks in your tools.** Stdio has no HTTP status to answer with. Ownership and permission refusals are not scope problems either: they stay tool results, because a broader token would not change them.
 - **If you build the transport yourself, add the SDK's `AuthorizationMiddleware` instead.** The subscriber applies the same policy and writes the same header.
 

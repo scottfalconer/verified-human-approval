@@ -8,16 +8,23 @@ use Mcp\Server\Authorization\AccessToken;
 use Mcp\Server\Transport\Http\OAuth\ProtectedResourceMetadata;
 use Mcp\Server\Transport\Http\OAuth\ScopePolicy;
 use Mcp\Server\Transport\StreamableHttpTransport;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\AI\McpBundle\Controller\McpController;
+use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\Exception\LogicException;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Event\ControllerEvent;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
 use Symfony\Component\HttpKernel\KernelEvents;
 use VerifiedHumanApproval\Bundle\Security\McpScopeChallengeSubscriber;
+use VerifiedHumanApproval\Bundle\VerifiedHumanApprovalBundle;
 
-/** The subscriber on its own. ScopeAuthorizationTest runs it in the demo, behind a firewall and in front of the SDK. */
+/**
+ * The subscriber on its own, and the bundle's check that it has an MCP endpoint to answer for. ScopeAuthorizationTest
+ * runs it in the demo, behind a firewall and in front of the SDK.
+ */
 final class McpScopeChallengeSubscriberTest extends TestCase
 {
     private const TOOLS = ['publish_article' => ['articles.publish', 'approval.read'], 'approval_status' => ['approval.read']];
@@ -188,6 +195,46 @@ final class McpScopeChallengeSubscriberTest extends TestCase
         self::assertNull($this->answer($policy, self::post(self::call('publish_article')), controller: $closure));
         self::assertNull($this->answer($policy, self::post(self::call('publish_article')), controller: [new \ArrayObject(), 'count']));
         self::assertNull($this->answer($policy, self::request('OPTIONS', '')), 'A CORS preflight carries no credentials.');
+    }
+
+    /** @return iterable<string, array{?string}> */
+    public static function endpointsItWouldNotKnow(): iterable
+    {
+        yield 'no MCP server over HTTP' => [null];
+        // As a release of the MCP bundle that serves its endpoint with another controller would leave it.
+        yield 'another controller at the endpoint' => ['Symfony\AI\McpBundle\Controller\StreamableHttpController'];
+    }
+
+    #[DataProvider('endpointsItWouldNotKnow')]
+    public function testAContainerInWhichItWouldChallengeNothingDoesNotBuild(?string $endpoint): void
+    {
+        $container = self::container($endpoint);
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage(McpScopeChallengeSubscriber::class.' knows the MCP endpoint by symfony/mcp-bundle\'s '.McpController::class.', and no service is one, so it would challenge no request. Serve an MCP server over HTTP, or remove the subscriber.');
+        $container->compile();
+    }
+
+    public function testItBuildsBesideTheMcpBundlesController(): void
+    {
+        $container = self::container(McpController::class);
+        $container->compile();
+
+        self::assertInstanceOf(McpScopeChallengeSubscriber::class, $container->get(McpScopeChallengeSubscriber::class));
+    }
+
+    /** The bundle's compiler passes, the subscriber as the guide registers it, and the MCP endpoint's controller if there is one. */
+    private static function container(?string $endpoint): ContainerBuilder
+    {
+        $container = new ContainerBuilder();
+        (new VerifiedHumanApprovalBundle())->build($container);
+        $container->register(ScopePolicy::class, ScopePolicy::class);
+        $container->register(McpScopeChallengeSubscriber::class)->setAutowired(true)->setPublic(true);
+        if (null !== $endpoint) {
+            $container->register('mcp.server.application.controller', $endpoint);
+        }
+
+        return $container;
     }
 
     /** The response the subscriber answers with, or null when it leaves the controller in place. */

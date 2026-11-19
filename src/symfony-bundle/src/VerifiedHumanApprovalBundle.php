@@ -16,6 +16,7 @@ use VerifiedHumanApproval\Bundle\Command\InstallStorageCommand;
 use VerifiedHumanApproval\Bundle\Command\RecordKeyRotationCommand;
 use VerifiedHumanApproval\Bundle\Controller\ApprovalController;
 use VerifiedHumanApproval\Bundle\Controller\VerificationController;
+use VerifiedHumanApproval\Bundle\DependencyInjection\CheckScopeChallengePass;
 use VerifiedHumanApproval\Bundle\Handoff\ApprovalHandoff;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool;
@@ -60,6 +61,12 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\tagged_it
  */
 final class VerifiedHumanApprovalBundle extends AbstractBundle
 {
+    public function build(ContainerBuilder $container): void
+    {
+        parent::build($container);
+        $container->addCompilerPass(new CheckScopeChallengePass());
+    }
+
     public function configure(DefinitionConfigurator $definition): void
     {
         $root = $definition->rootNode();
