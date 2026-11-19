@@ -102,8 +102,9 @@ final readonly class AuditLog
 
     /**
      * Records that the application's signing key moved from $fromKeyId to the current signer, so the chain
-     * shows where trust moved. Record it once every host signs with the new key: the entry is signed with
-     * it, and from this entry on an entry signed with the old key is refused, whatever time it claims.
+     * shows where trust moved. Record it once every host and worker signs with the new key: the entry is signed
+     * with it, and from this entry on an entry signed with the old key is refused, whatever time it claims, and
+     * unrecorded() rules out nothing before such an entry.
      *
      * The trusted keys must already close the old key's window (validUntil) and open the new one's
      * (validFrom): receipts are not in the chain, so only the old key's window stops one it signs later.
@@ -174,13 +175,12 @@ final readonly class AuditLog
      * that something was never recorded, such as a passkey's revocation. Any trace counts, whether it verifies or
      * not: a row whose columns name the type and the subject, or whose entry does. The answer comes from the whole
      * chain, never from recordsFor(), which misses a row whose index or storage was edited. And a subject is ruled
-     * out only while every entry from its own sequence in $since to the newest is kept as it was written: signed by
-     * a trusted key over exactly what its row says, and following the one before it. Then none of them can have
-     * been edited, retargeted or removed, except by cutting off the newest entries, which only a checkpoint of the
-     * head kept where the application cannot write exposes (see checkpoint()). Whether each key was entitled to
-     * sign when it did, given its window and the rotations, is for verify() to report: it changes nothing here.
+     * out only while every entry after its own sequence in $since is one verify() accepts, or will once a later
+     * entry vouches for it, and its own entry is too, leaving aside how it follows the one before it. An entry the
+     * log refuses could be what is left of the one in question: edited, retargeted, removed, or rewritten with a
+     * retired key. Only the two edits the class description names can hide it unnoticed (see checkpoint()).
      *
-     * @param array<string, int> $since by subject, the entry from which its chain must be kept, such as its enrollment
+     * @param array<string, int> $since by subject, the entry from which its chain must verify, such as its enrollment
      *
      * @return list<string>
      */
@@ -190,36 +190,54 @@ final readonly class AuditLog
             return [];
         }
         $from = min($since);
-        $traces = [];
-        // From $from on, the newest entry not kept as written, and the newest that does not follow the one before it.
-        $unkept = 0;
-        $unlinked = 0;
-        $newest = 0;
-        $last = null;
+        $now = $this->clock->now();
+        $rows = [];
+        // The keys a row's columns say were rotated away from: a rotation counts only once its row matches what was
+        // signed, columns included.
+        $rotated = [];
         foreach ($this->store->records() as $row) {
+            $rows[] = $row;
+            if (self::KEY_ROTATED === $row['type']) {
+                $rotated[$row['subject']] = true;
+            }
+        }
+        // The chain before $from changes the verdict on a later entry only through rotations and damage, which count
+        // against a key that has an end, is not in use or was rotated away from. While every entry since is signed
+        // with some other key, what came before need not be checked.
+        $start = $from;
+        foreach ($rows as $row) {
+            if ((int) $row['seq'] >= $from && (!$this->open($row['key_id'], $now) || isset($rotated[$row['key_id']]))) {
+                $start = 1;
+                break;
+            }
+        }
+        // Each type and subject a row names, in its columns or in its entry, whether that verifies or not; and from
+        // $from on, the newest entry with something wrong apart from how it follows the one before it, and the
+        // newest the log refuses for any reason.
+        $named = [];
+        $newest = 0;
+        $faulty = 0;
+        $refused = 0;
+        foreach ($this->judged($rows, $start) as $item) {
+            $row = $item['row'];
             $seq = (int) $row['seq'];
-            $entry = $seq >= $from ? $this->check($row)['entry'] : null;
-            if ($type === $row['type']) {
-                $traces[$row['subject']] = true;
-            }
-            $read = $entry ?? self::read($row['entry']);
-            if ($type === ($read['type'] ?? null) && \is_string($read['subject'] ?? null)) {
-                $traces[$read['subject']] = true;
-            }
-            if ($seq >= $from) {
-                if (null === $entry) {
-                    $unkept = max($unkept, $seq);
-                } elseif (null === $last || $last['seq'] + 1 !== $seq || $entry['previous'] !== $last['hash']) {
-                    $unlinked = max($unlinked, $seq);
-                }
+            $named[$row['type']][$row['subject']] = true;
+            $read = $item['entry'] ?? self::read($row['entry']);
+            if (\is_string($read['type'] ?? null) && \is_string($read['subject'] ?? null)) {
+                $named[$read['type']][$read['subject']] = true;
             }
             $newest = max($newest, $seq);
-            $last = ['seq' => $seq, 'hash' => $row['hash']];
+            if ($seq >= $from && null !== $item['fault']) {
+                $faulty = max($faulty, $seq);
+            }
+            if ($seq >= $from && null !== $item['problem']) {
+                $refused = max($refused, $seq);
+            }
         }
         $ruledOut = [];
-        foreach ($since as $subject => $start) {
+        foreach ($since as $subject => $at) {
             // How a subject's own entry follows the one before it is not in question, only what follows it.
-            if (!isset($traces[$subject]) && $start <= $newest && $unkept < $start && $unlinked <= $start) {
+            if (!isset($named[$type][$subject]) && $at <= $newest && $faulty < $at && $refused <= $at) {
                 $ruledOut[] = (string) $subject;
             }
         }

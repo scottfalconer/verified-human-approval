@@ -15,18 +15,19 @@ use VerifiedHumanApproval\Tests\Support\InMemoryAuditStore;
 
 /**
  * What the chain shows was never recorded: AuditLog::unrecorded() rules an entry out only from the whole chain,
- * and only while everything since the subject's own entry is kept as it was written.
+ * and only while every entry since the subject's own is one the log accepts.
  */
 final class AuditAbsenceTest extends TestCase
 {
     private InMemoryAuditStore $store;
+    private SodiumEvidenceSigner $signer;
     private AuditLog $log;
 
     protected function setUp(): void
     {
         $this->store = new InMemoryAuditStore();
-        $signer = new SodiumEvidenceSigner('app-key', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
-        $this->log = new AuditLog($this->store, $signer, TrustedKeys::single($signer->keyId(), $signer->publicKey()), new MockClock('2026-11-08 12:00:00'));
+        $this->signer = new SodiumEvidenceSigner('app-key', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
+        $this->log = new AuditLog($this->store, $this->signer, TrustedKeys::single($this->signer->keyId(), $this->signer->publicKey()), new MockClock('2026-11-08 12:00:00'));
         $this->log->append('acme', 'passkey.enrolled', 'laptop', ['userId' => 'alice']);
         $this->log->append('acme', 'passkey.enrolled', '123', ['userId' => 'alice']);
         $this->log->append('acme', 'connection.revoked', 'grant-1', ['userId' => 'alice']);
@@ -78,6 +79,47 @@ final class AuditAbsenceTest extends TestCase
         $listed = new TrustedKeys([...$this->log->trustedKeys()->all(), new TrustedKey($next->keyId(), $next->publicKey())]);
         $updated = new AuditLog($this->store, $next, $listed, new MockClock('2026-11-08 13:00:00'));
         self::assertSame(['laptop'], $updated->unrecorded('passkey.revoked', ['laptop' => 1]));
+    }
+
+    public function testAnEntryTheLogRefusesRulesOutNothingBeforeIt(): void
+    {
+        // A host that still signs with this key after its window closed: the signature verifies, the log refuses it.
+        $late = new AuditLog($this->store, $this->signer, $this->log->trustedKeys(), new MockClock('2026-11-08 13:00:00'));
+        $late->append('acme', 'connection.revoked', 'grant-3', ['userId' => 'bob']);
+        $this->log->append('acme', 'passkey.enrolled', 'tablet', ['userId' => 'alice']);
+        $closed = new AuditLog($this->store, $this->signer, new TrustedKeys([new TrustedKey('app-key', $this->signer->publicKey(), null, TrustedKey::time('2026-11-08T12:30:00Z'))]), new MockClock('2026-11-08 12:00:00'));
+
+        self::assertSame(['tablet'], $closed->unrecorded('passkey.revoked', ['laptop' => 1, 'phone' => 4, 'tablet' => 7]), 'It could be what is left of a revocation rewritten with that key.');
+        self::assertSame(['laptop', 'phone', 'tablet'], $this->log->unrecorded('passkey.revoked', ['laptop' => 1, 'phone' => 4, 'tablet' => 7]), 'Keys without a window refuse nothing.');
+    }
+
+    public function testDamageBeforeTheSubjectCountsAgainstWhatAClosedKeySignedSince(): void
+    {
+        // The switch: app-key's window closes, and the new key's first entry vouches for what it signed. No rotation
+        // is recorded yet.
+        $next = new SodiumEvidenceSigner('app-key-2', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
+        $keys = new TrustedKeys([new TrustedKey('app-key-2', $next->publicKey(), TrustedKey::time('2026-11-08T12:30:00Z')), new TrustedKey('app-key', $this->signer->publicKey(), null, TrustedKey::time('2026-11-08T12:30:00Z'))]);
+        $rotated = new AuditLog($this->store, $next, $keys, new MockClock('2026-11-08 13:00:00'));
+        $rotated->append('acme', 'connection.revoked', 'grant-3', ['userId' => 'bob']);
+        self::assertSame(['phone'], $rotated->unrecorded('passkey.revoked', ['phone' => 4]));
+
+        // Entry 2 no longer matches its hash. It comes before the phone's enrollment, but what the closed key signed
+        // after it counts for nothing now, the phone's enrollment and entry 5 among them.
+        $this->store->rows[2]['hash'] = str_repeat('0', 64);
+        self::assertSame([], $rotated->unrecorded('passkey.revoked', ['phone' => 4]));
+    }
+
+    public function testAnEntryAfterTheRotationAwayFromItsKeyRulesNothingOutEvenWithTheKeyReopened(): void
+    {
+        $next = new SodiumEvidenceSigner('app-key-2', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
+        $closing = new TrustedKeys([new TrustedKey('app-key-2', $next->publicKey(), TrustedKey::time('2026-11-08T12:00:00Z')), new TrustedKey('app-key', $this->signer->publicKey(), null, TrustedKey::time('2026-11-08T12:00:00Z'))]);
+        (new AuditLog($this->store, $next, $closing, new MockClock('2026-11-08 12:00:00')))->recordRotation('app-key');
+        $this->log->append('acme', 'passkey.enrolled', 'tablet', ['userId' => 'alice']);
+
+        // An operator lists the old key without an end again. The chain still moved trust away from it at entry 6.
+        $reopened = new AuditLog($this->store, $next, new TrustedKeys([new TrustedKey('app-key-2', $next->publicKey(), TrustedKey::time('2026-11-08T12:00:00Z')), new TrustedKey('app-key', $this->signer->publicKey())]), new MockClock('2026-11-08 12:00:00'));
+        self::assertSame([], $reopened->unrecorded('passkey.revoked', ['tablet' => 7]));
+        self::assertSame([], $reopened->unrecorded('passkey.revoked', ['laptop' => 1]), 'Entry 7 follows the laptop\'s enrollment too.');
     }
 
     public function testAnEntryRemovedSinceOrMissingRulesNothingOut(): void

@@ -15,10 +15,16 @@ use VerifiedHumanApproval\Core\Audit\AuditLog;
  *
  * Revocation is recorded in the same log, and the whole chain is read to show it, never the store's lookup: a
  * passkey approves nothing once any entry or row names its revocation, intact or damaged, nor while an entry
- * since its enrollment no longer carries a trusted signature over what its row says, or no longer follows the
- * one before it. So no edit to a revocation's row, and no deletion of it, restores the passkey. Cutting the
- * newest entries off the log is the exception: only a checkpoint of its head, kept where the application cannot
- * write (AuditLog::checkpoint()), shows that a revocation among them is gone.
+ * since its enrollment is one the log refuses, because its signature, key, window or link fails or it comes
+ * after the rotation away from its key. So no edit to a revocation's row, no deletion of it and no rewrite of
+ * it, even one signed with a retired key, restores the passkey. Two edits are the exception: the newest entries
+ * cut off, and, by someone holding a retired key's private half, the log rewritten with that key as far back as
+ * the rotation away from it. Only a checkpoint of the log's head kept where the application cannot write
+ * (AuditLog::checkpoint()) shows that a revocation among them is gone.
+ *
+ * An entry the log refuses stops every passkey enrolled before it until its owner enrolls again, even one that a
+ * host or worker wrote while still signing with a retired key: from the chain alone, it could be a rewritten
+ * revocation.
  *
  * It wraps any RevocableCredentialRepository, so a host can keep passkeys in its own storage. Wire the
  * verifier's CredentialRepository to this wrapper and give the wrapper the raw adapter, never itself.
@@ -105,8 +111,8 @@ final readonly class AnchoredCredentialRepository implements CredentialRepositor
     /**
      * The owner's stored passkeys that no signed enrollment vouches for now, so they cannot approve: for example,
      * passkeys enrolled under a signing key whose window has closed before the rotation away from it was recorded
-     * (AuditLog::unvouchedKeys() lists such keys), a record that was damaged, or a log damaged since the
-     * enrollment (AuditLog::verify() says where).
+     * (AuditLog::unvouchedKeys() lists such keys), a record that was damaged, or a log that holds an entry since
+     * the enrollment that is damaged or refused (AuditLog::verify() says which).
      *
      * @return list<Credential>
      */
@@ -141,8 +147,8 @@ final readonly class AnchoredCredentialRepository implements CredentialRepositor
                 $enrolledAt[$credential->id] = (int) $record['seq'];
             }
         }
-        // A revocation only takes trust away, so any trace of one counts; and as one could be hidden, nothing
-        // recorded since an enrollment may have been edited, retargeted or removed.
+        // A revocation only takes trust away, so any trace of one counts; and as one could be hidden, every entry
+        // recorded since an enrollment must be one the log accepts.
         $standing = array_flip($this->audit->unrecorded(self::REVOKED, $enrolledAt));
 
         return array_values(array_filter($credentials, static fn (Credential $credential): bool => isset($standing[$credential->id])));
