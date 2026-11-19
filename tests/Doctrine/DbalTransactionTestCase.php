@@ -13,14 +13,30 @@ use Doctrine\DBAL\Driver\Middleware\AbstractDriverMiddleware;
 use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Exception\DriverException;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Clock\MockClock;
+use VerifiedHumanApproval\Core\Actor;
+use VerifiedHumanApproval\Core\ApprovalPolicy;
+use VerifiedHumanApproval\Core\ApprovalRequest;
+use VerifiedHumanApproval\Core\ApprovalState;
+use VerifiedHumanApproval\Core\Audit\AuditLog;
+use VerifiedHumanApproval\Core\Ceremony;
+use VerifiedHumanApproval\Core\ChallengeBinding;
+use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
+use VerifiedHumanApproval\Core\PreparedAction;
 use VerifiedHumanApproval\Doctrine\ApprovalSchema;
+use VerifiedHumanApproval\Doctrine\DbalApprovalStore;
+use VerifiedHumanApproval\Doctrine\DbalAuditStore;
+use VerifiedHumanApproval\Doctrine\DbalCredentialRepository;
 use VerifiedHumanApproval\Doctrine\DbalTransaction;
 use VerifiedHumanApproval\Tests\Support\TestDatabase;
+use VerifiedHumanApproval\WebAuthn\Credential;
 
 /**
  * The approval transaction's own rules on one database: it owns the root and refuses any other, an ORM-style nested
  * transaction becomes a savepoint, a callback that ends, replaces or leaves open a transaction is caught before
- * commit, the original error survives a failed rollback, and each database serializes the way the stores need.
+ * commit, once the root has ended past DBAL only the approval store's writes and the passkey counter's update are
+ * refused, the original error survives a failed rollback, and each database serializes the way the stores need.
  */
 abstract class DbalTransactionTestCase extends TestCase
 {
@@ -168,6 +184,62 @@ abstract class DbalTransactionTestCase extends TestCase
         self::assertSame([], $this->notes(), 'No write after the root ended reached the database.');
         $this->transaction->run(fn () => $this->note(1));
         self::assertSame([1], $this->notes(), 'The connection works afterwards.');
+    }
+
+    /**
+     * Once code on the connection has committed the root past DBAL, as an action that commits it itself does, the
+     * approval store's writes and the passkey counter's update are refused, and nothing they would write is stored.
+     * The audit log's appends and the passkey repository's add() and revoke() also run in the host's own transactions,
+     * so the approval transaction does not check them, and what they write commits on its own.
+     */
+    public function testOnceTheRootHasEndedPastDbalOnlyTheApprovalStoreAndThePasskeyCounterRefuseToWrite(): void
+    {
+        $store = new DbalApprovalStore($this->transaction);
+        $passkeys = new DbalCredentialRepository($this->transaction);
+        $signer = new SodiumEvidenceSigner('app-key', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
+        $audit = new AuditLog(new DbalAuditStore($this->transaction), $signer, TrustedKeys::single($signer->keyId(), $signer->publicKey()), new MockClock());
+        $request = self::request();
+        $ceremony = self::ceremony('cer_1', $request);
+        $laptop = new Credential('laptop', 'editor', 'acme', '{"counter":1}');
+        $this->transaction->run(static function () use ($store, $passkeys, $request, $ceremony, $laptop): void {
+            $store->insert($request, null, 'fingerprint-1');
+            $store->putCeremony($ceremony);
+            $passkeys->add($laptop);
+        });
+
+        foreach ([
+            'a new request' => static fn () => $store->insert(self::request(), null, 'fingerprint-2'),
+            'an outcome' => static fn () => $store->save($request->stopped('cancelled', 'by_owner')),
+            'a new ceremony' => static fn () => $store->putCeremony(self::ceremony('cer_2', $request)),
+            'a ceremony retired' => static fn () => $store->retireCeremony($ceremony->id),
+            'the passkey’s counter' => static fn () => $passkeys->update(new Credential('laptop', 'editor', 'acme', '{"counter":2}'), $laptop->sourceJson),
+        ] as $write => $make) {
+            $before = $this->stored();
+            $refusal = $this->afterTheRootEnded($make);
+            self::assertInstanceOf(\LogicException::class, $refusal, $write.' is refused.');
+            self::assertStringContainsString('before the approval finished', $refusal->getMessage(), $write);
+            self::assertSame($before, $this->stored(), $write.': nothing was written.');
+        }
+
+        self::assertNull($this->afterTheRootEnded(static fn () => $audit->append('acme', 'connection.revoked', 'grant-1', ['by' => 'editor'])), 'An audit append is accepted.');
+        self::assertNull($this->afterTheRootEnded(static fn () => $passkeys->revoke(new Actor('editor', 'acme'), 'laptop')), 'A revocation is accepted.');
+        // add() opens a savepoint of its own, which each database answers in its own way outside a transaction: SQLite
+        // begins one, which the savepoint's release commits; PostgreSQL refuses it, so nothing is added; MySQL and
+        // MariaDB set none, so the insert commits by itself, and then the release fails.
+        $platform = TestDatabase::platform(static::KIND);
+        $added = $this->afterTheRootEnded(static fn () => $passkeys->add(new Credential('phone', 'editor', 'acme', '{"counter":0}')));
+        if ('sqlite' === $platform) {
+            self::assertNull($added, 'A new passkey is accepted.');
+        } else {
+            self::assertInstanceOf(DriverException::class, $added, 'The database, not the approval transaction, refuses the savepoint.');
+        }
+
+        self::assertSame([
+            'requests' => [$request->request->id.' pending'],
+            'ceremonies' => ['cer_1 0'],
+            'passkeys' => ['laptop {"counter":1} 1', ...('postgresql' === $platform ? [] : ['phone {"counter":0} 0'])],
+            'audit' => 1,
+        ], $this->stored(), 'The audit entry, the revocation and, except on PostgreSQL, the new passkey committed on their own.');
     }
 
     /**
@@ -370,6 +442,61 @@ abstract class DbalTransactionTestCase extends TestCase
     private function note(int $id): void
     {
         $this->connection->insert('notes', ['id' => $id, 'note' => 'note '.$id]);
+    }
+
+    /**
+     * Makes $write in an approval transaction after code on the connection committed the root through the driver, and
+     * returns what $write threw, or null if it was accepted. The transaction itself never reports a commit.
+     */
+    private function afterTheRootEnded(\Closure $write): ?\Throwable
+    {
+        $native = $this->connection->getNativeConnection();
+        self::assertInstanceOf(\PDO::class, $native);
+        $thrown = null;
+        try {
+            $this->transaction->run(static function () use ($native, $write, &$thrown): void {
+                $native->commit();
+                try {
+                    $write();
+                } catch (\Throwable $error) {
+                    $thrown = $error;
+                }
+            });
+            self::fail('The approval transaction reported success after its root was committed through the driver.');
+        } catch (\LogicException) {
+        }
+        self::assertFalse($this->connection->isTransactionActive(), 'Nothing is left open.');
+
+        return $thrown;
+    }
+
+    /** @return array{requests: list<string>, ceremonies: list<string>, passkeys: list<string>, audit: int} the approval rows, read on a connection of its own */
+    private function stored(): array
+    {
+        $fresh = TestDatabase::connect(static::KIND, (string) $this->location);
+        $rows = static fn (string $sql): array => array_map(static fn (array $row): string => implode(' ', $row), $fresh->fetchAllNumeric($sql));
+        $stored = [
+            'requests' => $rows('SELECT id, status FROM '.ApprovalSchema::REQUESTS.' ORDER BY id'),
+            'ceremonies' => $rows('SELECT id, consumed FROM '.ApprovalSchema::CEREMONIES.' ORDER BY id'),
+            'passkeys' => $rows('SELECT credential_id, source_json, revoked FROM '.ApprovalSchema::CREDENTIALS.' ORDER BY credential_id'),
+            'audit' => (int) $fresh->fetchOne('SELECT COUNT(*) FROM '.ApprovalSchema::AUDIT),
+        ];
+        $fresh->close();
+
+        return $stored;
+    }
+
+    /** A pending request to publish a note, as the approval service stores one. */
+    private static function request(): ApprovalState
+    {
+        $action = new PreparedAction('note.publish', '1', ['resource' => 'note-1'], ['note' => 'Open until 19:00.'], [], ['note' => 'Open until 19:00.']);
+
+        return new ApprovalState(ApprovalRequest::create(new Actor('editor', 'acme', 'agent-1'), $action, new ApprovalPolicy('note.publish', '1', 'Publish the note.'), new \DateTimeImmutable(), 'en'));
+    }
+
+    private static function ceremony(string $id, ApprovalState $request): Ceremony
+    {
+        return new Ceremony($id, $request->request->id, ChallengeBinding::encode(random_bytes(32)), ChallengeBinding::encode(random_bytes(32)), ApprovalRequest::timestamp(new \DateTimeImmutable('+5 minutes')), []);
     }
 
     /** @return list<int> the notes, read on a connection of its own */
