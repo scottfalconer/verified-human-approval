@@ -74,7 +74,7 @@ final class ApprovalCard
     /**
      * The fields the card reads, under fixed names whatever the platform's own result calls them.
      *
-     * @param bool $earlier whether this tool call's request key named an earlier request, so nothing ran for this call
+     * @param bool $earlier whether this tool call's request key named an earlier request that had finished, so nothing ran for this call
      *
      * @return array{requestId: string, status: string, reason: ?string, approvedWithPasskey: bool, completedAt: ?string, earlier: bool, reviewUrl: string, statusTool: string, statement: string, handoffTool: ?string}
      */

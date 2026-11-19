@@ -121,6 +121,11 @@ final class ApprovalFlowTest extends TestCase
         $retry = $ask('k1');
         self::assertSame([$id, 'pending', false], [$retry->structuredContent['requestId'] ?? null, $retry->structuredContent['status'] ?? null, $retry->structuredContent['approval']['earlier'] ?? null], 'A retry while it waits is the same request, still waiting.');
         self::assertArrayNotHasKey('message', $retry->structuredContent ?? []);
+        // What a model reads of the flag says the same.
+        self::assertSame(
+            'Whether this call’s request key named an earlier request that had already finished: this is that request’s recorded outcome, and nothing ran for this call. Never true while the request is pending, whichever call made it: it is still waiting for the person’s approval.',
+            ApprovalFlow::OUTPUT_SCHEMA['properties']['approval']['properties']['earlier']['description'],
+        );
         $ceremony = $this->fixture->service->begin($this->fixture->reviewer, $id);
         $this->fixture->clock->sleep(30);
         self::assertSame('completed', $this->fixture->service->complete($this->fixture->reviewer, $ceremony->id, $this->fixture->proof($ceremony))->status);
