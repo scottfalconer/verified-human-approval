@@ -25,4 +25,4 @@ The default run executes the application's PHPUnit suite, then real HTTP and MCP
 
 The host owns login, and the bundle does not implement it. When a passkey request (a JSON `POST` to the `options` or `complete` route of an approval or of the passkey page) arrives without a session, `src/Security/BrowserEntryPoint.php` answers HTTP 401 with `{"status":"authentication_required"}`, and the bundle's page script asks the person to sign in and check the page again. Any other request goes to the login form and returns to the same page after sign-in.
 
-This is a test application, not a site to deploy: `public/index.php` starts in the `dev` environment unless `APP_ENV` is set.
+This is a test application, not a site to deploy: its tests set the environment (`APP_ENV`), origin, database and receipt signing key for each run.
