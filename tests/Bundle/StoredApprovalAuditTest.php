@@ -11,6 +11,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\HttpFoundation\Request;
 use VerifiedHumanApproval\Core\CanonicalJson;
 use VerifiedHumanApproval\Demo\DemoDatabase;
 use VerifiedHumanApproval\Demo\DemoKernel;
@@ -39,6 +40,8 @@ final class StoredApprovalAuditTest extends TestCase
             $browser->getKernel()->shutdown();
         }
         (new Filesystem())->remove($this->runtime);
+        // The demo trusts its own host only, and Symfony keeps that for the whole process.
+        Request::setTrustedHosts([]);
     }
 
     #[DataProvider('projectionChanges')]

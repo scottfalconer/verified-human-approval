@@ -15,6 +15,7 @@ use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\HttpFoundation\Request;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalService;
@@ -74,6 +75,9 @@ abstract class PublishingTestCase extends TestCase
 
     protected function setUp(): void
     {
+        // Symfony keeps the hosts a kernel trusts for the whole process, and the example names none of its own: an
+        // application booted by an earlier test may have left its hosts behind, which would refuse localhost.
+        Request::setTrustedHosts([]);
         $this->location = TestDatabase::create(static::KIND);
         $this->state = sys_get_temp_dir().'/vha-publishing-state-'.bin2hex(random_bytes(6));
         // The compiled container is shared by every test on this database; what differs per test is read at runtime.
