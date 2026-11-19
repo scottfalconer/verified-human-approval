@@ -44,7 +44,7 @@
             cancelled: ['Cancelled: nothing changed.'|trans, 'This request was cancelled.'|trans],
             expired: ['Expired: nothing changed.'|trans, 'This request expired before it was approved.'|trans],
             invalidated: ['Blocked: nothing changed.'|trans, 'This request can no longer be approved: something it depends on changed after it was made.'|trans],
-            denied: ['Blocked: nothing changed.'|trans, 'This account is no longer allowed to do this.'|trans],
+            denied: ['Blocked: nothing changed.'|trans, 'This request is no longer allowed.'|trans],
         }[state.status] ?? ['Stopped: nothing changed.'|trans, 'This request stopped.'|trans] %}
         <div class="notice error stopped">
             <p class="stopped-title">{{ stopped[0] }}</p>

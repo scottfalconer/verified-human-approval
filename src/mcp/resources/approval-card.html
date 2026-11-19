@@ -53,8 +53,9 @@
     completedDirect: 'Done without a passkey: the site’s rule did not require one. The site recorded the change.',
     cancelled: 'Cancelled on the site. Nothing changed.',
     expired: 'This request expired. Nothing changed.',
-    invalidated: 'The content changed after this request, so it can no longer be approved. Nothing changed.',
-    denied: 'This account can no longer do this. Nothing changed.',
+    // In the review page's words: the reason the site recorded is shown there, and the card does not guess at it.
+    invalidated: 'This request can no longer be approved: something it depends on changed after it was made. Nothing changed.',
+    denied: 'This request is no longer allowed. Nothing changed.',
     rejected: 'The site refused this request. Nothing changed.',
     integrity_error: 'The stored approval record is inconsistent, so this card cannot confirm what happened. Ask the site administrator to check the signed evidence before trying again.',
     // The host stopped the tool call: the site may have received it, so this card cannot know the outcome.

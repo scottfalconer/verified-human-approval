@@ -257,6 +257,9 @@ final class SymfonyApprovalTest extends TestCase
         self::assertContains($result['status'], ['denied', 'invalidated']);
         self::assertSame('delegation_denied', $result['reason']);
         self::assertSame(0, $this->mutationCount());
+        // The account may still do this; its agent connection may not. The page blames neither more than the record does.
+        $stopped = $browser->request('GET', self::ORIGIN.'/approval/'.$id)->filter('.approval-sheet .notice')->text();
+        self::assertStringStartsWith('Blocked: nothing changed. This request is no longer allowed. The agent connection that made this request is not allowed to do this.', $stopped);
     }
 
     public function testAReadOnlyPersonsMcpCredentialCannotRequestPublication(): void

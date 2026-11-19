@@ -266,6 +266,18 @@ test('a request key that named a finished request shows its earlier outcome, not
   assert.equal(fresh.element('site').textContent, 'alerts.example');
 });
 
+test('a stopped request is told in the review page’s words, with no cause the site did not record', async () => {
+  const invalidated = 'This request can no longer be approved: something it depends on changed after it was made. Nothing changed.';
+  const denied = 'This request is no longer allowed. Nothing changed.';
+  for (const [status, reason, line] of [['invalidated', 'policy_changed', invalidated], ['invalidated', 'stale_resource', invalidated],
+    ['denied', 'delegation_revoked', denied], ['denied', 'permission_denied', denied]]) {
+    const h = host(); await h.initialize(); h.show();
+    await h.advance(3000);
+    await h.reply(h.call('approval_status'), approval(status, 'r1', { reason }));
+    assert.equal(h.status(), line, `${status} / ${reason}`);
+  }
+});
+
 test('a new request does not inherit the colour of the one before it', async () => {
   const h = host(); await h.initialize(); h.show(approval('completed'));
   assert.equal(h.shade(), 'completed');

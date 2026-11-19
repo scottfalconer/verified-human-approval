@@ -146,8 +146,8 @@
                 <target>This request can no longer be approved: something it depends on changed after it was made.</target>
             </trans-unit>
             <trans-unit id="review.stopped.denied_detail">
-                <source>This account is no longer allowed to do this.</source>
-                <target>This account is no longer allowed to do this.</target>
+                <source>This request is no longer allowed.</source>
+                <target>This request is no longer allowed.</target>
             </trans-unit>
             <trans-unit id="review.stopped.other">
                 <source>Stopped: nothing changed.</source>
