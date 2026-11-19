@@ -190,20 +190,35 @@ final class AnchoredKeyRotationTest extends TestCase
 
         // Someone with the old private key and the database rewrites the revocation, and every entry after it, as
         // connection revocations signed with that key, mending each link, then flips the passkey's row back.
-        $previous = null;
-        foreach ($this->pdo->query("SELECT seq, entry FROM verified_human_approval_audit WHERE seq >= (SELECT seq FROM verified_human_approval_audit WHERE type = 'passkey.revoked') ORDER BY seq")->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $entry = CanonicalJson::map(CanonicalJson::decode((string) $row['entry']));
-            $entry = ['type' => 'connection.revoked', 'subject' => 'grant-'.$row['seq']] + ('' === $at ? [] : ['at' => $at]) + (null === $previous ? [] : ['previous' => $previous]) + $entry;
-            $text = CanonicalJson::encode($entry);
-            $this->pdo->prepare("UPDATE verified_human_approval_audit SET type = ?, subject = ?, entry = ?, hash = ?, key_id = 'application-1', signature = ? WHERE seq = ?")
-                ->execute([$entry['type'], $entry['subject'], $text, hash('sha256', $text), $this->old->sign($text), $row['seq']]);
-            $previous = hash('sha256', $text);
-        }
+        $this->rewriteWithTheOldKey('passkey.revoked', $at);
         $this->pdo->exec('UPDATE verified_human_approval_credentials SET revoked = 0');
         self::assertSame(0, (int) $this->pdo->query("SELECT COUNT(*) FROM verified_human_approval_audit WHERE type = 'passkey.revoked' OR entry LIKE '%passkey.revoked%'")->fetchColumn(), 'No trace of the revocation is left.');
 
         self::assertFalse($this->approves($after, $phone));
         self::assertNotNull($after->enrollmentRecord($credential->id), 'Its enrollment, signed with the new key, still verifies.');
+    }
+
+    public function testOnlyACheckpointShowsARevocationHiddenByRewritingTheChainFromTheRotationOnWithTheRetiredKey(): void
+    {
+        $laptop = new VirtualAuthenticator();
+        $credential = $this->enroll($this->repository($this->old, new TrustedKeys([new TrustedKey('application-1', $this->old->publicKey(), TrustedKey::time('2026-11-01T00:00:00Z'))])), $laptop);
+        $after = $this->rotate();
+        self::assertTrue($after->revoke($this->actor, $credential->id, ['by' => 'editor', 'why' => 'laptop stolen']));
+        self::assertFalse($this->approves($after, $laptop));
+        $audit = new AuditLog($this->auditStore, $this->new, $this->rotatedKeys(), $this->clock);
+        $checkpoint = $audit->head();
+        self::assertNotNull($checkpoint);
+
+        // As above, but from the rotation on and backdated into the old key's window, so the chain shows no rotation at
+        // all. The application's next entry, signed with the new key, follows the rewrite and vouches for it.
+        $this->rewriteWithTheOldKey(AuditLog::KEY_ROTATED, '2026-11-08T10:00:00.000000Z');
+        $this->pdo->exec('UPDATE verified_human_approval_credentials SET revoked = 0');
+        $audit->append('acme', 'connection.revoked', 'grant-1', ['by' => 'editor']);
+
+        self::assertTrue($this->approves($after, $laptop), 'This is the documented limit: from the chain alone, the revocation is gone.');
+        self::assertTrue($audit->verify()['intact']);
+        self::assertSame(['application-1'], $audit->unrecordedRotations(), 'The rotation the log recorded is missing again.');
+        self::assertSame(\sprintf('Entry %d is no longer the entry kept: it, or the chain before it, was rewritten.', $checkpoint['seq']), $audit->checkpoint($checkpoint['seq'], $checkpoint['hash']));
     }
 
     /** @return iterable<string, array{\Closure(\PDO, SodiumEvidenceSigner): void}> */
@@ -332,6 +347,26 @@ final class AnchoredKeyRotationTest extends TestCase
             new TrustedKey('application-2', $this->new->publicKey(), TrustedKey::time(self::ROTATED)),
             new TrustedKey('application-1', $this->old->publicKey(), TrustedKey::time('2026-11-01T00:00:00Z'), TrustedKey::time(self::ROTATED)),
         ]);
+    }
+
+    /**
+     * Rewrites the first entry of $type and every entry after it as connection revocations signed with the old key,
+     * mending each link, as someone holding that key and the database would; $at, unless empty, is the time each then
+     * claims.
+     */
+    private function rewriteWithTheOldKey(string $type, string $at): void
+    {
+        $previous = null;
+        $rows = $this->pdo->prepare('SELECT seq, entry FROM verified_human_approval_audit WHERE seq >= (SELECT MIN(seq) FROM verified_human_approval_audit WHERE type = ?) ORDER BY seq');
+        $rows->execute([$type]);
+        foreach ($rows->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $entry = CanonicalJson::map(CanonicalJson::decode((string) $row['entry']));
+            $entry = ['type' => 'connection.revoked', 'subject' => 'grant-'.$row['seq']] + ('' === $at ? [] : ['at' => $at]) + (null === $previous ? [] : ['previous' => $previous]) + $entry;
+            $text = CanonicalJson::encode($entry);
+            $this->pdo->prepare("UPDATE verified_human_approval_audit SET type = ?, subject = ?, entry = ?, hash = ?, key_id = 'application-1', signature = ? WHERE seq = ?")
+                ->execute([$entry['type'], $entry['subject'], $text, hash('sha256', $text), $this->old->sign($text), $row['seq']]);
+            $previous = hash('sha256', $text);
+        }
     }
 
     /** The fixture's audit store, counting how often the whole chain is read. */
