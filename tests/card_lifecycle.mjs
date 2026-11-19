@@ -305,6 +305,18 @@ test('a host on a phone is offered no phone code, whoever it is', async () => {
   assert.equal(h.element('phone-show').hidden, false);
 });
 
+test('a refusal that names no request is shown as a refusal, and an unknown status as it is', async () => {
+  const h = host(); await h.initialize();
+  h.show({ isError: true, content: [], structuredContent: { status: 'rejected', reason: 'permission_denied', message: 'This account may not issue alerts.' } });
+  assert.equal(h.status(), 'The site refused this request. Nothing changed.');
+  assert.equal(h.shade(), 'rejected');
+  assert.equal(h.element('open').hidden, true);
+  for (const status of ['constructor', '__proto__', 'toString', 'completedDirect', 'interrupted']) {
+    const g = host(); await g.initialize(); g.show(approval(status));
+    assert.equal(g.status(), `Status: ${status}.`, status);
+  }
+});
+
 test('a new request does not inherit the colour of the one before it', async () => {
   const h = host(); await h.initialize(); h.show(approval('completed'));
   assert.equal(h.shade(), 'completed');

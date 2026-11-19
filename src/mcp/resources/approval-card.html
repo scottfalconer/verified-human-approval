@@ -61,6 +61,8 @@
     // The host stopped the tool call: the site may have received it, so this card cannot know the outcome.
     interrupted: 'This request was stopped before the site’s answer arrived, so this card can’t tell whether anything changed. Check the site before trying again.',
   };
+  // The statuses with a line above, other than pending and completed: a status from anywhere else is shown as it is.
+  const STOPPED = ['cancelled', 'expired', 'invalidated', 'denied', 'rejected', 'integrity_error'];
   // The card's own lines. None of them says what the site recorded.
   const NOTE = {
     waiting: 'Waiting for the request…',
@@ -194,7 +196,7 @@
     document.body.dataset.status = view.status;
     status.textContent = view.status === 'completed' ? completedLine()
       : pending ? hint || (watching() ? TEXT.pending : NOTE.unwatched) + (open.hidden ? ' ' + NOTE.link : '')
-      : TEXT[view.status] || 'Status: ' + view.status + '.';
+      : STOPPED.includes(view.status) ? TEXT[view.status] : 'Status: ' + view.status + '.';
     if (!pending) stopPolling();
     resize();
   }
@@ -270,7 +272,9 @@
     view = read(result);
     since = Date.now();
     render();
-    if (!view && result?.structuredContent?.status === 'integrity_error') { document.body.dataset.status = 'integrity_error'; status.textContent = TEXT.integrity_error; resize(); }
+    // An error result can name no request: a refusal is still shown as one, and a damaged record as unconfirmed.
+    const failure = view ? null : result?.structuredContent?.status;
+    if (failure === 'rejected' || failure === 'integrity_error') { document.body.dataset.status = failure; status.textContent = TEXT[failure]; resize(); }
     schedulePoll();
   }
   // The host ends this card: the tool call was cancelled, or the view is being torn down.
