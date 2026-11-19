@@ -355,6 +355,34 @@ final class LayoutAndLanguageTest extends TestCase
         }
     }
 
+    /** @return iterable<string, array{array<string, mixed>, string}> what a host page passes, and the line under the page */
+    public static function integrityPageContexts(): iterable
+    {
+        yield 'the request' => [['id' => 'apr_'.str_repeat('a', 32)], 'Request apr_'.str_repeat('a', 32).' · Reason code: record_integrity_error'];
+        yield 'a null id' => [['id' => null], 'Reason code: record_integrity_error'];
+        yield 'no id' => [[], 'Reason code: record_integrity_error'];
+    }
+
+    /**
+     * A host page renders the integrity page itself when a request it made meets a damaged record, with the request
+     * or without one, also with strict variables on, as they are in debug mode.
+     *
+     * @param array<string, mixed> $context
+     */
+    #[DataProvider('integrityPageContexts')]
+    public function testAHostPageRendersTheIntegrityPageWithOrWithoutTheRequest(array $context, string $line): void
+    {
+        $browser = $this->browser();
+        $browser->getKernel()->boot();
+        $twig = $browser->getContainer()->get('twig');
+        self::assertInstanceOf(Environment::class, $twig);
+        self::assertTrue($twig->isStrictVariables());
+
+        $page = new Crawler($twig->render('@VerifiedHumanApproval/integrity_error.html.twig', $context));
+        self::assertSame('We cannot confirm this approval’s outcome', $page->filter('[data-status="integrity_error"] h1')->text());
+        self::assertSame($line, $page->filter('[data-status="integrity_error"] p.small')->text());
+    }
+
     /**
      * @param array<string, mixed>                      $approval
      * @param array<string, array<string, string>>|null $translations
