@@ -130,8 +130,8 @@ final readonly class AnchoredCredentialRepository implements CredentialRepositor
     }
 
     /**
-     * The credentials, in their order, that a signed enrollment vouches for and no revocation has undone. The
-     * revocations of all of them are read in one pass over the chain.
+     * The credentials, in their order, that a signed enrollment vouches for and no revocation has undone, all of
+     * them weighed from one reading of the chain.
      *
      * @param list<Credential> $credentials
      *
@@ -139,19 +139,15 @@ final readonly class AnchoredCredentialRepository implements CredentialRepositor
      */
     private function vouchedFor(array $credentials): array
     {
-        $enrolledAt = [];
-        foreach ($credentials as $credential) {
-            $record = $this->audit->find(self::ENROLLED, $credential->id);
-            $enrolled = null === $record ? null : self::credential($credential->id, $record);
-            if (null !== $enrolled && $enrolled->belongsTo(new Actor($credential->userId, $credential->tenantId)) && self::sameIdentity($enrolled, $credential)) {
-                $enrolledAt[$credential->id] = (int) $record['seq'];
-            }
-        }
         // A revocation only takes trust away, so any trace of one counts; and as one could be hidden, every entry
         // recorded since an enrollment must be one the log accepts.
-        $standing = array_flip($this->audit->unrecorded(self::REVOKED, $enrolledAt));
+        $standing = $this->audit->standing(self::ENROLLED, array_map(static fn (Credential $credential): string => $credential->id, $credentials), self::REVOKED);
 
-        return array_values(array_filter($credentials, static fn (Credential $credential): bool => isset($standing[$credential->id])));
+        return array_values(array_filter($credentials, static function (Credential $credential) use ($standing): bool {
+            $enrolled = isset($standing[$credential->id]) ? self::credential($credential->id, $standing[$credential->id]) : null;
+
+            return null !== $enrolled && $enrolled->belongsTo(new Actor($credential->userId, $credential->tenantId)) && self::sameIdentity($enrolled, $credential);
+        }));
     }
 
     /** Whether the stored passkey is still the one enrolled: only its counter may have moved since. */
