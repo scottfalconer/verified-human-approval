@@ -58,7 +58,7 @@ final class HandoffTest extends TestCase
         $id = $agent->callTool('publish_alert', ['alert_id' => 'riverside-evacuation'])->structuredContent['requestId'];
         $other = $agent->callTool('publish_alert', ['alert_id' => 'riverside-evacuation', 'request_key' => 'second'])->structuredContent['requestId'];
         self::assertNotSame($id, $other);
-        $authenticator = $this->enrollOnComputer('editor');
+        [, $authenticator] = $this->enrollOnComputer('editor');
 
         $code = $agent->callTool('approval_handoff', ['request_id' => $id]);
         self::assertFalse($code->isError, json_encode($code->content));
@@ -135,6 +135,32 @@ final class HandoffTest extends TestCase
         self::assertFalse($agent->callTool('approval_handoff', ['request_id' => $id])->isError);
         self::assertFalse($agent->callTool('approval_handoff', ['request_id' => $id])->isError);
         self::assertStringContainsString('Too many phone codes', $agent->callTool('approval_handoff', ['request_id' => $id])->content[0]->text);
+    }
+
+    public function testAPhoneSessionHasABudgetOfItsOwnAndLeavesTheSignedInPersonTheirs(): void
+    {
+        $settings = json_decode((string) file_get_contents($this->runtime.'/settings.json'), true);
+        $settings['approval_attempts_per_minute'] = 2;
+        file_put_contents($this->runtime.'/settings.json', json_encode($settings));
+        $agent = $this->mcp('editor');
+        $id = $agent->callTool('publish_alert', ['alert_id' => 'riverside-evacuation'])->structuredContent['requestId'];
+        [$owner] = $this->enrollOnComputer('editor');
+
+        // Whoever holds the agent's token opens a phone code itself, signed in to nothing, and spends that session's budget.
+        $holder = $this->browser();
+        $holder->submit($holder->request('GET', $agent->callTool('approval_handoff', ['request_id' => $id])->structuredContent['url'])->selectButton('Continue')->form());
+        $csrf = (string) $holder->request('GET', self::ORIGIN.'/approval/'.$id)->filter('[data-passkey-panel]')->attr('data-csrf');
+        $answers = [];
+        for ($attempt = 0; $attempt < 3; ++$attempt) {
+            $this->post($holder, '/approval/'.$id.'/options', $csrf, []);
+            $answers[] = $holder->getResponse()->getStatusCode();
+        }
+        self::assertSame([200, 200, 429], $answers);
+
+        // The person, in their own signed-in browser, still has theirs.
+        $ownerCsrf = (string) $owner->request('GET', self::ORIGIN.'/approval/'.$id)->filter('[data-passkey-panel]')->attr('data-csrf');
+        $this->post($owner, '/approval/'.$id.'/options', $ownerCsrf, []);
+        self::assertSame(200, $owner->getResponse()->getStatusCode(), (string) $owner->getResponse()->getContent());
     }
 
     public function testACodeLastsTwoMinutesAndThePhoneSessionItOpensTen(): void
@@ -217,7 +243,8 @@ final class HandoffTest extends TestCase
         self::fail('No orientation of the drawn code could be read.');
     }
 
-    private function enrollOnComputer(string $user): VirtualAuthenticator
+    /** @return array{KernelBrowser, VirtualAuthenticator} the person's signed-in browser, and the passkey they registered there */
+    private function enrollOnComputer(string $user): array
     {
         $browser = $this->browser();
         $crawler = $browser->request('GET', self::ORIGIN.'/login');
@@ -230,7 +257,7 @@ final class HandoffTest extends TestCase
         $result = $this->post($browser, '/account/passkeys/complete', $csrf, ['ceremony_id' => $options['ceremony_id'], 'credential' => $authenticator->registration($options['publicKey'])]);
         self::assertSame('registered', $result['status'], json_encode($result));
 
-        return $authenticator;
+        return [$browser, $authenticator];
     }
 
     private function browser(): KernelBrowser

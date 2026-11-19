@@ -163,7 +163,7 @@ final readonly class ApprovalController
         if (($refused = $this->refuseWithoutToken($request, $id)) !== null) {
             return $refused;
         }
-        if (($limited = $this->limit($this->reviewer($request, $id))) !== null) {
+        if (($limited = $this->limit($request, $id)) !== null) {
             return $limited;
         }
 
@@ -181,7 +181,7 @@ final readonly class ApprovalController
         if (($refused = $this->refuseWithoutToken($request, $id)) !== null) {
             return $refused;
         }
-        if (($limited = $this->limit($this->reviewer($request, $id))) !== null) {
+        if (($limited = $this->limit($request, $id)) !== null) {
             return $limited;
         }
         $body = $this->body($request);
@@ -341,10 +341,15 @@ final readonly class ApprovalController
         return ['status' => 'record_integrity_error' === $reason ? 'integrity_error' : 'rejected', 'reason' => $reason, 'message' => $message];
     }
 
-    private function limit(Actor $actor): ?JsonResponse
+    /**
+     * One budget per person covers all their requests, so changing the URL cannot reset it. Phone sessions have a
+     * budget of their own, so whoever holds a phone code cannot spend the one the signed-in person approves with.
+     */
+    private function limit(Request $request, string $id): ?JsonResponse
     {
-        // One account budget covers all proposal IDs, so changing the URL cannot reset it.
-        $limit = $this->limiter->create(hash('sha256', $actor->tenantId."\0".$actor->userId))->consume();
+        $phone = $this->handoff?->personFor($request, $id);
+        $person = $phone ?? $this->actors->interactive();
+        $limit = $this->limiter->create((null === $phone ? '' : 'phone|').hash('sha256', $person->tenantId."\0".$person->userId))->consume();
         if ($limit->isAccepted()) {
             return null;
         }
