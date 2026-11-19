@@ -462,6 +462,12 @@ abstract class ApprovalStoreContract extends TestCase
         yield 'one character of the proposal' => [$edit('proposal', $character)];
         yield 'the digest' => [$edit('digest', static fn (string $digest): string => ('0' === $digest[0] ? '1' : '0').substr($digest, 1))];
         yield 'the proposal and its digest, to match each other' => [$withDigest($character)];
+        yield 'the proposal and its digest, with a number for the person' => [$withDigest(static function (string $proposal): string {
+            $payload = CanonicalJson::map(CanonicalJson::decode($proposal));
+            $payload['actor']->userId = 5;
+
+            return CanonicalJson::encode((object) $payload);
+        })];
         yield 'the result, to text that is not JSON' => [$edit('result', static fn (): string => 'published')];
         yield 'the result, to a JSON list' => [$edit('result', static fn (): string => '[]')];
         yield 'the proof, cut short' => [$edit('proof', $cut)];
