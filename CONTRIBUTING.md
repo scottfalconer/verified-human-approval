@@ -4,7 +4,7 @@ Open issues and pull requests in [this repository](https://github.com/scottfalco
 
 ## Run the checks
 
-You need PHP 8.3 or later with the extensions `composer.json` lists, and Composer. Node.js 22 or later runs the approval card's script tests, and Python 3 the HTTP checks.
+You need PHP 8.3 or later with the extensions `composer.json` lists, and Composer. Node.js 22 or later runs the tests of the approval card's and the review page's scripts, and Python 3 the HTTP checks.
 
 ```bash
 composer install
@@ -32,11 +32,11 @@ php tests/Package/check-editorial-consumer.php  # all seven, in Editorial Desk, 
 php tests/Package/check-consumer.php archives   # no vendor, tests or runtime state in any package archive
 ```
 
-CI runs the Editorial Desk check with `--browser`, which also runs the bundle's page script in Chrome; [its README](tests/EditorialDesk/README.md#run-it) says what that needs.
+CI runs the Editorial Desk check with `--browser`, which also runs the bundle's page script in Chromium through Playwright; [its README](tests/EditorialDesk/README.md#run-it) says what that needs.
 
 ## Pull requests
 
 - Keep a pull request to one change, with tests where behavior changes. Follow the tests in `tests/`: they read back what was stored and what a person or an agent is shown.
 - Concrete classes in `src/` are `final`, and every PHP file declares `strict_types`. `composer cs` and `composer analyse` must pass.
-- Update the documentation the change affects, and add a line under "Unreleased" in [CHANGELOG.md](CHANGELOG.md) for anything a user of the packages would notice.
-- CI ([tests.yml](.github/workflows/tests.yml)) runs all of the above on every push and pull request, and must pass.
+- Update the documentation the change affects. For anything a user of the packages would notice, add a line to [CHANGELOG.md](CHANGELOG.md), under its area's heading in "Unreleased: 0.1.0".
+- CI ([tests.yml](.github/workflows/tests.yml)) runs every check above on each push and pull request, and they must pass.
