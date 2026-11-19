@@ -264,7 +264,7 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
         $services->set('verified_human_approval.lock_factory', LockFactory::class)->args([service('verified_human_approval.lock_store')]);
 
         $services->set('verified_human_approval.handoff', ApprovalHandoff::class)->args([
-            service('cache.app'), service('router'), $config['public_origin'], service($config['lock_factory']),
+            service('cache.app'), service('router'), $config['public_origin'], service('verified_human_approval.clock'), service($config['lock_factory']),
         ]);
 
         $services->set('verified_human_approval.url_prompt', UrlPrompt::class)

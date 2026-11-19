@@ -10,11 +10,25 @@ use Mcp\Exception\RequestException;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use PHPUnit\Framework\TestCase;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
+use Symfony\Component\Cache\Adapter\ArrayAdapter;
+use Symfony\Component\Clock\MockClock;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Session\Session;
+use Symfony\Component\HttpFoundation\Session\Storage\MockArraySessionStorage;
+use Symfony\Component\Lock\LockFactory;
+use Symfony\Component\Lock\Store\InMemoryStore;
+use Symfony\Component\Routing\Generator\UrlGenerator;
+use Symfony\Component\Routing\RequestContext;
+use Symfony\Component\Routing\Route;
+use Symfony\Component\Routing\RouteCollection;
+use VerifiedHumanApproval\Bundle\Handoff\ApprovalHandoff;
+use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Demo\DemoDatabase;
 use VerifiedHumanApproval\Demo\DemoKernel;
 use VerifiedHumanApproval\Demo\DemoSetup;
 use VerifiedHumanApproval\Testing\VirtualAuthenticator;
+use VerifiedHumanApproval\Tests\Support\CoreFixture;
 
 /** "Approve on your phone": a one-time code that opens one approval, and nothing else, on another device. */
 final class HandoffTest extends TestCase
@@ -121,6 +135,34 @@ final class HandoffTest extends TestCase
         self::assertFalse($agent->callTool('approval_handoff', ['request_id' => $id])->isError);
         self::assertFalse($agent->callTool('approval_handoff', ['request_id' => $id])->isError);
         self::assertStringContainsString('Too many phone codes', $agent->callTool('approval_handoff', ['request_id' => $id])->content[0]->text);
+    }
+
+    public function testACodeLastsTwoMinutesAndThePhoneSessionItOpensTen(): void
+    {
+        $fixture = new CoreFixture();
+        $state = $fixture->service->request($fixture->actor, 'article.publish', ['id' => 1]);
+        $routes = new RouteCollection();
+        $routes->add('verified_human_approval_handoff', new Route('/approval/handoff/{token}'));
+        $clock = new MockClock('2026-11-08T10:00:00Z');
+        $handoff = new ApprovalHandoff(new ArrayAdapter(), new UrlGenerator($routes, new RequestContext()), 'https://app.example', $clock, new LockFactory(new InMemoryStore()));
+        $alice = new Actor('alice', 'tenant-a');
+
+        $code = $handoff->issue($alice, $state);
+        self::assertSame(['expiresAt' => $clock->now()->getTimestamp() + 120, 'expiresIn' => 120], array_intersect_key($code, ['expiresAt' => 0, 'expiresIn' => 0]));
+        $clock->sleep(120);
+        self::assertTrue($handoff->peek(basename($code['url'])), 'Good for two minutes.');
+        $clock->sleep(1);
+        self::assertFalse($handoff->peek(basename($code['url'])));
+        self::assertNull($handoff->redeem(basename($code['url']), new Session(new MockArraySessionStorage())), 'After two minutes the code opens nothing.');
+
+        $session = new Session(new MockArraySessionStorage());
+        self::assertSame($state->request->id, $handoff->redeem(basename($handoff->issue($alice, $state)['url']), $session));
+        $phone = Request::create('https://app.example/approval/'.$state->request->id);
+        $phone->setSession($session);
+        $clock->sleep(600);
+        self::assertEquals($alice, $handoff->personFor($phone, $state->request->id), 'The phone session lasts ten minutes.');
+        $clock->sleep(1);
+        self::assertNull($handoff->personFor($phone, $state->request->id), 'Then the phone reaches nothing.');
     }
 
     public function testNoCodeWithoutAPublicHttpsAddress(): void
