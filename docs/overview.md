@@ -12,7 +12,7 @@ For a runnable walkthrough, start with the [demo](../demo/README.md). For a new 
 | Core (`verified-human-approval/core`) | Freeze proposals, manage requests and ceremonies, check current authority, coordinate the transaction and record signed receipts. Its PDO stores keep approvals and the signed audit log on SQLite. |
 | WebAuthn bridge (`verified-human-approval/webauthn`) | Validate passkey assertions against the configured origin, relying party and trusted credential owner, keep passkeys, and verify receipts offline. |
 | MCP presentation (`verified-human-approval/mcp`) | Return a review link, show an approval card where supported, and handle optional URL prompts and their retries. |
-| Symfony bundle (`verified-human-approval/symfony-bundle`) | Wire the services, serve review routes, check CSRF, limit attempts and provide status and phone-handoff tools. |
+| Symfony bundle (`verified-human-approval/symfony-bundle`) | Wire the services, serve review routes, check CSRF, limit approval attempts and agent requests, and provide status and phone-handoff tools. |
 | Doctrine storage (`verified-human-approval/doctrine`) | Keep approvals, the signed audit log and passkeys on the application's DBAL connection, in one transaction with its entities, and refuse unapproved changes to protected entities. |
 | Storage contracts (`verified-human-approval/store-contracts`) | The tests a storage adapter must pass, with a fixture application and process races, to run against an adapter of your own. |
 | Testing helpers (`verified-human-approval/testing`) | A software passkey, a client for the review page's passkey protocol and a PSR-18 client into the application's kernel, for the host's own integration tests. |
@@ -23,7 +23,7 @@ The demo adds account administration, an OAuth integration built on maintained p
 
 A protected MCP tool derives an `Actor` from the authenticated principal. Its user, tenant and delegation identify the person and the connection acting for them. Tool arguments cannot supply that identity.
 
-The host checks the connection's current result-read permission before it calls `ApprovalFlow::respond()`, including on retries. The core separately checks permission to perform the action.
+The host checks the connection's current result-read permission before it calls `ApprovalFlow::respond()`, including on retries. On a call that may open a proposal, `respond()` first spends one from the person's budget for agent requests; once that is spent, it refuses the call as `rate_limited`. The core separately checks permission to perform the action.
 
 `ApprovalService::request()` applies the action's current rule, an `ApprovalPolicy` from the host's `PolicyProvider`:
 
@@ -37,7 +37,7 @@ The application can use the same service from its own website. Its rule must app
 
 An `ActionAdapter` prepares the exact effect and the state it depends on. The proposal binds the action and adapter version, actor, target, effect, source preconditions, declared dependencies, resolved statement, the rule and its version, locale, request ID and expiry.
 
-The core stores canonical JSON and its SHA-256 digest. It preserves exact string bytes, empty objects versus arrays, and null versus an absent value. Object key order is normalized. Floating point values and arbitrary PHP objects are rejected; represent decimals and large integers as strings.
+The core stores canonical JSON and its SHA-256 digest. It preserves exact string bytes, empty objects versus arrays, and null versus an absent value. Object key order is normalized. Floating point values and arbitrary PHP objects are rejected; represent decimals and large integers as strings. A protected MCP tool's own arguments may hold decimals, which `ApprovalFlow` accepts; pass them to the action's input as strings.
 
 A later read uses the stored proposal. It does not rebuild the approved content from the current draft. The adapter must include every dependency that could change the meaning or result of the action, such as the version of its renderer.
 
@@ -49,7 +49,7 @@ The person reviews the stored proposal on the application's configured origin. A
 
 The authenticator can verify its user with a biometric, PIN or another local method. The application does not receive biometric data or proof of which local method was used. WebAuthn remains the single approval mechanism in this implementation.
 
-On HTTPS, the optional phone handoff opens only one review in a scoped browser session. It does not sign the person into the rest of the application. Approval still requires a passkey belonging to the proposal's user and tenant.
+On HTTPS, the optional phone handoff opens only one review in a scoped browser session. Its code works once, for two minutes, and the session it opens lasts ten minutes, both by the application's clock. It does not sign the person into the rest of the application, and its approval attempts have a budget of their own, apart from the signed-in person's. Approval still requires a passkey belonging to the proposal's user and tenant. The bundle's `phone_handoff: false` turns it off.
 
 ## 4. Execute in one transaction
 
@@ -65,7 +65,7 @@ This boundary covers local database changes. A remote API call, email or payment
 
 ## 5. Read the outcome and handle retries
 
-A request key names one intended action. Reusing it with the same arguments and unchanged target and effect returns the existing request or result. Changed arguments or content produce an `idempotency_conflict`. Use the original request ID to read its recorded outcome. A new intended action needs a new key.
+A request key names one intended action. Reusing it with the same arguments and unchanged target and effect returns the existing request or result. When that request finished before the call, the MCP result says so: it is the earlier request's recorded outcome, nothing ran for this call, and the card shows it as an earlier request, with "Completed earlier, on …" for one that completed. Changed arguments or content produce an `idempotency_conflict`. Use the original request ID to read its recorded outcome. A new intended action needs a new key.
 
 A key must be unique to one intended action, so let the client that generates it be a program. A language model asked to supply a key builds it from the arguments and the date, and often builds the same key in a later conversation, where it returns the earlier outcome. Describe the argument so that an agent leaves it out: `ApprovalFlow::REQUEST_KEY_DESCRIPTION` in the MCP package does.
 
