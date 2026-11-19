@@ -25,7 +25,7 @@ composer install
 php demo/bin/setup.php
 ```
 
-Setup prints each account's `password`, `personal_token`, and `passkey_link`. Save this output privately before continuing: credentials are shown only once. Setup also writes the editor's token to a private header file for the optional Claude Desktop connection.
+Setup prints each account's `password`, `personal_token`, and `passkey_link`. Save this output privately before continuing: credentials are shown only once. With `--json`, setup prints only those credentials, as JSON, for a script to read. Setup also writes the editor's token to a private header file for the optional Claude Desktop connection.
 
 Start the server in the same terminal and leave it running:
 

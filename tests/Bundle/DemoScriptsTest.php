@@ -56,6 +56,16 @@ final class DemoScriptsTest extends TestCase
         self::assertStringNotContainsString('php -S', $output);
     }
 
+    public function testSetupPrintsOnlyTheCredentialsForAScript(): void
+    {
+        [$status, $output] = self::script([\PHP_BINARY, 'demo/bin/setup.php', '--json'], ['VERIFIED_HUMAN_APPROVAL_RUNTIME' => $this->directory.'/local', 'VERIFIED_HUMAN_APPROVAL_ORIGIN' => null]);
+        self::assertSame(0, $status, $output);
+        $created = json_decode($output, true, 8, \JSON_THROW_ON_ERROR);
+        self::assertSame('http://localhost:8080', $created['origin']);
+        self::assertSame(['manager', 'editor', 'reader', 'other'], array_keys($created['accounts']));
+        self::assertSame(['password', 'personal_token', 'passkey_link'], array_keys($created['accounts']['editor']));
+    }
+
     public function testPublicStartAsksBeforeReplacingADemoSetUpForAnotherAddress(): void
     {
         $root = $this->publicDemo('https://old-tunnel-name.trycloudflare.com', 'https://new-tunnel-name.trycloudflare.com');

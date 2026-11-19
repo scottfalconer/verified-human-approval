@@ -36,9 +36,15 @@ try {
     $headers = $directory.'/claude-headers.txt';
     file_put_contents($headers, 'Authorization: Bearer '.$created['accounts']['editor']['personal_token']."\n");
     chmod($headers, 0600);
+    $credentials = json_encode($created, \JSON_THROW_ON_ERROR | \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES)."\n";
+    // --json prints the credentials alone, for a script to read.
+    if (in_array('--json', $argv, true)) {
+        fwrite(\STDOUT, $credentials);
+        exit(0);
+    }
     $mcp = rtrim($origin, '/').'/mcp';
     fwrite(\STDOUT, "Demo initialized for $origin. Save these credentials privately; passwords/tokens are shown only once.\n");
-    fwrite(\STDOUT, json_encode($created, \JSON_THROW_ON_ERROR | \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES)."\n\n");
+    fwrite(\STDOUT, $credentials."\n");
     fwrite(\STDOUT, "Add a passkey: sign in as an account, then open that account's passkey_link above. A password alone cannot add an approval passkey; each link works once, for seven days.\n\n");
     // The site answers only at its origin, so the server listens on the origin's host and port, for this runtime.
     $site = parse_url($origin);
