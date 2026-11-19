@@ -442,6 +442,59 @@ final class ApplicationIntegrationTest extends TestCase
         }
     }
 
+    public function testAPublicationRetryIsRefusedOnceItsWorkingDraftIsSavedWithOtherText(): void
+    {
+        $id = $this->createDraft('mcp', 'Opening hours', 'The library opens at nine.');
+        $arguments = ['page_id' => $id, 'request_key' => 'publication-retry'];
+        $requestId = $this->tool('editor', 'publish_page', $arguments)->structuredContent['requestId'];
+        $this->assertApproved($requestId);
+
+        $this->saveDraft('mcp', $id, 'Opening hours', 'The library opens at nine.');
+        $retry = $this->tool('editor', 'publish_page', $arguments);
+        self::assertFalse($retry->isError, json_encode($retry->structuredContent));
+        self::assertSame(['completed', $requestId, true], [$retry->structuredContent['status'], $retry->structuredContent['requestId'], $retry->structuredContent['approval']['earlier']], 'The draft saved again with the same text is what the key published.');
+
+        $this->saveDraft('mcp', $id, 'Opening hours', 'The library opens at ten.');
+        $refused = $this->tool('editor', 'publish_page', $arguments);
+        self::assertTrue($refused->isError, json_encode($refused->structuredContent));
+        self::assertSame(['rejected', 'idempotency_conflict'], [$refused->structuredContent['status'], $refused->structuredContent['reason']], 'The key names the text it published, not the draft saved since.');
+        self::assertSame('The library opens at nine.', $this->row($id)['live_body']);
+        self::assertSame(1, $this->executionsFor($requestId));
+    }
+
+    public function testAnArchiveRetryReturnsItsOutcomeUntilThePageIsPublishedAgain(): void
+    {
+        $id = $this->published('mcp', 'Road closure', 'The bridge is closed.');
+        $arguments = ['page_id' => $id, 'request_key' => 'archive-retry'];
+        $archive = $this->tool('editor', 'archive_page', $arguments)->structuredContent['requestId'];
+        $this->assertApproved($archive);
+        $retry = $this->tool('editor', 'archive_page', $arguments);
+        self::assertFalse($retry->isError, json_encode($retry->structuredContent));
+        self::assertSame(['completed', $archive, true], [$retry->structuredContent['status'], $retry->structuredContent['requestId'], $retry->structuredContent['approval']['earlier']], 'An archived page cannot be archived again, so the recorded outcome stands.');
+
+        $this->assertApproved($this->ask('mcp', 'publish', $id));
+        $refused = $this->tool('editor', 'archive_page', $arguments);
+        self::assertTrue($refused->isError, json_encode($refused->structuredContent));
+        self::assertSame(['rejected', 'idempotency_conflict'], [$refused->structuredContent['status'], $refused->structuredContent['reason']], 'Archiving the page again would move it to a later revision than the one the old key names.');
+        self::assertSame(Page::PUBLISHED, $this->row($id)['status']);
+        self::assertSame(1, $this->executionsFor($archive));
+    }
+
+    public function testALiveEditRetryReturnsItsOutcomeAfterALaterLiveEdit(): void
+    {
+        $id = $this->published('mcp', 'Timetable', 'The service runs hourly.');
+        $first = ['page_id' => $id, 'request_key' => 'first-live-edit', 'title' => 'Timetable', 'body' => 'The service runs every 30 minutes.'];
+        $edit = $this->tool('editor', 'edit_live_page', $first)->structuredContent['requestId'];
+        $this->assertApproved($edit);
+        $this->assertApproved($this->ask('mcp', 'edit-live', $id, ['title' => 'Timetable', 'body' => 'The service runs every 15 minutes.']));
+
+        $retry = $this->tool('editor', 'edit_live_page', $first);
+        self::assertFalse($retry->isError, json_encode($retry->structuredContent));
+        self::assertSame(['completed', $edit, true], [$retry->structuredContent['status'], $retry->structuredContent['requestId'], $retry->structuredContent['approval']['earlier']], 'Its effect holds the text it asked for, not the revision, so the later edit leaves its key matching.');
+        self::assertSame('The service runs every 15 minutes.', $this->row($id)['live_body'], 'Nothing ran again.');
+        self::assertSame(1, $this->executionsFor($edit));
+    }
+
     /** @return iterable<string, array{string}> */
     public static function unguardedWrites(): iterable
     {
