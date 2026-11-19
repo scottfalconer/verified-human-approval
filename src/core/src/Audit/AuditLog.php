@@ -29,7 +29,9 @@ use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
  * rotation itself included, leaves the old key's entries counting for nothing, as it could hide where trust
  * moved.
  *
- * This class builds, signs and checks entries; an AuditStore keeps the rows. One chain spans every tenant.
+ * This class builds, signs and checks entries; an AuditStore keeps the rows. One chain spans every tenant. The
+ * store's lookup only finds entries: that one is absent, such as a revocation, is read from the whole chain
+ * (unrecorded()), since an edited index or storage class can hide a row from a lookup.
  *
  * @phpstan-import-type AuditHead from AuditStore
  * @phpstan-import-type AuditRecord from AuditStore
@@ -166,40 +168,61 @@ final readonly class AuditLog
     }
 
     /**
-     * Whether the log holds an entry of this type for this subject, whether it verifies or not. Use it for an
-     * entry that only ever takes trust away, such as a revocation: one that was damaged still counts.
-     */
-    public function recorded(string $type, string $subject): bool
-    {
-        return [] !== [...$this->store->recordsFor($type, $subject)];
-    }
-
-    /**
-     * Whether entry $seq and every entry after it, up to the newest, are kept as they were written: each is
-     * signed by a trusted key over exactly what its row says, and follows the one before it. Check it before
-     * trusting that something was not recorded since, such as a revocation: no entry after $seq can then have
-     * been edited, retargeted or removed, except by cutting off the newest entries, which a checkpoint of the
+     * Of the subjects in $since, those for which the chain rules out an entry of this type. Ask it before trusting
+     * that something was never recorded, such as a passkey's revocation. Any trace counts, whether it verifies or
+     * not: a row whose columns name the type and the subject, or whose entry does. The answer comes from the whole
+     * chain, never from recordsFor(), which misses a row whose index or storage was edited. And a subject is ruled
+     * out only while every entry from its own sequence in $since to the newest is kept as it was written: signed by
+     * a trusted key over exactly what its row says, and following the one before it. Then none of them can have
+     * been edited, retargeted or removed, except by cutting off the newest entries, which only a checkpoint of the
      * head kept where the application cannot write exposes (see checkpoint()). Whether each key was entitled to
      * sign when it did, given its window and the rotations, is for verify() to report: it changes nothing here.
+     *
+     * @param array<string, int> $since by subject, the entry from which its chain must be kept, such as its enrollment
+     *
+     * @return list<string>
      */
-    public function intactSince(int $seq): bool
+    public function unrecorded(string $type, array $since): array
     {
-        $expected = $seq;
-        $previous = null;
+        if ([] === $since) {
+            return [];
+        }
+        $from = min($since);
+        $traces = [];
+        // From $from on, the newest entry not kept as written, and the newest that does not follow the one before it.
+        $unkept = 0;
+        $unlinked = 0;
+        $newest = 0;
+        $last = null;
         foreach ($this->store->records() as $row) {
-            if ((int) $row['seq'] < $seq) {
-                continue;
+            $seq = (int) $row['seq'];
+            $entry = $seq >= $from ? $this->check($row)['entry'] : null;
+            if ($type === $row['type']) {
+                $traces[$row['subject']] = true;
             }
-            $entry = $this->check($row)['entry'];
-            // Only what follows entry $seq is in question, not how it follows the entry before it.
-            if (null === $entry || (int) $row['seq'] !== $expected || ($expected > $seq && $entry['previous'] !== $previous)) {
-                return false;
+            $read = $entry ?? self::read($row['entry']);
+            if ($type === ($read['type'] ?? null) && \is_string($read['subject'] ?? null)) {
+                $traces[$read['subject']] = true;
             }
-            $previous = $row['hash'];
-            ++$expected;
+            if ($seq >= $from) {
+                if (null === $entry) {
+                    $unkept = max($unkept, $seq);
+                } elseif (null === $last || $last['seq'] + 1 !== $seq || $entry['previous'] !== $last['hash']) {
+                    $unlinked = max($unlinked, $seq);
+                }
+            }
+            $newest = max($newest, $seq);
+            $last = ['seq' => $seq, 'hash' => $row['hash']];
+        }
+        $ruledOut = [];
+        foreach ($since as $subject => $start) {
+            // How a subject's own entry follows the one before it is not in question, only what follows it.
+            if (!isset($traces[$subject]) && $start <= $newest && $unkept < $start && $unlinked <= $start) {
+                $ruledOut[] = (string) $subject;
+            }
         }
 
-        return $expected > $seq;
+        return $ruledOut;
     }
 
     /**
@@ -383,6 +406,20 @@ final readonly class AuditLog
         }
 
         return ['entry' => $entry, 'problem' => null];
+    }
+
+    /**
+     * What an entry says, unchecked, or null if it is not one: for a trace that counts whether it verifies or not.
+     *
+     * @return array<string, mixed>|null
+     */
+    private static function read(string $entry): ?array
+    {
+        try {
+            return CanonicalJson::map(CanonicalJson::decode($entry));
+        } catch (\JsonException|\UnexpectedValueException) {
+            return null;
+        }
     }
 
     /**

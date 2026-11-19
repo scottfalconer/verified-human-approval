@@ -13,12 +13,12 @@ use VerifiedHumanApproval\Core\Audit\AuditLog;
  * credential inserted or altered directly in the database can never approve anything, and an
  * administrator can re-check any past approval against the key that was actually enrolled.
  *
- * Revocation is recorded in the same log, and the log is trusted to show it: a passkey approves nothing once
- * any revocation entry names it, intact or damaged, nor while an entry since its enrollment no longer carries
- * a trusted signature over what its row says, or no longer follows the one before it. So editing, retargeting
- * or deleting a revocation does not restore the passkey. Cutting the newest entries off the log is the
- * exception: only a checkpoint of its head, kept where the application cannot write (AuditLog::checkpoint()),
- * shows that a revocation among them is gone.
+ * Revocation is recorded in the same log, and the whole chain is read to show it, never the store's lookup: a
+ * passkey approves nothing once any entry or row names its revocation, intact or damaged, nor while an entry
+ * since its enrollment no longer carries a trusted signature over what its row says, or no longer follows the
+ * one before it. So no edit to a revocation's row, and no deletion of it, restores the passkey. Cutting the
+ * newest entries off the log is the exception: only a checkpoint of its head, kept where the application cannot
+ * write (AuditLog::checkpoint()), shows that a revocation among them is gone.
  *
  * It wraps any RevocableCredentialRepository, so a host can keep passkeys in its own storage. Wire the
  * verifier's CredentialRepository to this wrapper and give the wrapper the raw adapter, never itself.
@@ -44,7 +44,7 @@ final readonly class AnchoredCredentialRepository implements CredentialRepositor
 
     public function forActor(Actor $actor): array
     {
-        return array_values(array_filter($this->credentials->forActor($actor), $this->anchored(...)));
+        return $this->vouchedFor($this->credentials->forActor($actor));
     }
 
     public function add(Credential $credential): void
@@ -112,21 +112,47 @@ final readonly class AnchoredCredentialRepository implements CredentialRepositor
      */
     public function unvouched(Actor $actor): array
     {
-        return array_values(array_filter($this->credentials->forActor($actor), fn (Credential $credential): bool => !$this->anchored($credential)));
+        $credentials = $this->credentials->forActor($actor);
+        $vouched = $this->vouchedFor($credentials);
+
+        return array_values(array_filter($credentials, static fn (Credential $credential): bool => !\in_array($credential, $vouched, true)));
     }
 
     public function anchored(Credential $credential): bool
     {
-        $record = $this->audit->find(self::ENROLLED, $credential->id);
-        $enrolled = null === $record ? null : self::credential($credential->id, $record);
-        if (null === $enrolled || !$enrolled->belongsTo(new Actor($credential->userId, $credential->tenantId))
-            // A revocation only takes trust away, so any trace of one counts; and as one could be missing, nothing
-            // recorded since the enrollment may have been edited, retargeted or removed.
-            || $this->audit->recorded(self::REVOKED, $credential->id) || !$this->audit->intactSince((int) $record['seq'])) {
-            return false;
+        return [] !== $this->vouchedFor([$credential]);
+    }
+
+    /**
+     * The credentials, in their order, that a signed enrollment vouches for and no revocation has undone. The
+     * revocations of all of them are read in one pass over the chain.
+     *
+     * @param list<Credential> $credentials
+     *
+     * @return list<Credential>
+     */
+    private function vouchedFor(array $credentials): array
+    {
+        $enrolledAt = [];
+        foreach ($credentials as $credential) {
+            $record = $this->audit->find(self::ENROLLED, $credential->id);
+            $enrolled = null === $record ? null : self::credential($credential->id, $record);
+            if (null !== $enrolled && $enrolled->belongsTo(new Actor($credential->userId, $credential->tenantId)) && self::sameIdentity($enrolled, $credential)) {
+                $enrolledAt[$credential->id] = (int) $record['seq'];
+            }
         }
+        // A revocation only takes trust away, so any trace of one counts; and as one could be hidden, nothing
+        // recorded since an enrollment may have been edited, retargeted or removed.
+        $standing = array_flip($this->audit->unrecorded(self::REVOKED, $enrolledAt));
+
+        return array_values(array_filter($credentials, static fn (Credential $credential): bool => isset($standing[$credential->id])));
+    }
+
+    /** Whether the stored passkey is still the one enrolled: only its counter may have moved since. */
+    private static function sameIdentity(Credential $enrolled, Credential $stored): bool
+    {
         $then = json_decode($enrolled->sourceJson, true);
-        $now = json_decode($credential->sourceJson, true);
+        $now = json_decode($stored->sourceJson, true);
         if (!\is_array($then) || !\is_array($now)) {
             return false;
         }
