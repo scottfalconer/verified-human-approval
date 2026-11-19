@@ -24,6 +24,7 @@ use VerifiedHumanApproval\Bundle\Mcp\RateLimiterProposalBudget;
 use VerifiedHumanApproval\Bundle\Security\ReviewRequestMatcher;
 use VerifiedHumanApproval\Bundle\Twig\ContentSecurityPolicyExtension;
 use VerifiedHumanApproval\Bundle\Twig\VerificationExtension;
+use VerifiedHumanApproval\Bundle\Twig\VerificationRuntime;
 use VerifiedHumanApproval\Bundle\Verification\PublicVerification;
 use VerifiedHumanApproval\Core\ActionAdapter;
 use VerifiedHumanApproval\Core\ActionRegistry;
@@ -311,9 +312,11 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             service('logger')->nullOnInvalid(),
         ]);
         $services->alias(PublicVerification::class, 'verified_human_approval.public_verification');
-        $services->set('verified_human_approval.twig.verification', VerificationExtension::class)
+        $services->set('verified_human_approval.twig.verification', VerificationExtension::class)->tag('twig.extension');
+        // A runtime, so only a template that asks for the badge builds the approval store it reads.
+        $services->set('verified_human_approval.twig.verification_runtime', VerificationRuntime::class)
             ->args([service('verified_human_approval.public_verification'), service('router'), $config['public_verification']])
-            ->tag('twig.extension');
+            ->tag('twig.runtime');
         $services->set('verified_human_approval.verification_controller', VerificationController::class)->public()->args([
             service('verified_human_approval.public_verification'), service('twig'), $config['public_verification'],
         ]);
