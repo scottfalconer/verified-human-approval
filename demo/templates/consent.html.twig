@@ -1,6 +1,7 @@
 {# The consent step of the OAuth server (Controller\ConsentController). Everything here comes from the authorization
-   request the server validated, never from this page's link; Allow approves that one request, and Don't allow tells
-   its client the person refused. #}
+   request the server validated, never from this page's link; Allow approves that one request, and Don't allow
+   refuses it. Its client learns of a refusal only at a return address the server trusts; otherwise the person sees
+   consent_refused.html.twig. #}
 {% extends '@VerifiedHumanApproval/base.html.twig' %}
 {% block title %}Connect {{ consent.clientName }} · Verified Human Approval{% endblock %}
 {% block body %}

@@ -13,7 +13,7 @@ final readonly class ConsentRequest
 {
     /**
      * @param string       $id        which page asked; an answer must name it
-     * @param string       $resumeUri the authorization request to repeat once the person allows it
+     * @param string       $resumeUri the authorization request to repeat once the person answers
      * @param string|null  $publisher the host of the client ID metadata document that named the client, if one did
      * @param list<string> $scopes    what the token will carry
      */
