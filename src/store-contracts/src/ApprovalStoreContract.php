@@ -634,7 +634,10 @@ abstract class ApprovalStoreContract extends TestCase
         yield 'its options, cut short' => ['options', static fn (string $options): string => substr($options, 0, 20)];
         yield 'its options, to a JSON list' => ['options', static fn (): string => '[]'];
         yield 'its nonce, to text that is not base64url' => ['nonce', static fn (): string => 'not a nonce'];
+        yield 'its nonce, to base64url of three bytes' => ['nonce', static fn (): string => 'AAAA'];
         yield 'its expiry, to text that is not a time' => ['expires_at', static fn (): string => 'soon'];
+        yield 'its expiry, cut short' => ['expires_at', static fn (string $expiry): string => substr($expiry, 0, 16)];
+        yield 'its expiry, to a time relative to when it is read' => ['expires_at', static fn (): string => '+1 day'];
     }
 
     /**
