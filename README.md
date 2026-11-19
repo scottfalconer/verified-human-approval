@@ -26,7 +26,7 @@ php demo/bin/setup.php
 PHP_CLI_SERVER_WORKERS=4 php -S localhost:8080 -t demo/public demo/public/index.php
 ```
 
-Keep the setup output private. It contains the demo accounts' passwords, personal agent tokens and first-passkey links.
+Keep the setup output private. It contains the demo accounts' passwords, personal tokens and first-passkey links.
 
 With the server running, continue at [Add the editor's passkey](demo/README.md#2-add-the-editors-passkey). Use the **editor** account: its rule requires passkey approval. The walkthrough uses the included PHP MCP client, so no model API key or agent application is needed.
 
@@ -77,20 +77,20 @@ The [examples guide](examples/README.md) explains what each example runs, and th
 | The draft is edited after you reviewed it | Not issued: the proposal no longer matches |
 | The alerts page layout changes after review | Not issued: the layout is part of what you approved |
 | A signed approval is replayed for another request | Rejected: the signature covers one proposal's digest |
-| A client answers "accept" without your passkey | Still pending: accept only means the page was opened |
+| A client answers "accept" without your passkey | Still pending: accepting only means the person agreed to open the page |
 | The same approval is repeated | The same receipt, and the alert issued once |
-| The rule lets a role act directly | It runs, and every page says it ran without a passkey |
+| The rule lets a role act directly | It runs, and the agent's result and the review page say it ran without a passkey |
 | A phone code is used twice, or after two minutes | Refused: each code works once |
-| Someone with only the password tries to add a passkey | Refused: the first needs a one-time link, any other an existing passkey |
+| Someone with only the password tries to add a passkey | Refused: adding one takes a one-time link or a fresh confirmation with an existing passkey |
 | A passkey row is added or changed directly in the database | It approves nothing: no signed enrollment record vouches for it |
 | A record is edited and its receipt deleted to hide it | The audit page flags it, and no evidence is signed for that record |
 | A passkey is revoked just after it confirmed adding another | The confirmation ends with it: no new passkey or passkey link |
-| An approval's record is edited in the database afterwards | The audit page's checks fail: the receipt was signed at commit, and the passkey signed the original |
+| An approval's proposal is rewritten in the database, with its digest recomputed to match | The audit page's checks fail: the receipt was signed at commit, and the passkey signed the original |
 | The site's record changes after the person kept their receipt | Their copy no longer matches it, checked with only the site's published key |
 | An administrator's password alone tries to switch verification off | Pending: the rule change waits for the administrator's passkey |
 | Another account, or a read-only agent token | No access to the request, and no rights from a passkey |
 
-Each row is a test in [tests](tests).
+The tests in [tests](tests) cover each row, except the phone code's two-minute limit: the code enforces it, but no test moves the clock past it.
 
 ## Check the original record later
 
@@ -105,7 +105,7 @@ The verifier uses public keys trusted separately from the downloaded record. Cha
 
 The person keeps their own copy. Once the action runs, the review page offers **Download your receipt**: the exact request, their passkey's signature on it and what ran, signed by the site as it ran. The agent's result carries the same signed receipt, and the site publishes the keys that check it at `/approval/receipt-keys.json`, including any key it [rotated](docs/evidence.md#rotate-the-signing-key) away from. If the site's record of that request were changed or deleted later, the person's copy would show it.
 
-This checks the **historical approval and execution record**. It does not monitor later edits to the live content, prove what the person understood, or independently witness the database change. Follow the [receipt walkthrough](docs/evidence.md) to verify a real demo receipt and then see an edited copy fail.
+This checks the **historical approval and execution record**. It does not monitor later edits to the live content, prove what the person understood, or independently witness the database change. Follow [Verify a receipt](docs/evidence.md) to check a real demo receipt and then see an edited copy fail.
 
 ## Current scope
 
@@ -130,11 +130,11 @@ The [integration guide](src/symfony-bundle/docs/index.md) is the canonical insta
 | [`verified-human-approval/symfony-bundle`](src/symfony-bundle/README.md) | Symfony services, review routes, CSRF, rate limits, status tool and scoped phone handoff. |
 | [`verified-human-approval/doctrine`](src/doctrine/README.md) | The approval store, signed audit log and passkey storage on a Doctrine DBAL connection, the ORM schema listener, an entity action base and a flush check for protected entities. |
 | [`verified-human-approval/store-contracts`](src/store-contracts/README.md) | The storage contract tests, with the fixture application and process races, to check an adapter of your own. |
-| [`verified-human-approval/testing`](src/testing/README.md) | Development helpers: a software authenticator, rendered passkey panels and an in-process MCP HTTP client for host integration tests. |
+| [`verified-human-approval/testing`](src/testing/README.md) | Development helpers for host integration tests: a software authenticator, a driver for the passkey panel a page renders, and a PSR-18 client that sends requests through your kernel in process. |
 
-The engine is independent of Symfony. The worked Symfony example uses a single SQLite transaction; the Doctrine storage passes the same contract on SQLite, PostgreSQL and MySQL. External effects, such as an email or another service's API, are outside the transaction and need their own design.
+The engine is independent of Symfony. The worked Symfony example uses a single SQLite transaction; the Doctrine storage passes the same contract on SQLite, PostgreSQL, MySQL and MariaDB. External effects, such as an email or another service's API, are outside the transaction and need their own design.
 
-On Doctrine ORM, start from the [publishing example](examples/doctrine-publishing/README.md): a runnable newsroom where publishing, editing live content, archiving (also a batch, under one approval) and deleting each wait for the person's passkey, from the web and from an agent alike, with entities that refuse any other write and a public page that marks approved live text. Its tests cover SQLite, PostgreSQL and MySQL.
+On Doctrine ORM, start from the [publishing example](examples/doctrine-publishing/README.md): a runnable newsroom where publishing, editing live content, archiving (also a batch, under one approval) and deleting each wait for the person's passkey, from the web and from an agent alike, with entities that refuse any other write and a public page that marks approved live text. Its tests cover SQLite, PostgreSQL, MySQL and MariaDB.
 
 ## Verification
 
@@ -145,7 +145,7 @@ composer cs
 PHP_BIN=php python3 tests/http_smoke.py
 ```
 
-The tests cover real WebAuthn signatures, Symfony and MCP integration, concurrent completion, transaction rollback and receipt tampering. CI runs them on PHP 8.3, 8.4 and 8.5, on the lowest supported dependencies and on Symfony 8, runs the storage suites on PostgreSQL, MySQL and MariaDB, and fails on a deprecation. Browser tests, physical devices and hosted clients are reported separately in [verification status](docs/verification.md).
+The tests cover real WebAuthn signatures, Symfony and MCP integration, concurrent completion, transaction rollback and receipt tampering. CI ([`tests.yml`](.github/workflows/tests.yml)) runs the suite on PHP 8.3, 8.4 and 8.5 with the locked dependencies, where any deprecation fails the run, and on the lowest allowed dependencies and on Symfony 8, where deprecations are reported without failing it. It runs the storage suites on PostgreSQL 14 and 17, MySQL 8.0 and 8.4 and MariaDB 11.4, and installs the packages into separate Composer projects, among them [Editorial Desk](tests/EditorialDesk/README.md), an independent Symfony application. Browser tests, physical devices and hosted clients are reported separately in [verification status](docs/verification.md).
 
 ## Further reading
 
@@ -154,6 +154,6 @@ The tests cover real WebAuthn signatures, Symfony and MCP integration, concurren
 - [Integration contracts](docs/integration-contract.md)
 - [Security model](docs/security-model.md)
 - [Reporting a vulnerability](SECURITY.md)
-- [Receipt verification](docs/evidence.md)
+- [Verify a receipt](docs/evidence.md)
 
 MIT licensed. See [LICENSE](LICENSE).
