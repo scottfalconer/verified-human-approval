@@ -164,6 +164,22 @@ final class HandoffTest extends TestCase
         self::assertSame(200, $owner->getResponse()->getStatusCode(), (string) $owner->getResponse()->getContent());
     }
 
+    public function testCodesAreKeptInACachePoolOfTheirOwn(): void
+    {
+        $agent = $this->mcp('editor');
+        $id = $agent->callTool('publish_alert', ['alert_id' => 'riverside-evacuation'])->structuredContent['requestId'];
+        $code = $agent->callTool('approval_handoff', ['request_id' => $id])->structuredContent['url'];
+
+        // A deploy that clears the application's cache leaves a code someone is about to scan working.
+        $phone = $this->browser();
+        $phone->getKernel()->boot();
+        $phone->getKernel()->getContainer()->get('cache.app')->clear();
+        $crawler = $phone->request('GET', $code);
+        self::assertSame(200, $phone->getResponse()->getStatusCode());
+        $phone->submit($crawler->selectButton('Continue')->form());
+        self::assertStringEndsWith('/approval/'.$id.'#return=handoff', (string) $phone->getResponse()->headers->get('Location'));
+    }
+
     public function testACodeLastsTwoMinutesAndThePhoneSessionItOpensTen(): void
     {
         $fixture = new CoreFixture();

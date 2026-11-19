@@ -202,7 +202,9 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
     /**
      * The approval budget and the agents' request budget are ordinary framework rate limiters, named
      * "verified_human_approval" and "verified_human_approval_agent_requests": they use the framework's rate-limiter
-     * cache and lock, and your own framework.rate_limiter config overrides any of it, per environment too.
+     * cache and lock, and your own framework.rate_limiter config overrides any of it, per environment too. The phone
+     * codes are kept in an ordinary cache pool, "verified_human_approval.handoff_cache", on the application's cache
+     * unless your framework.cache.pools config gives it another adapter.
      */
     public function prependExtension(ContainerConfigurator $container, ContainerBuilder $builder): void
     {
@@ -211,10 +213,13 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             $attempts = $config['attempts_per_minute'] ?? $attempts;
             $requests = $config['agent_requests_per_minute'] ?? $requests;
         }
-        $builder->prependExtensionConfig('framework', ['rate_limiter' => [
-            $this->extensionAlias => ['policy' => 'fixed_window', 'limit' => $attempts, 'interval' => '1 minute'],
-            $this->extensionAlias.'_agent_requests' => ['policy' => 'fixed_window', 'limit' => $requests, 'interval' => '1 minute'],
-        ]]);
+        $builder->prependExtensionConfig('framework', [
+            'rate_limiter' => [
+                $this->extensionAlias => ['policy' => 'fixed_window', 'limit' => $attempts, 'interval' => '1 minute'],
+                $this->extensionAlias.'_agent_requests' => ['policy' => 'fixed_window', 'limit' => $requests, 'interval' => '1 minute'],
+            ],
+            'cache' => ['pools' => [$this->extensionAlias.'.handoff_cache' => ['adapter' => 'cache.app']]],
+        ]);
     }
 
     /** @param array<string, mixed> $config */
@@ -270,7 +275,7 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             $services->set('verified_human_approval.lock_store', FlockStore::class)->args(['%kernel.cache_dir%/verified-human-approval-locks']);
             $services->set('verified_human_approval.lock_factory', LockFactory::class)->args([service('verified_human_approval.lock_store')]);
             $services->set('verified_human_approval.handoff', ApprovalHandoff::class)->args([
-                service('cache.app'), service('router'), $config['public_origin'], service('verified_human_approval.clock'), service($config['lock_factory']),
+                service('verified_human_approval.handoff_cache'), service('router'), $config['public_origin'], service('verified_human_approval.clock'), service($config['lock_factory']),
             ]);
         }
 
