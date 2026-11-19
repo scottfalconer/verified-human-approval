@@ -81,6 +81,7 @@ final class DemoScriptsTest extends TestCase
                 case "$1" in
                   */cloudflared)
                     cat "$world/tunnel-address" >> "$log"
+                    cat "$world/meanwhile" >> "$world/processes"
                     ;;
                 esac
                 ;;
@@ -221,12 +222,12 @@ final class DemoScriptsTest extends TestCase
         self::assertStringContainsString('The public demo was set up for https://old-tunnel-name.trycloudflare.com, and the tunnel now answers at https://new-tunnel-name.trycloudflare.com.', $output);
         self::assertStringContainsString('its accounts, passkeys, connections, records and signing key', $output);
         self::assertStringContainsString('Nothing was replaced.', $output, 'With nobody at a terminal to answer, it replaces nothing.');
-        self::assertSame([], $this->calls(), 'Nothing was stopped, set up or started.');
+        self::assertSame(['server status'], $this->calls(), 'Nothing was stopped, set up or started.');
 
         $this->forgetCalls();
         [$status, $output] = $this->publicDemo($checkout, 'start', '--yes');
         self::assertSame(0, $status, $output);
-        self::assertSame(['server stop', 'setup --reset for https://new-tunnel-name.trycloudflare.com, registration 0', 'server start'], $this->calls());
+        self::assertSame(['server status', 'server stop', 'setup --reset for https://new-tunnel-name.trycloudflare.com, registration 0', 'server start'], $this->calls());
     }
 
     public function testPublicStartKeepsADemoSetUpForTheTunnel(): void
@@ -234,7 +235,7 @@ final class DemoScriptsTest extends TestCase
         $checkout = $this->publicTree('https://tunnel-name.trycloudflare.com', 'https://tunnel-name.trycloudflare.com');
         [$status, $output] = $this->publicDemo($checkout, 'start');
         self::assertSame(0, $status, $output);
-        self::assertSame(['server start'], $this->calls());
+        self::assertSame(['server status', 'server start'], $this->calls());
     }
 
     public function testPublicStartSetsUpAMissingDemoWithoutAsking(): void
@@ -242,7 +243,7 @@ final class DemoScriptsTest extends TestCase
         $checkout = $this->publicTree(null, 'https://tunnel-name.trycloudflare.com');
         [$status, $output] = $this->publicDemo($checkout, 'start');
         self::assertSame(0, $status, $output);
-        self::assertSame(['server stop', 'setup --reset for https://tunnel-name.trycloudflare.com, registration 0', 'server start'], $this->calls());
+        self::assertSame(['server status', 'server stop', 'setup --reset for https://tunnel-name.trycloudflare.com, registration 0', 'server start'], $this->calls());
     }
 
     public function testServerServesTheAddressTheDemoWasSetUpFor(): void
@@ -410,6 +411,89 @@ final class DemoScriptsTest extends TestCase
         self::assertSame("Tunnel: https://tunnel-name.trycloudflare.com\nServing http://localhost:8081 for https://tunnel-name.trycloudflare.com\n", $output);
     }
 
+    public function testPublicStartPublishesNothingButThisCheckoutsPublicDemo(): void
+    {
+        $checkout = $this->checkout();
+        $this->tunnelAddress('https://tunnel-name.trycloudflare.com');
+        $program = $this->listen(8081, '/usr/bin/python3 -m http.server 8081');
+        $refused = "Not running. Port 8081 is in use by another program: PID $program (/usr/bin/python3 -m http.server 8081).\n";
+        $uses = 'The public demo uses port 8081, which nothing else may use while it runs.';
+        self::assertSame([1, $refused."$uses Free the port, then run: $checkout/demo/bin/public start\n"], $this->publicDemo($checkout, 'start'));
+        self::assertSame([], $this->calls(), 'No tunnel was started, so nothing was published.');
+
+        // This checkout's tunnel, already running, would publish the program, so it stops.
+        $this->tunnel($checkout, 'https://tunnel-name.trycloudflare.com');
+        self::assertSame([1, $refused."Stopped this checkout's tunnel, so that it publishes nothing else.\n$uses Free the port, then run: $checkout/demo/bin/public start\n"], $this->publicDemo($checkout, 'start'));
+        self::assertSame(['launchctl remove '.self::TUNNEL], $this->calls());
+
+        // Nor does this checkout's local demo, set up for that port, pass for the public one.
+        $this->stopEveryProcess();
+        $this->runtime($checkout, 'var/demo', 'http://localhost:8081');
+        self::assertSame(0, $this->server($checkout, 'start')[0]);
+        $this->forgetCalls();
+        [$status, $output] = $this->publicDemo($checkout, 'start');
+        self::assertSame(1, $status, $output);
+        self::assertStringStartsWith("Not running. Port 8081 is in use by this checkout's server for another demo, in $checkout/var/demo.\n$uses", $output);
+        self::assertSame([], $this->calls());
+
+        // With the port free, the tunnel starts, then the public demo's own server on port 8081.
+        self::assertSame(0, $this->server($checkout, 'stop')[0]);
+        $this->forgetCalls();
+        [$status, $output] = $this->publicDemo($checkout, 'start');
+        self::assertSame(0, $status, $output);
+        self::assertStringEndsWith("Public demo: https://tunnel-name.trycloudflare.com\nclaude.ai connector URL: https://tunnel-name.trycloudflare.com/mcp\n$uses\n", $output);
+        [$tunnel, $server] = $this->launched();
+        self::assertStringContainsString('-l '.self::TUNNEL.' ', $tunnel);
+        self::assertStringContainsString('-l dev.verified-human-approval.demo.8081 ', $server);
+        self::assertStringContainsString(' VERIFIED_HUMAN_APPROVAL_RUNTIME='.$checkout.'/var/public-demo ', $server);
+    }
+
+    public function testPublicStartStopsItsTunnelWhenAnotherProgramTakesThePortMeanwhile(): void
+    {
+        $checkout = $this->checkout();
+        $this->tunnelAddress('https://tunnel-name.trycloudflare.com');
+        $program = $this->meanwhile(8081, '/usr/bin/python3 -m http.server 8081');
+        [$status, $output] = $this->publicDemo($checkout, 'start');
+        self::assertSame(1, $status, $output);
+        self::assertStringEndsWith("Not running. Port 8081 is in use by another program: PID $program (/usr/bin/python3 -m http.server 8081).\nStopped this checkout's tunnel, so that it publishes nothing else.\nThe public demo uses port 8081, which nothing else may use while it runs. Free the port, then run: $checkout/demo/bin/public start\n", $output);
+        self::assertCount(1, $this->launched(), 'Only the tunnel was started, never a server on the taken port.');
+        self::assertSame('launchctl remove '.self::TUNNEL, \array_slice($this->calls(), -1)[0]);
+        self::assertSame([$program], array_keys($this->processes()), 'The tunnel stopped; the program was left running.');
+    }
+
+    public function testPublicStartAndStopLeaveAnotherCheckoutsPublicDemoAlone(): void
+    {
+        // Two checkouts on one computer: one tunnel label and one port 8081 for both.
+        $first = $this->checkout(name: 'first');
+        $second = $this->checkout(name: 'second');
+        $this->tunnelAddress('https://first-tunnel.trycloudflare.com');
+        [$status, $output] = $this->publicDemo($first, 'start');
+        self::assertSame(0, $status, $output);
+        $running = $this->processes();
+        $server = (int) array_search(\PHP_BINARY." -S localhost:8081 -t $first/demo/public $first/demo/public/index.php", $running, true);
+        $theirs = "Not running. Port 8081 is in use by another program: PID $server (".\PHP_BINARY." -S localhost:8081 -t $first/demo/public $first/demo/public/index.php).";
+        $this->forgetCalls();
+
+        [$status, $output] = $this->publicDemo($second, 'start');
+        self::assertSame(1, $status, $output);
+        self::assertStringStartsWith("$theirs\nThe public demo uses port 8081, which nothing else may use while it runs.", $output);
+        self::assertSame([1, "Tunnel: started from another checkout, $first\n$theirs\n"], $this->publicDemo($second, 'status'));
+        self::assertSame([1, 'The tunnel job '.self::TUNNEL." was started from another checkout, $first, and is left running.\nThe launchd job dev.verified-human-approval.demo.8081 was started from another checkout, $first, and is left alone: stop it from there.\n"], $this->publicDemo($second, 'stop'));
+        self::assertSame([], $this->calls(), 'The second checkout submitted, removed and killed nothing.');
+        self::assertSame($running, $this->processes());
+
+        // With only the first checkout's tunnel left, the second still does not take it over.
+        self::assertSame(0, $this->server($first, 'stop', ['VERIFIED_HUMAN_APPROVAL_RUNTIME' => $first.'/var/public-demo', 'PORT' => '8081'])[0]);
+        $this->forgetCalls();
+        self::assertSame([1, 'The tunnel job '.self::TUNNEL." was started from another checkout, $first. Only one public demo runs on this computer at a time: stop that one first, with $first/demo/bin/public stop.\n"], $this->publicDemo($second, 'start'));
+        self::assertSame([], $this->calls());
+
+        // The first checkout stops its own.
+        self::assertSame([0, "Stopped\n"], $this->publicDemo($first, 'stop'));
+        self::assertSame(['launchctl remove '.self::TUNNEL], $this->calls());
+        self::assertSame([], $this->processes());
+    }
+
     /**
      * This computer as demo/bin/server and demo/bin/public see it, with nothing real started: stand-ins for launchd
      * and for the commands the scripts look at processes and ports with, over a world they share. Each launchd job
@@ -418,8 +502,8 @@ final class DemoScriptsTest extends TestCase
      * "-", and its command line. The IDs are higher than any system hands out, so a signal sent to one by mistake
      * reaches nothing. Removing a job stops its main process only: the workers it forked are left behind, as they
      * can be. A port in world/hidden has a listener lsof cannot see, such as another account's. A tunnel that starts
-     * writes world/tunnel-address to its log. What the scripts change (a job submitted or removed, a process killed,
-     * a console command, a setup) is recorded in calls.log.
+     * writes world/tunnel-address to its log, and the processes in world/meanwhile start with it. What the scripts
+     * change (a job submitted or removed, a process killed, a console command, a setup) is recorded in calls.log.
      *
      * @return string the directory of the stand-ins, to put first in PATH
      */
@@ -429,7 +513,7 @@ final class DemoScriptsTest extends TestCase
         if (!is_dir($computer)) {
             $filesystem = new Filesystem();
             $filesystem->mkdir($computer.'/world/jobs');
-            foreach (['processes', 'hidden', 'tunnel-address'] as $file) {
+            foreach (['processes', 'hidden', 'tunnel-address', 'meanwhile'] as $file) {
                 $filesystem->dumpFile($computer.'/world/'.$file, '');
             }
             $filesystem->dumpFile($computer.'/world/last-pid', "4999999\n");
@@ -532,6 +616,15 @@ final class DemoScriptsTest extends TestCase
     {
         $pid = $this->nextProcessId();
         file_put_contents($this->world().'/processes', "$pid $port - $command\n", \FILE_APPEND);
+
+        return $pid;
+    }
+
+    /** @return int the ID of a program of someone's own that starts listening on $port while a tunnel starts */
+    private function meanwhile(int $port, string $command): int
+    {
+        $pid = $this->nextProcessId();
+        file_put_contents($this->world().'/meanwhile', "$pid $port - $command\n", \FILE_APPEND);
 
         return $pid;
     }

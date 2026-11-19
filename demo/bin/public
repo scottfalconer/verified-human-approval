@@ -6,6 +6,10 @@
 # hostname needs a fresh public demo: start says what it would replace and asks first; --yes answers yes.
 # all-clear takes the live alert down for another take, keeping accounts, passkeys and connections.
 # reset starts a fresh public demo on the same address: new accounts, passkey links and connections.
+# The tunnel publishes whatever answers on port 8081, so the public demo uses that port and nothing else may while
+# it runs: start and reset go no further while anything else holds it, and this checkout's tunnel stops rather than
+# publish it. The tunnel's launchd label is one for the whole computer, and start and stop touch only a tunnel
+# that this checkout started.
 set -eu
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 RUNTIME="$ROOT/var/public-demo"
@@ -17,19 +21,72 @@ USAGE="Usage: $0 start [--yes] | stop | status | all-clear | reset"
 
 tunnel_url() { grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' "$LOG" 2>/dev/null | tail -1 || true; }
 demo_origin() { php -r '$s = json_decode((string) @file_get_contents($argv[1]), true); echo is_array($s) ? ($s["origin"] ?? "") : "";' "$RUNTIME/settings.json"; }
+# The public demo's own server.
+server() { PORT=$PORT VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" "$SERVER" "$@"; }
+# launchctl's description of the tunnel job, which is empty when there is none.
+tunnel_job() { launchctl list "$LABEL" 2>/dev/null || true; }
+# Whether the job described in $1 is this checkout's tunnel: it writes to this checkout's log.
+started_here() { case "$1" in *"\"$LOG\""*) ;; *) return 1 ;; esac; }
+# The checkout that started the tunnel job described in $1, from where it writes its log; empty if that is not one.
+checkout_of() {
+  log=$(printf '%s\n' "$1" | sed -n 's/^[[:space:]]*"StandardOutPath" = "\(.*\)";$/\1/p')
+  case "$log" in */var/public-tunnel.log) echo "${log%/var/public-tunnel.log}" ;; esac
+}
+# Where the tunnel job described in $1 was started, when that was not here.
+started_from() {
+  other=$(checkout_of "$1")
+  if [ -n "$other" ]; then echo "started from another checkout, $other"; else echo "not started from this checkout"; fi
+}
+
+# Stops this checkout's tunnel, if it runs, so that it publishes nothing else.
+close_tunnel() {
+  started_here "$(tunnel_job)" || return 0
+  launchctl remove "$LABEL" 2>/dev/null || true
+  echo "Stopped this checkout's tunnel, so that it publishes nothing else."
+}
+
+# Goes no further while anything but the public demo's own server holds PORT. $1 is the command to run again.
+guard_port() {
+  held=0
+  holder=$(server status) || held=$?
+  [ "$held" -ne 0 ] && [ "$held" -ne 3 ] || return 0
+  printf '%s\n' "$holder"
+  close_tunnel
+  echo "The public demo uses port $PORT, which nothing else may use while it runs. Free the port, then run: $0 $1"
+  exit 1
+}
 
 # Replaces the public demo with a fresh one for the address $1. Clients cannot register themselves on it;
 # claude.ai names itself with its client ID metadata document instead.
 fresh() {
-  PORT=$PORT VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" "$SERVER" stop >/dev/null 2>&1 || true
+  stopped=$(server stop) || { printf '%s\n' "$stopped"; exit 1; }
   (umask 077; VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" VERIFIED_HUMAN_APPROVAL_ORIGIN="$1" VERIFIED_HUMAN_APPROVAL_DYNAMIC_CLIENT_REGISTRATION=0 php "$ROOT/demo/bin/setup.php" --reset > "$ROOT/var/public-demo-setup.txt")
   echo "Fresh public demo for $1; its credentials and passkey links are in var/public-demo-setup.txt"
 }
 
+# Starts the public demo's server. Should another program have taken the port meanwhile, the tunnel stops.
+serve() {
+  if started=$(server start); then printf '%s\n' "$started"; return 0; fi
+  guard_port "$1"
+  printf '%s\n' "$started"
+  exit 1
+}
+
 start() {
   mkdir -p "$ROOT/var"
-  if ! launchctl list "$LABEL" >/dev/null 2>&1 || [ -z "$(tunnel_url)" ]; then
-    launchctl remove "$LABEL" 2>/dev/null || true
+  guard_port start
+  job=$(tunnel_job)
+  if [ -n "$job" ] && ! started_here "$job"; then
+    other=$(checkout_of "$job")
+    if [ -n "$other" ]; then
+      echo "The tunnel job $LABEL was started from another checkout, $other. Only one public demo runs on this computer at a time: stop that one first, with $other/demo/bin/public stop."
+    else
+      echo "The tunnel job $LABEL was not started from this checkout. Only one public demo runs on this computer at a time: stop that one first, or remove its job: launchctl remove $LABEL"
+    fi
+    exit 1
+  fi
+  if [ -z "$job" ] || [ -z "$(tunnel_url)" ]; then
+    [ -z "$job" ] || launchctl remove "$LABEL" 2>/dev/null || true
     : > "$LOG"
     launchctl submit -l "$LABEL" -o "$LOG" -e "$LOG" -- "$(command -v cloudflared)" tunnel --no-autoupdate --url "http://localhost:$PORT"
     i=0
@@ -54,14 +111,33 @@ start() {
     fi
     fresh "$ORIGIN"
   fi
-  PORT=$PORT VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" "$SERVER" start
+  serve start
   echo "Public demo: $ORIGIN"
   echo "claude.ai connector URL: $ORIGIN/mcp"
+  echo "The public demo uses port $PORT, which nothing else may use while it runs."
 }
 
 stop() {
-  launchctl remove "$LABEL" 2>/dev/null || true
-  PORT=$PORT VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" "$SERVER" stop
+  job=$(tunnel_job)
+  if started_here "$job"; then
+    launchctl remove "$LABEL" 2>/dev/null || true
+  elif [ -n "$job" ]; then
+    echo "The tunnel job $LABEL was $(started_from "$job"), and is left running."
+  fi
+  server stop
+}
+
+status() {
+  job=$(tunnel_job)
+  if [ -z "$job" ]; then
+    echo "Tunnel: not running"
+  elif started_here "$job"; then
+    url=$(tunnel_url)
+    echo "Tunnel: ${url:-no address yet; see $LOG}"
+  else
+    echo "Tunnel: $(started_from "$job")"
+  fi
+  server status
 }
 
 case "${1:-status}" in
@@ -71,12 +147,13 @@ case "${1:-status}" in
       *) echo "$USAGE"; exit 2 ;;
     esac ;;
   stop) stop ;;
-  status) echo "Tunnel: $(tunnel_url)"; PORT=$PORT VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" "$SERVER" status ;;
+  status) status ;;
   all-clear) VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" php "$ROOT/demo/bin/console" demo:all-clear ;;
   reset)
     ORIGIN=$(demo_origin)
     [ -n "$ORIGIN" ] || { echo "No public demo to reset; run: $0 start"; exit 1; }
+    guard_port reset
     fresh "$ORIGIN"
-    PORT=$PORT VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" "$SERVER" start ;;
+    serve reset ;;
   *) echo "$USAGE"; exit 2 ;;
 esac
