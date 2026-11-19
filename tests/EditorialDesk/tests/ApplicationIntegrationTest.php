@@ -534,6 +534,22 @@ final class ApplicationIntegrationTest extends TestCase
         }
     }
 
+    public function testAskingAgainWhileTheWaitingRequestIsDamagedSaysItsOutcomeCannotBeConfirmed(): void
+    {
+        $id = $this->createDraft('web', 'Waiting change', 'A request whose record is then damaged.');
+        $waiting = $this->ask('web', 'publish', $id);
+        $this->database->executeStatement('UPDATE '.ApprovalSchema::REQUESTS." SET proposal = substr(proposal, 1, 20) || 'X' || substr(proposal, 22) WHERE id = ?", [$waiting]);
+
+        // Without a request key, asking again reuses the proposal still waiting, which no longer reads back.
+        $browser = $this->browser();
+        $page = $browser->request('POST', self::ORIGIN.'/desk/pages/'.$id.'/publish', ['_token' => $this->csrf($browser)]);
+        self::assertSame(409, $browser->getResponse()->getStatusCode());
+        self::assertCount(1, $page->filter('[data-status="integrity_error"]'));
+        self::assertStringContainsString('We cannot confirm this approval’s outcome', $page->text());
+        self::assertSame(0, $this->executionsFor($waiting));
+        $this->assertPublicMissing($id);
+    }
+
     private function kernel(): Kernel
     {
         $kernel = new Kernel('test', false);

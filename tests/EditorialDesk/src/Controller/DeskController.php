@@ -128,6 +128,11 @@ final class DeskController extends AbstractController
 
     private function problem(ApprovalException $error): Response
     {
+        // A request that reuses a stored record failing its integrity check was not refused: nothing in that record
+        // says whether the change ran, so the page is the one the review page shows for it.
+        if ('record_integrity_error' === $error->reason) {
+            return $this->render('@VerifiedHumanApproval/integrity_error.html.twig', ['id' => $error->request?->id], new Response('', 409));
+        }
         $status = match ($error->reason) {
             'permission_denied','delegation_denied','scope_denied' => 403,
             'not_found','missing_resource' => 404,
