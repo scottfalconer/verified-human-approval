@@ -51,12 +51,12 @@ $remove = static function (string $path) use (&$remove): void {
 
 try {
     if ('archives' === $mode) {
-        // What each package ships: its manifest, README, licence and runtime files; never vendor, tests or runtime state.
+        // What each package ships: its manifest, README, license and runtime files; never vendor, tests or runtime state.
         $required = [
             'core' => ['composer.json', 'README.md', 'LICENSE', 'src/ApprovalService.php'],
             'webauthn' => ['composer.json', 'README.md', 'LICENSE', 'src/WebAuthnVerifier.php', 'bin/verify-evidence.php'],
             'mcp' => ['composer.json', 'README.md', 'LICENSE', 'src/ApprovalCard.php', 'resources/approval-card.html'],
-            'symfony-bundle' => ['composer.json', 'README.md', 'LICENSE', 'src/VerifiedHumanApprovalBundle.php', 'config/routes.php', 'public/approval.js', 'templates/review.html.twig', 'translations/VerifiedHumanApproval.en.xlf', 'docs/index.md', 'docs/first-action.md', 'docs/authentication.md', 'docs/enrollment.md', 'docs/testing.md'],
+            'symfony-bundle' => ['composer.json', 'README.md', 'LICENSE', 'src/VerifiedHumanApprovalBundle.php', 'config/routes.php', 'public/approval.js', 'templates/review.html.twig', 'translations/VerifiedHumanApproval.en.xlf', 'docs/index.md', 'docs/first-action.md', 'docs/authentication.md', 'docs/enrollment.md', 'docs/testing.md', 'docs/adoption.md'],
             'doctrine' => ['composer.json', 'README.md', 'LICENSE', 'src/DbalTransaction.php', 'src/ApprovalSchema.php', 'src/Orm/EntityAction.php'],
             'store-contracts' => ['composer.json', 'README.md', 'LICENSE', 'src/ApprovalStoreContract.php', 'src/Fixture/FixtureSchema.php', 'bin/store-worker.php', 'bin/audit-worker.php', 'resources/audit-v1-chain.json'],
             'testing' => ['composer.json', 'README.md', 'LICENSE', 'src/VirtualAuthenticator.php', 'src/PasskeyPanel.php', 'src/PanelAnswer.php', 'src/KernelHttpClient.php'],
