@@ -11,6 +11,7 @@ use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\Evidence\EvidenceSigner;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 use VerifiedHumanApproval\Core\Storage\PdoAuditStore;
 use VerifiedHumanApproval\Demo\Account\PasskeyRevocation;
 use VerifiedHumanApproval\Demo\DemoDatabase;
@@ -38,7 +39,7 @@ final class PasskeyRevocationTest extends TestCase
         $store = new PdoAuditStore($pdo);
         $store->initialize();
         $signer = new SodiumEvidenceSigner('app-key', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
-        $audit = new AuditLog($store, $signer, $signer->publicKey(), new MockClock());
+        $audit = new AuditLog($store, $signer, TrustedKeys::single($signer->keyId(), $signer->publicKey()), new MockClock());
         $anchored = new AnchoredCredentialRepository($credentials, $audit);
         $credential = new Credential('key-1', 'editor', 'acme', (string) json_encode(['publicKeyCredentialId' => 'a2V5LTE', 'credentialPublicKey' => 'pk', 'userHandle' => 'uh']), false, 'Passkey');
         $credentials->add($credential);
@@ -47,7 +48,7 @@ final class PasskeyRevocationTest extends TestCase
         if ('storage' === $failure) {
             $pdo->exec("CREATE TRIGGER reject_audit BEFORE INSERT ON verified_human_approval_audit BEGIN SELECT RAISE(ABORT, 'injected audit failure'); END");
         }
-        $recording = 'signing' === $failure ? new AuditLog($store, self::outage(), $signer->publicKey(), new MockClock()) : $audit;
+        $recording = 'signing' === $failure ? new AuditLog($store, self::outage(), TrustedKeys::single($signer->keyId(), $signer->publicKey()), new MockClock()) : $audit;
         $revocation = new PasskeyRevocation($database, $credentials, new AnchoredCredentialRepository($credentials, $recording));
         foreach (['byOwner' => new Actor('editor', 'acme'), 'byAdministrator' => new Actor('manager', 'acme')] as $route => $who) {
             try {

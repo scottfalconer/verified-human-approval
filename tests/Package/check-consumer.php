@@ -100,7 +100,8 @@ try {
         'description' => 'A separate application that installs the packages, for the consumer check.',
         'type' => 'project',
         'license' => 'MIT',
-        'require' => ['php' => '^8.3', 'ext-sodium' => '*'] + $requirements,
+        // PHP alone: the extensions are the packages' own requirements, which check-platform-reqs checks below.
+        'require' => ['php' => '^8.3'] + $requirements,
         'repositories' => [[
             'type' => 'path',
             'url' => $root.'/src/*',

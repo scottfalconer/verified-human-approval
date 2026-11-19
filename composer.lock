@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "e69de27823864bc0018f72983b3fecac",
+    "content-hash": "995e9ecb0a191cac5ada5074374e09aa",
     "packages": [
         {
             "name": "brick/math",
@@ -2485,42 +2485,6 @@
                 "source": "https://github.com/php-fig/log/tree/3.0.2"
             },
             "time": "2024-09-11T13:17:53+00:00"
-        },
-        {
-            "name": "root23/php-json-canonicalization",
-            "version": "1.0.1",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/root23/php-json-canonicalization.git",
-                "reference": "be888e03a171c2b9667265d03924bd6bfc3fe85a"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/root23/php-json-canonicalization/zipball/be888e03a171c2b9667265d03924bd6bfc3fe85a",
-                "reference": "be888e03a171c2b9667265d03924bd6bfc3fe85a",
-                "shasum": ""
-            },
-            "require": {
-                "php": ">=8.0"
-            },
-            "require-dev": {
-                "friendsofphp/php-cs-fixer": "^v3.27.0",
-                "phpstan/phpstan": "^1.10",
-                "phpunit/phpunit": "^9"
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "Root23\\JsonCanonicalizer\\": "src"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "description": "Serialize data into canonical way, based on RFC-8785.",
-            "support": {
-                "issues": "https://github.com/root23/php-json-canonicalization/issues",
-                "source": "https://github.com/root23/php-json-canonicalization/tree/1.0.1"
-            },
-            "time": "2023-09-27T08:27:25+00:00"
         },
         {
             "name": "spomky-labs/cbor-php",

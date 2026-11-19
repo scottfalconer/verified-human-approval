@@ -33,7 +33,9 @@ interface AuditStore
     public function append(callable $buildRecord): array;
 
     /**
-     * Rows of one type and subject, newest sequence first.
+     * Rows of one type and subject, newest sequence first. A lookup through the store's own index, which an edited
+     * index or storage class can make miss a row: AuditLog finds entries with it, but reads the whole chain to show
+     * that one is absent, such as a revocation, or the rotation away from a key being retired.
      *
      * @return iterable<AuditRecord>
      */

@@ -9,8 +9,8 @@ use VerifiedHumanApproval\Core\Audit\AuditStore;
 /**
  * The signed security log's rows in SQLite, on the application's own PDO connection.
  *
- * A host transaction it joins must be started with PDO::beginTransaction(), so that PDO reports it; this
- * store then never commits or rolls it back.
+ * A host transaction it joins must be started with PDO::beginTransaction(), so that PDO reports it, as
+ * PdoApprovalStore starts the approval transaction; this store then never commits or rolls it back.
  *
  * @phpstan-import-type AuditHead from AuditStore
  * @phpstan-import-type AuditRecord from AuditStore

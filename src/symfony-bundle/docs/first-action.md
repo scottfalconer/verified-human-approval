@@ -166,7 +166,7 @@ services:
         arguments:
             $store: '@VerifiedHumanApproval\Core\Storage\PdoAuditStore'
             $signer: '@VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner'
-            $trustedPublicKey: '@VerifiedHumanApproval\Core\Evidence\TrustedKeys'
+            $keys: '@VerifiedHumanApproval\Core\Evidence\TrustedKeys'
             $clock: '@verified_human_approval.clock'
 
     # Verification reads passkeys through the anchored wrapper, and the wrapper reads the raw rows.

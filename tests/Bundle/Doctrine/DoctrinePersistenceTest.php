@@ -19,6 +19,7 @@ use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
 use VerifiedHumanApproval\Core\Evidence\Receipt;
 use VerifiedHumanApproval\Core\Evidence\ReceiptVerifier;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 use VerifiedHumanApproval\Doctrine\ApprovalSchema;
 use VerifiedHumanApproval\Doctrine\DbalApprovalStore;
 use VerifiedHumanApproval\Doctrine\DbalAuditStore;
@@ -101,7 +102,7 @@ final class DoctrinePersistenceTest extends TestCase
         self::assertSame('completed', $completed->status);
         self::assertSame(1, (int) $connection->fetchOne('SELECT COUNT(*) FROM '.ApprovalSchema::RECEIPTS));
         $signer = WiringProbe::signer();
-        self::assertSame(Receipt::COMMIT, (new ReceiptVerifier())->verify((new EvidenceExporter())->export($completed), $signer->keyId(), $signer->publicKey())['receiptSignedAt']);
+        self::assertSame(Receipt::COMMIT, (new ReceiptVerifier())->verify((new EvidenceExporter())->export($completed), TrustedKeys::single($signer->keyId(), $signer->publicKey()))['receiptSignedAt']);
 
         // A passkey enrolled and anchored in one transaction is vouched for by the signed log.
         $transaction = $container->get(DbalTransaction::class);
