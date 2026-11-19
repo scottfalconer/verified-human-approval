@@ -7,9 +7,9 @@
 # all-clear takes the live alert down for another take, keeping accounts, passkeys and connections.
 # reset starts a fresh public demo on the same address: new accounts, passkey links and connections.
 # The tunnel publishes whatever answers on port 8081, so the public demo uses that port and nothing else may while
-# it runs: start and reset go no further while anything else holds it, and this checkout's tunnel stops rather than
-# publish it. The tunnel's launchd label is one for the whole computer, and start and stop touch only a tunnel
-# that this checkout started.
+# it runs: start and reset go no further while anything else holds it, and should either stop short of serving the
+# public demo, for whatever reason, this checkout's tunnel stops too. The tunnel's launchd label is one for the
+# whole computer, and start and stop touch only a tunnel that this checkout started.
 set -eu
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 RUNTIME="$ROOT/var/public-demo"
@@ -45,6 +45,13 @@ close_tunnel() {
   echo "Stopped this checkout's tunnel, so that it publishes nothing else."
 }
 
+# From here until serve() has the public demo's server answering, this checkout's tunnel stops whenever this
+# script does, whatever the reason.
+close_tunnel_on_exit() {
+  trap close_tunnel EXIT
+  trap 'exit 1' HUP INT TERM
+}
+
 # Goes no further while anything but the public demo's own server holds PORT. $1 is the command to run again.
 guard_port() {
   held=0
@@ -64,17 +71,22 @@ fresh() {
   echo "Fresh public demo for $1; its credentials and passkey links are in var/public-demo-setup.txt"
 }
 
-# Starts the public demo's server. Should another program have taken the port meanwhile, the tunnel stops.
+# Starts the public demo's server, which the tunnel may then publish. Should another program have taken the port
+# meanwhile, the tunnel stops.
 serve() {
-  if started=$(server start); then printf '%s\n' "$started"; return 0; fi
+  if started=$(server start); then
+    printf '%s\n' "$started"
+    trap - EXIT HUP INT TERM
+    return 0
+  fi
   guard_port "$1"
-  printf '%s\n' "$started"
+  [ -z "$started" ] || printf '%s\n' "$started"
   exit 1
 }
 
 start() {
   mkdir -p "$ROOT/var"
-  guard_port start
+  close_tunnel_on_exit
   job=$(tunnel_job)
   if [ -n "$job" ] && ! started_here "$job"; then
     other=$(checkout_of "$job")
@@ -85,32 +97,39 @@ start() {
     fi
     exit 1
   fi
-  if [ -z "$job" ] || [ -z "$(tunnel_url)" ]; then
+  # A tunnel that runs keeps its address; one that starts gets a new one.
+  ORIGIN=
+  [ -z "$job" ] || ORIGIN=$(tunnel_url)
+  CURRENT=$(demo_origin)
+  if [ -n "$CURRENT" ] && [ "$CURRENT" != "$ORIGIN" ] && [ "$1" != --yes ]; then
+    if [ -n "$ORIGIN" ]; then
+      echo "The public demo was set up for $CURRENT, and the tunnel now answers at $ORIGIN."
+    else
+      echo "The public demo was set up for $CURRENT, and a new tunnel answers at a new address."
+    fi
+    echo "Passkeys belong to one address, so a demo for the new one replaces this one: its accounts, passkeys, connections, records and signing key."
+    answer=
+    if [ -t 0 ]; then
+      printf 'Replace it? [y/N] '
+      read -r answer || answer=
+    fi
+    case "$answer" in
+      y | Y | yes | Yes) ;;
+      *) echo "Nothing was replaced. To replace it without being asked: $0 start --yes"; exit 1 ;;
+    esac
+  fi
+  # After the question, whose answer can take a while: the port is checked just before the tunnel starts or is kept.
+  guard_port start
+  if [ -z "$ORIGIN" ]; then
     [ -z "$job" ] || launchctl remove "$LABEL" 2>/dev/null || true
     : > "$LOG"
     launchctl submit -l "$LABEL" -o "$LOG" -e "$LOG" -- "$(command -v cloudflared)" tunnel --no-autoupdate --url "http://localhost:$PORT"
     i=0
     while [ $i -lt 60 ] && [ -z "$(tunnel_url)" ]; do sleep 0.5; i=$((i + 1)); done
+    ORIGIN=$(tunnel_url)
+    [ -n "$ORIGIN" ] || { echo "The tunnel did not start; see $LOG"; exit 1; }
   fi
-  ORIGIN=$(tunnel_url)
-  [ -n "$ORIGIN" ] || { echo "The tunnel did not start; see $LOG"; exit 1; }
-  CURRENT=$(demo_origin)
-  if [ "$CURRENT" != "$ORIGIN" ]; then
-    if [ -n "$CURRENT" ] && [ "$1" != --yes ]; then
-      echo "The public demo was set up for $CURRENT, and the tunnel now answers at $ORIGIN."
-      echo "Passkeys belong to one address, so a demo for the new one replaces this one: its accounts, passkeys, connections, records and signing key."
-      answer=
-      if [ -t 0 ]; then
-        printf 'Replace it? [y/N] '
-        read -r answer || answer=
-      fi
-      case "$answer" in
-        y | Y | yes | Yes) ;;
-        *) echo "Nothing was replaced. To replace it without being asked: $0 start --yes"; exit 1 ;;
-      esac
-    fi
-    fresh "$ORIGIN"
-  fi
+  [ "$CURRENT" = "$ORIGIN" ] || fresh "$ORIGIN"
   serve start
   echo "Public demo: $ORIGIN"
   echo "claude.ai connector URL: $ORIGIN/mcp"
@@ -152,6 +171,7 @@ case "${1:-status}" in
   reset)
     ORIGIN=$(demo_origin)
     [ -n "$ORIGIN" ] || { echo "No public demo to reset; run: $0 start"; exit 1; }
+    close_tunnel_on_exit
     guard_port reset
     fresh "$ORIGIN"
     serve reset ;;

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\Bundle;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Filesystem\Filesystem;
 
@@ -234,12 +235,26 @@ final class DemoScriptsTest extends TestCase
         self::assertStringContainsString('The public demo was set up for https://old-tunnel-name.trycloudflare.com, and the tunnel now answers at https://new-tunnel-name.trycloudflare.com.', $output);
         self::assertStringContainsString('its accounts, passkeys, connections, records and signing key', $output);
         self::assertStringContainsString('Nothing was replaced.', $output, 'With nobody at a terminal to answer, it replaces nothing.');
-        self::assertSame(['server status'], $this->calls(), 'Nothing was stopped, set up or started.');
+        // Its tunnel publishes no demo set up for its address, so it stops rather than publish what takes the port next.
+        self::assertStringEndsWith("Stopped this checkout's tunnel, so that it publishes nothing else.\n", $output);
+        self::assertSame(['launchctl remove '.self::TUNNEL], $this->calls(), 'Nothing else was stopped, set up or started.');
 
         $this->forgetCalls();
         [$status, $output] = $this->publicDemo($checkout, 'start', '--yes');
         self::assertSame(0, $status, $output);
-        self::assertSame(['server status', 'server stop', 'setup --reset for https://new-tunnel-name.trycloudflare.com, registration 0', 'server start'], $this->calls());
+        self::assertSame(['server status', $this->tunnelStart($checkout), 'server stop', 'setup --reset for https://new-tunnel-name.trycloudflare.com, registration 0', 'server start'], $this->calls());
+    }
+
+    public function testPublicStartAsksBeforeStartingATunnelThatWouldReplaceTheDemo(): void
+    {
+        // The tunnel the demo was set up for has stopped, and a new one answers at a new address.
+        $checkout = $this->publicTree('https://old-tunnel-name.trycloudflare.com', 'https://new-tunnel-name.trycloudflare.com', running: false);
+        self::assertSame([1, "The public demo was set up for https://old-tunnel-name.trycloudflare.com, and a new tunnel answers at a new address.\nPasskeys belong to one address, so a demo for the new one replaces this one: its accounts, passkeys, connections, records and signing key.\nNothing was replaced. To replace it without being asked: $checkout/demo/bin/public start --yes\n"], $this->publicDemo($checkout, 'start'));
+        self::assertSame([], $this->calls(), 'No tunnel was started to ask.');
+
+        [$status, $output] = $this->publicDemo($checkout, 'start', '--yes');
+        self::assertSame(0, $status, $output);
+        self::assertSame(['server status', $this->tunnelStart($checkout), 'server stop', 'setup --reset for https://new-tunnel-name.trycloudflare.com, registration 0', 'server start'], $this->calls());
     }
 
     public function testPublicStartKeepsADemoSetUpForTheTunnel(): void
@@ -487,6 +502,52 @@ final class DemoScriptsTest extends TestCase
         self::assertSame([$program], array_keys($this->processes()), 'The tunnel stopped; the program was left running.');
     }
 
+    /** @return iterable<string, array{string, string}> what keeps failing, and what the server's start says about it */
+    public static function serverStartFailures(): iterable
+    {
+        yield 'its job, whose server never listens' => ['dev.verified-human-approval.demo.8081', "It did not start; see CHECKOUT/var/demo-server-8081.log\n"];
+        // The console says why on its own, as a console error does, and the server's start adds nothing.
+        yield 'the console, which installs its assets' => ['console', ''];
+    }
+
+    #[DataProvider('serverStartFailures')]
+    public function testPublicStartAndResetStopTheTunnelWhenTheServerDoesNotStart(string $failing, string $said): void
+    {
+        $checkout = $this->checkout();
+        $this->tunnelAddress('https://tunnel-name.trycloudflare.com');
+        file_put_contents($this->world().'/failing', $failing."\n");
+        $failed = [1, "Fresh public demo for https://tunnel-name.trycloudflare.com; its credentials and passkey links are in var/public-demo-setup.txt\n".str_replace('CHECKOUT', $checkout, $said)."Stopped this checkout's tunnel, so that it publishes nothing else.\n"];
+        self::assertSame($failed, $this->publicDemo($checkout, 'start'));
+        self::assertSame('launchctl remove '.self::TUNNEL, \array_slice($this->calls(), -1)[0]);
+        self::assertFileDoesNotExist($this->world().'/jobs/'.self::TUNNEL, 'No tunnel is left to publish whatever takes the port next.');
+
+        // A reset on the address start set the demo up for, with its tunnel running again, stops it the same way.
+        $this->tunnel($checkout, 'https://tunnel-name.trycloudflare.com');
+        self::assertSame($failed, $this->publicDemo($checkout, 'reset'));
+        self::assertSame('launchctl remove '.self::TUNNEL, \array_slice($this->calls(), -1)[0]);
+    }
+
+    public function testPublicStartStopsATunnelThatGivesNoAddress(): void
+    {
+        $checkout = $this->checkout();
+        file_put_contents($this->world().'/failing', self::TUNNEL."\n");
+        self::assertSame([1, "The tunnel did not start; see $checkout/var/public-tunnel.log\nStopped this checkout's tunnel, so that it publishes nothing else.\n"], $this->publicDemo($checkout, 'start'));
+        self::assertSame([$this->tunnelStart($checkout), 'launchctl remove '.self::TUNNEL], $this->calls(), 'Left in launchd, it would keep trying, and publish the port once it got through.');
+    }
+
+    public function testPublicStartStopsItsTunnelWhenAnotherCheckoutsServerJobHoldsTheLabel(): void
+    {
+        // Another checkout's public demo server keeps failing: its job holds the label, and nothing listens on the port.
+        $first = $this->checkout('https://first-tunnel.trycloudflare.com', 'var/public-demo', name: 'first');
+        self::assertSame(0, $this->server($first, 'start', ['VERIFIED_HUMAN_APPROVAL_RUNTIME' => $first.'/var/public-demo', 'PORT' => '8081'])[0]);
+        $this->stopEveryProcess();
+        $second = $this->checkout(name: 'second');
+        $this->tunnelAddress('https://second-tunnel.trycloudflare.com');
+        $this->forgetCalls();
+        self::assertSame([1, "The launchd job dev.verified-human-approval.demo.8081 was started from another checkout, $first, and is left alone: stop it from there.\nStopped this checkout's tunnel, so that it publishes nothing else.\n"], $this->publicDemo($second, 'start'));
+        self::assertSame([$this->tunnelStart($second), 'launchctl remove '.self::TUNNEL], $this->calls(), 'Nothing was set up, and the other checkout’s job was left alone.');
+    }
+
     public function testPublicStartAndStopLeaveAnotherCheckoutsPublicDemoAlone(): void
     {
         // Two checkouts on one computer: one tunnel label and one port 8081 for both.
@@ -498,11 +559,10 @@ final class DemoScriptsTest extends TestCase
         $running = $this->processes();
         $server = (int) array_search(\PHP_BINARY." -S localhost:8081 -t $first/demo/public $first/demo/public/index.php", $running, true);
         $theirs = "Not running. Port 8081 is in use by another program: PID $server (".\PHP_BINARY." -S localhost:8081 -t $first/demo/public $first/demo/public/index.php).";
+        $another = 'The tunnel job '.self::TUNNEL." was started from another checkout, $first. Only one public demo runs on this computer at a time: stop that one first, with $first/demo/bin/public stop.\n";
         $this->forgetCalls();
 
-        [$status, $output] = $this->publicDemo($second, 'start');
-        self::assertSame(1, $status, $output);
-        self::assertStringStartsWith("$theirs\nThe public demo uses port 8081, which nothing else may use while it runs.", $output);
+        self::assertSame([1, $another], $this->publicDemo($second, 'start'));
         self::assertSame([1, "Tunnel: started from another checkout, $first\n$theirs\n"], $this->publicDemo($second, 'status'));
         self::assertSame([1, 'The tunnel job '.self::TUNNEL." was started from another checkout, $first, and is left running.\nThe launchd job dev.verified-human-approval.demo.8081 was started from another checkout, $first, and is left alone: stop it from there.\n"], $this->publicDemo($second, 'stop'));
         self::assertSame([], $this->calls(), 'The second checkout submitted, removed and killed nothing.');
@@ -511,7 +571,7 @@ final class DemoScriptsTest extends TestCase
         // With only the first checkout's tunnel left, the second still does not take it over.
         self::assertSame(0, $this->server($first, 'stop', ['VERIFIED_HUMAN_APPROVAL_RUNTIME' => $first.'/var/public-demo', 'PORT' => '8081'])[0]);
         $this->forgetCalls();
-        self::assertSame([1, 'The tunnel job '.self::TUNNEL." was started from another checkout, $first. Only one public demo runs on this computer at a time: stop that one first, with $first/demo/bin/public stop.\n"], $this->publicDemo($second, 'start'));
+        self::assertSame([1, $another], $this->publicDemo($second, 'start'));
         self::assertSame([], $this->calls());
 
         // The first checkout stops its own.
@@ -561,8 +621,9 @@ final class DemoScriptsTest extends TestCase
 
     /**
      * A checkout of the demo on this computer: copies of demo/bin/server and demo/bin/public, beside stand-ins for
-     * its console and its setup that record what they are asked to do. Setup writes the address it was given into the
-     * runtime's settings, as the real one does. The runtime at $runtime, set up for $setUpFor, holds only its settings.
+     * its console and its setup that record what they are asked to do. The console fails while world/failing names
+     * it. Setup writes the address it was given into the runtime's settings, as the real one does. The runtime at
+     * $runtime, set up for $setUpFor, holds only its settings.
      *
      * @return string the checkout's root
      */
@@ -575,10 +636,11 @@ final class DemoScriptsTest extends TestCase
             $filesystem->copy(\dirname(__DIR__, 2).'/demo/bin/'.$script, $root.'/demo/bin/'.$script);
             $filesystem->chmod($root.'/demo/bin/'.$script, 0755);
         }
-        $filesystem->dumpFile($root.'/demo/bin/console', str_replace('CALLS', $calls, <<<'PHP'
+        $filesystem->dumpFile($root.'/demo/bin/console', strtr(<<<'PHP'
             <?php
             file_put_contents(CALLS, 'console '.implode(' ', array_slice($argv, 1))."\n", \FILE_APPEND);
-            PHP));
+            exit(in_array('console', file(FAILING, \FILE_IGNORE_NEW_LINES) ?: [], true) ? 1 : 0);
+            PHP, ['CALLS' => $calls, 'FAILING' => var_export($this->world().'/failing', true)]));
         $filesystem->dumpFile($root.'/demo/bin/setup.php', str_replace('CALLS', $calls, <<<'PHP'
             <?php
             file_put_contents(CALLS, 'setup '.$argv[1].' for '.getenv('VERIFIED_HUMAN_APPROVAL_ORIGIN').', registration '.getenv('VERIFIED_HUMAN_APPROVAL_DYNAMIC_CLIENT_REGISTRATION')."\n", \FILE_APPEND);
@@ -603,19 +665,31 @@ final class DemoScriptsTest extends TestCase
     }
 
     /**
-     * A checkout whose demo/bin/server only records what it is asked and finds nothing on its port, with its tunnel
-     * already answering at $tunnel and its public demo set up for $setUpFor.
+     * A checkout whose demo/bin/server only records what it is asked and finds nothing on its port, with its public
+     * demo set up for $setUpFor and its tunnel answering at $tunnel: already, or, when it is not $running, once it starts.
      *
      * @return string the checkout's root
      */
-    private function publicTree(?string $setUpFor, string $tunnel): string
+    private function publicTree(?string $setUpFor, string $tunnel, bool $running = true): string
     {
         $checkout = $this->checkout($setUpFor, 'var/public-demo');
         $calls = \dirname($this->computer()).'/calls.log';
         (new Filesystem())->dumpFile($checkout.'/demo/bin/server', "#!/bin/sh\necho \"server \$1\" >> '$calls'\n[ \"\$1\" != status ] || exit 3\n");
-        $this->tunnel($checkout, $tunnel);
+        if ($running) {
+            $this->tunnel($checkout, $tunnel);
+        } else {
+            $this->tunnelAddress($tunnel);
+        }
 
         return $checkout;
+    }
+
+    /** @return string the call that starts $checkout's tunnel, as {@see self::calls()} lists it */
+    private function tunnelStart(string $checkout): string
+    {
+        $log = $checkout.'/var/public-tunnel.log';
+
+        return 'launchctl submit -l '.self::TUNNEL." -o $log -e $log -- ".$this->computer().'/cloudflared tunnel --no-autoupdate --url http://localhost:8081';
     }
 
     /** Starts $checkout's tunnel as demo/bin/public starts it, answering at $address, and forgets what was called. */
