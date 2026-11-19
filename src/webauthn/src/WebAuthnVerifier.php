@@ -202,7 +202,7 @@ final class WebAuthnVerifier implements ApprovalVerifier
                 throw new \UnexpectedValueException('Enrollment options do not match the trusted account and RP.');
             }
             $this->assertChallenge($options->challenge);
-            $loaded = $this->parseResponse($response);
+            $loaded = $this->read($response);
             if (!$loaded->response instanceof AuthenticatorAttestationResponse) {
                 throw new \UnexpectedValueException('Expected a credential registration response.');
             }
@@ -291,10 +291,20 @@ final class WebAuthnVerifier implements ApprovalVerifier
     private function parseResponse(array $response): PublicKeyCredential
     {
         try {
-            return $this->serializer->deserialize($this->encoded($response), PublicKeyCredential::class, 'json');
+            return $this->read($response);
         } catch (\Throwable $error) {
             throw self::refused('invalid_approval', 'The passkey response could not be read.', $error);
         }
+    }
+
+    /**
+     * The browser's response as the library reads it, for a caller that refuses whatever fails.
+     *
+     * @param array<string, mixed> $response
+     */
+    private function read(array $response): PublicKeyCredential
+    {
+        return $this->serializer->deserialize($this->encoded($response), PublicKeyCredential::class, 'json');
     }
 
     /**
@@ -305,7 +315,26 @@ final class WebAuthnVerifier implements ApprovalVerifier
      */
     private static function refused(string $reason, string $message, \Throwable $cause): ApprovalException
     {
-        return new ApprovalException($reason, $message, new \RuntimeException(\sprintf('%s raised at %s:%d.', $cause::class, $cause->getFile(), $cause->getLine())));
+        return new ApprovalException($reason, $message, new \RuntimeException(\sprintf('%s raised at %s.', $cause::class, self::raisedAt($cause))));
+    }
+
+    /**
+     * Where a failure was raised. The library makes most of its exceptions in a static factory of their own class,
+     * whose line is the same for every check, so for those it is the line that called the factory: the check itself.
+     */
+    private static function raisedAt(\Throwable $cause): string
+    {
+        $file = $cause->getFile();
+        $line = $cause->getLine();
+        $factory = (new \ReflectionClass($cause))->getFileName();
+        foreach ($cause->getTrace() as $frame) {
+            if ($file !== $factory || !isset($frame['file'], $frame['line'])) {
+                break;
+            }
+            ['file' => $file, 'line' => $line] = $frame;
+        }
+
+        return $file.':'.$line;
     }
 
     private function userHandle(Actor $actor): string

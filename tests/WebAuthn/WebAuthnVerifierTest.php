@@ -290,12 +290,26 @@ final class WebAuthnVerifierTest extends TestCase
 
             return $test->verifier->register($test->actor, $options, (new VirtualAuthenticator())->registration($options));
         }, 'invalid_registration', \UnexpectedValueException::class];
+        $registration = static function (self $test, array $change): mixed {
+            $options = $test->verifier->registrationOptions($test->actor, random_bytes(32), 'Campaign editor');
+
+            return $test->verifier->register($test->actor, $options, array_replace_recursive((new VirtualAuthenticator())->registration($options), $change));
+        };
+        yield 'a registration response whose client data is not a string' => [
+            static fn (self $test): mixed => $registration($test, ['response' => ['clientDataJSON' => ['quoted-material']]]),
+            'invalid_registration', \Webauthn\Exception\InvalidDataException::class,
+        ];
+        yield 'a registration response whose transports are not a list, which the library meets with a TypeError' => [
+            static fn (self $test): mixed => $registration($test, ['response' => ['transports' => 5]]),
+            'invalid_registration', \TypeError::class,
+        ];
     }
 
     /**
      * Whatever fails while the library reads or checks a response or a stored passkey, the result is a refusal,
-     * errors included. The refusal says what failed and where, for whoever debugs it, but keeps neither the cause's
-     * message nor the cause itself, which can quote or carry what was sent.
+     * errors included. The refusal says what failed and where, for whoever debugs it: the check that failed, not the
+     * factory that made the exception for it. It keeps neither the cause's message nor the cause itself, which can
+     * quote or carry what was sent.
      *
      * @param \Closure(self): mixed    $operation
      * @param class-string<\Throwable> $cause
@@ -310,7 +324,9 @@ final class WebAuthnVerifierTest extends TestCase
             self::assertSame($reason, $refusal->reason);
             $kept = $refusal->getPrevious();
             self::assertInstanceOf(\RuntimeException::class, $kept);
-            self::assertMatchesRegularExpression('/^'.preg_quote($cause, '/').' raised at \S+\.php:\d+\.$/D', $kept->getMessage());
+            self::assertSame(1, preg_match('/^'.preg_quote($cause, '/').' raised at (\S+\.php):(\d+)\.$/D', $kept->getMessage(), $place), $kept->getMessage());
+            self::assertNotSame((new \ReflectionClass($cause))->getFileName(), $place[1], 'It names the check that failed, not the exception\'s own class.');
+            self::assertLessThanOrEqual(\count(file($place[1]) ?: []), (int) $place[2], 'It names a line of that file.');
             self::assertNull($kept->getPrevious(), 'The cause itself is not kept.');
             self::assertStringNotContainsString('quoted-material', $refusal->getMessage().$kept->getMessage());
         }
