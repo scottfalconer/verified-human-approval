@@ -18,7 +18,7 @@ Some of these steps are the maintainer's, because they publish: making the repos
    - Make this repository public, and enable private vulnerability reporting (Settings → Code security), which [SECURITY.md](../SECURITY.md) points to.
    - Create one empty repository per package under one account or organization. [The split workflow](../.github/workflows/split.yml) names them `verified-human-approval-core`, `-webauthn`, `-mcp`, `-symfony-bundle`, `-doctrine`, `-store-contracts` and `-testing`; change the names there if you choose others.
    - Create a token that can push to those repositories only (a fine-grained token with Contents: read and write). Save it as the secret `SPLIT_TOKEN` of this repository, and set the repository variable `SPLIT_OWNER` to that account or organization. From then on, every push to `main` updates each package repository.
-   - Submit each package repository to Packagist under the `verified-human-approval` vendor name, and turn on its update hook.
+   - Submit each package repository to Packagist under the `verified-human-approval` vendor name, and turn on its update hook. [Packagist protects a vendor name](https://packagist.org/about) once a package under it is published, so submit the first one as soon as this repository is public.
 2. **Each release:**
    - Check that `main` passes CI, and move the changelog's "Unreleased" section under the new version and date.
    - Tag `main` as `vX.Y.Z` and push the tag. The split workflow pushes the same tag to every package repository, and Packagist picks it up.
