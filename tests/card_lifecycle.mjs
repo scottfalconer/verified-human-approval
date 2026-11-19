@@ -148,6 +148,42 @@ test('an old handoff cannot populate a replacement approval', async () => {
   assert.equal(h.call('approval_handoff').params.arguments.request_id, 'r2');
 });
 
+test('a host that also announces the card’s own calls, as the specification draws them, changes nothing the card shows', async () => {
+  const echo = (call, result) => {
+    h.dispatch({ method: 'ui/notifications/tool-input', params: { arguments: call.params.arguments } });
+    h.dispatch({ method: 'ui/notifications/tool-result', params: result });
+  };
+  const h = host(); await h.initialize(); h.show();
+  // Announced before the reply, for the phone code.
+  let click = h.element('phone-show').handlers.click(); await flush();
+  let held = h.call('approval_handoff');
+  echo(held, phoneReply());
+  await h.reply(held, phoneReply()); await click;
+  assert.equal(h.element('phone-code').hidden, false);
+  assert.equal(h.element('open').hidden, false);
+  assert.equal(h.status(), 'Waiting for your approval on your phone. Nothing has changed yet.');
+  // After the reply, and a refusal the card's call met.
+  click = h.element('phone-show').handlers.click(); await flush();
+  held = h.call('approval_handoff');
+  const refusal = { isError: true, content: [], structuredContent: { status: 'rejected', reason: 'rate_limited', message: 'Too many phone codes.' } };
+  await h.reply(held, refusal); await click;
+  echo(held, refusal);
+  assert.match(h.status(), /^The phone code could not be made\./);
+  assert.equal(h.shade(), 'pending');
+  // A status check's result comes with its reply, not with the announcement.
+  await h.advance(3000);
+  const check = h.call('approval_status');
+  echo(check, approval('completed'));
+  assert.match(h.status(), /^The phone code could not be made\./);
+  await h.reply(check, approval('completed'));
+  assert.equal(h.status(), 'Approved with a passkey. The site recorded the change.');
+  // A call the host makes itself is still a new request.
+  h.dispatch({ method: 'ui/notifications/tool-input', params: { arguments: { alert_id: 'riverside-evacuation' } } });
+  assert.equal(h.status(), 'Waiting for the request…');
+  h.show(approval('pending', 'r2'));
+  assert.equal(h.status(), 'Waiting for approval on the site. Nothing has changed yet.');
+});
+
 test('teardown retires outstanding UI work and acknowledges the host', async () => {
   const h = host(); await h.initialize(); h.show();
   const click = h.element('phone-show').handlers.click(); await flush();

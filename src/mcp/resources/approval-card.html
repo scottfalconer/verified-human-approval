@@ -78,8 +78,21 @@
   const REQUEST_TIMEOUT_MS = 15000;
   const SETTLE_MS = 300;
   const UNANSWERED = new Error('The host did not answer.');
-  let nextId = 1, view = null, timer = null, since = 0, host = {}, hostInfo = {}, capabilities = {}, codeTimer = null, ended = false, generation = 0, polling = false, shown = false, hint = null;
+  let nextId = 1, view = null, timer = null, since = 0, host = {}, hostInfo = {}, capabilities = {}, codeTimer = null, ended = false, generation = 0, polling = false, shown = false, hint = null, echo = false;
   const waiting = new Map();
+  // The arguments of the server tools this card called for the current view. A host may also announce the card's
+  // own calls, as the specification's diagram draws: a tool-input with those arguments, then that call's tool-result.
+  // The card leaves both alone, since the call's reply brings its result.
+  const own = new Set();
+  function callTool(name, args) {
+    own.add(JSON.stringify(args));
+    return request('tools/call', { name, arguments: args });
+  }
+  // The request a tool result names, if it names one.
+  function named(result) {
+    const data = result && result.structuredContent;
+    return (data && data.approval && data.approval.requestId) || (data && data.requestId) || null;
+  }
 
   // Every request has a deadline except the first, which passes 0: a host that answers late still starts the card.
   function request(method, params, bound = true, limit = REQUEST_TIMEOUT_MS) {
@@ -242,7 +255,7 @@
     if (polling || !watching()) return;
     if (document.hidden) { schedulePoll(); return; }
     polling = true;
-    const result = await request('tools/call', { name: view.statusTool, arguments: { request_id: view.requestId } }).catch(() => null);
+    const result = await callTool(view.statusTool, { request_id: view.requestId }).catch(() => null);
     if (!current(run)) return;
     polling = false;
     const next = result && (!result.isError || result.structuredContent?.status === 'integrity_error') ? read(result) : null;
@@ -271,6 +284,7 @@
   function show(result) {
     if (ended) return;
     shown = true;
+    own.clear();
     retire();
     view = read(result);
     since = Date.now();
@@ -300,8 +314,16 @@
       'error' in message ? reply.reject(message.error) : reply.resolve(message.result);
       return;
     }
-    if (message.method === 'ui/notifications/tool-input' && !ended) { retire(); view = null; render(); status.textContent = NOTE.waiting; }
-    if (message.method === 'ui/notifications/tool-result') show(message.params);
+    if (message.method === 'ui/notifications/tool-input' && !ended) {
+      // One of the card's own calls, announced: the tool-result after it is that call's too.
+      if (own.has(JSON.stringify((message.params && message.params.arguments) || null))) { echo = true; return; }
+      own.clear(); retire(); view = null; render(); status.textContent = NOTE.waiting;
+    }
+    if (message.method === 'ui/notifications/tool-result') {
+      const repeated = echo && [null, view && view.requestId].includes(named(message.params));
+      echo = false;
+      if (!repeated) show(message.params);
+    }
     if (message.method === 'ui/notifications/host-context-changed') applyTheme(message.params);
     if (message.method === 'ui/notifications/tool-cancelled') {
       const reason = message.params && typeof message.params.reason === 'string' ? ' ' + message.params.reason : '';
@@ -368,7 +390,7 @@
     if (!current(run) || phoneShow.disabled || !view.handoffTool || !capabilities.serverTools) return;
     phoneShow.disabled = true;
     restartPolling();
-    const result = await request('tools/call', { name: view.handoffTool, arguments: { request_id: view.requestId } }).catch(() => null);
+    const result = await callTool(view.handoffTool, { request_id: view.requestId }).catch(() => null);
     if (!current(run)) return;
     if (result?.structuredContent?.status === 'integrity_error') {
       retire();
