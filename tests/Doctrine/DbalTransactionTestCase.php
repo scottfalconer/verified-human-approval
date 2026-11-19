@@ -231,7 +231,7 @@ abstract class DbalTransactionTestCase extends TestCase
         if ('sqlite' === $platform) {
             self::assertNull($added, 'A new passkey is accepted.');
         } else {
-            self::assertInstanceOf(DriverException::class, $added, 'The database, not the approval transaction, refuses the savepoint.');
+            self::assertInstanceOf(DriverException::class, $added, 'It fails at its own savepoint, not at the approval transaction\'s check.');
         }
 
         self::assertSame([
