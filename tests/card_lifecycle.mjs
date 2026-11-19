@@ -188,6 +188,44 @@ test('a host that also announces the card’s own calls, as the specification dr
   assert.equal(h.status(), 'Waiting for approval on the site. Nothing has changed yet.');
 });
 
+for (const order of ['in the order they were made', 'in the other order']) {
+  test(`two of the card’s calls that overlap, announced together and answered ${order}, change nothing the card shows`, async () => {
+    const h = host(); await h.initialize(); h.show();
+    // The phone code is asked for, and a status check goes out before it is answered: the same arguments, twice.
+    const click = h.element('phone-show').handlers.click(); await flush();
+    const phone = h.call('approval_handoff');
+    await h.advance(3000);
+    const check = h.call('approval_status');
+    assert.deepEqual(check.params.arguments, phone.params.arguments);
+    for (const call of [phone, check]) h.dispatch({ method: 'ui/notifications/tool-input', params: { arguments: call.params.arguments } });
+    const results = [phoneReply(), approval()];
+    for (const result of order === 'in the order they were made' ? results : results.reverse()) h.dispatch({ method: 'ui/notifications/tool-result', params: result });
+    await h.reply(phone, phoneReply()); await click;
+    await h.reply(check, approval());
+    assert.equal(h.element('phone-code').hidden, false);
+    assert.equal(h.element('open').hidden, false);
+    assert.equal(h.status(), 'Waiting for your approval on your phone. Nothing has changed yet.');
+    await h.advance(3000);
+    await h.reply(h.call('approval_status'), approval('completed'));
+    assert.equal(h.status(), 'Approved with a passkey. The site recorded the change.');
+  });
+}
+
+test('a call the host announced without its result does not hide the next request’s refusal', async () => {
+  const h = host(); await h.initialize(); h.show();
+  await h.advance(3000);
+  const check = h.call('approval_status');
+  // The host announces the status check and answers it, but never sends its tool-result.
+  h.dispatch({ method: 'ui/notifications/tool-input', params: { arguments: check.params.arguments } });
+  await h.reply(check, approval());
+  // The model asks again, and the site refuses that call without naming a request.
+  h.dispatch({ method: 'ui/notifications/tool-input', params: { arguments: { alert_id: 'riverside-evacuation' } } });
+  assert.equal(h.status(), 'Waiting for the request…');
+  h.show({ isError: true, content: [], structuredContent: { status: 'rejected', reason: 'rate_limited', message: 'Too many requests for approval from this account.' } });
+  assert.equal(h.status(), 'The site refused this request. Nothing changed.');
+  assert.equal(h.shade(), 'rejected');
+});
+
 test('teardown retires outstanding UI work and acknowledges the host', async () => {
   const h = host(); await h.initialize(); h.show();
   const click = h.element('phone-show').handlers.click(); await flush();
