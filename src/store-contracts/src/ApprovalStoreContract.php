@@ -129,12 +129,13 @@ abstract class ApprovalStoreContract extends TestCase
         self::assertSame(['requests' => 1, 'effects' => 1, 'executions' => 1, 'receipts' => 1, 'credentialUses' => 1], $this->connect()->counts());
     }
 
-    /** @return iterable<string, array{'roll_back'|'begin_again'|'sql_roll_back'}> */
+    /** @return iterable<string, array{'roll_back'|'begin_again'|'sql_roll_back'|'nested_roll_back'}> */
     public static function transactionsTheActionRollsBack(): iterable
     {
         yield 'it rolls the transaction back' => ['roll_back'];
         yield 'it rolls the transaction back and begins another' => ['begin_again'];
         yield 'it rolls the transaction back in SQL' => ['sql_roll_back'];
+        yield 'it rolls the transaction back inside a nested transaction of its own, and carries on' => ['nested_roll_back'];
     }
 
     /**
@@ -142,7 +143,7 @@ abstract class ApprovalStoreContract extends TestCase
      * record: the store refuses every write after it, which would otherwise commit on its own or in a transaction
      * that is not the approval's, so no outcome claims an effect that was undone.
      *
-     * @param 'roll_back'|'begin_again'|'sql_roll_back' $how
+     * @param 'roll_back'|'begin_again'|'sql_roll_back'|'nested_roll_back' $how
      */
     #[DataProvider('transactionsTheActionRollsBack')]
     public function testAnActionThatRollsTheTransactionBackGetsNothingRecorded(string $how): void

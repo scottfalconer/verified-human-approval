@@ -19,6 +19,8 @@ use Doctrine\DBAL\Connections\PrimaryReadReplicaConnection;
  *   with forUpdate() and forShare().
  * - It runs the callback once, never retries, and rolls back on any Throwable, rethrowing the original error even
  *   when the rollback fails too.
+ * - It refuses the stores' writes once the root has ended or been replaced underneath, and inside a nested
+ *   transaction (assertActive()).
  *
  * Use the same connection for every protected write: the ORM's entity manager, the stores and your own queries.
  */
@@ -133,30 +135,36 @@ final class DbalTransaction
     /**
      * Refuses a write outside the approval transaction, including one after code on the connection ended or replaced
      * the root past DBAL, through the driver or in SQL, or the database rolled it back by itself after an error. DBAL
-     * still counts the root then, and the write would commit on its own. At the root level, releasing the root's
-     * savepoint and setting it again shows whether the root is still open; inside a nested transaction, which that
-     * would end, DBAL's count is all there is, and the release before commit catches the rest.
+     * still counts the root then, and the write would commit on its own. Releasing the root's savepoint and setting it
+     * again shows whether the root is still open. Inside a nested transaction that would end the nested one too, and
+     * DBAL's count is no guide there either: once the root under it has ended, DBAL fails to roll a nested transaction
+     * back and still counts it. So the approval's writes run at the root, and a write inside a nested transaction is
+     * refused.
      */
     public function assertActive(): void
     {
         if (!$this->isActive()) {
             throw new \LogicException('Approval writes require the approval transaction (DbalTransaction::run()).');
         }
-        if (1 === $this->connection->getTransactionNestingLevel()) {
-            $this->releaseRoot();
-            $this->connection->executeStatement('SAVEPOINT '.self::ROOT);
+        if (1 !== $this->connection->getTransactionNestingLevel()) {
+            throw new \LogicException('Approval writes run at the root of the approval transaction, and a nested transaction is open on it.');
         }
+        $this->releaseRoot();
+        $this->connection->executeStatement('SAVEPOINT '.self::ROOT);
     }
 
     /**
      * Registers what to undo in memory if the approval transaction rolls back, such as resetting an entity manager
-     * whose objects now describe rows that were never committed. Valid only inside the transaction.
+     * whose objects now describe rows that were never committed. Valid only inside the transaction, nested
+     * transactions included.
      *
      * @param callable(): void $listener
      */
     public function onRollback(callable $listener): void
     {
-        $this->assertActive();
+        if (!$this->isActive()) {
+            throw new \LogicException('Rollback listeners require the approval transaction (DbalTransaction::run()).');
+        }
         $this->onRollback[] = $listener;
     }
 

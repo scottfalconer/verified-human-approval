@@ -150,6 +150,10 @@ class SqliteStoreHarness extends StoreHarness
             'roll_back' => static fn () => $pdo->rollBack(),
             'begin_again' => static fn () => $pdo->rollBack() && $pdo->beginTransaction(),
             'sql_roll_back' => static fn () => $pdo->exec('ROLLBACK'),
+            'nested_roll_back' => static function () use ($pdo): void {
+                $pdo->exec('SAVEPOINT best_effort');
+                $pdo->rollBack();
+            },
             default => null,
         };
     }

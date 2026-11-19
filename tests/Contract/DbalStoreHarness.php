@@ -163,6 +163,16 @@ abstract class DbalStoreHarness extends StoreHarness
             'roll_back' => static fn () => $native()->rollBack(),
             'begin_again' => static fn () => $native()->rollBack() && $native()->beginTransaction(),
             'sql_roll_back' => static fn () => $connection->executeStatement('ROLLBACK'),
+            // DBAL cannot roll the nested transaction back once the root under it has ended, and still counts it.
+            'nested_roll_back' => static function () use ($connection, $native): void {
+                try {
+                    $connection->transactional(static function () use ($native): void {
+                        $native()->rollBack();
+                        throw new \RuntimeException('The best-effort work failed.');
+                    });
+                } catch (\Throwable) {
+                }
+            },
             default => null,
         };
     }

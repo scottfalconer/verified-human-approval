@@ -144,21 +144,94 @@ abstract class DbalTransactionTestCase extends TestCase
             'rolled it back through the driver and began another' => static fn () => $native->rollBack() && $native->beginTransaction(),
             'rolled it back in SQL' => fn () => $this->connection->executeStatement('ROLLBACK'),
         ] as $what => $end) {
+            $written = false;
             try {
-                $this->transaction->run(function () use ($end): void {
+                $this->transaction->run(function () use ($end, &$written): void {
                     $end();
                     // DBAL still counts the root here, so only the approval transaction's own check can tell.
                     self::assertTrue($this->transaction->isActive());
                     $this->transaction->assertActive();
+                    $this->note(5);
+                    $written = true;
                 });
-                self::fail('A write was allowed after the callback '.$what.'.');
+                self::fail('The approval transaction reported success after the callback '.$what.'.');
             } catch (\LogicException $error) {
                 self::assertStringContainsString('before the approval finished', $error->getMessage(), $what);
             }
+            self::assertFalse($written, 'The write after the callback '.$what.' was refused before it ran.');
             self::assertFalse($this->connection->isTransactionActive(), 'Nothing is left open after it '.$what.'.');
         }
+        self::assertSame([], $this->notes(), 'No write after the root ended reached the database.');
         $this->transaction->run(fn () => $this->note(1));
         self::assertSame([1], $this->notes(), 'The connection works afterwards.');
+    }
+
+    /**
+     * The checks that show whether the root is still open would end a nested transaction, and DBAL cannot roll one
+     * back once the root under it has ended, so it still counts it. A write inside a nested transaction is refused:
+     * the approval's writes all run at the root.
+     */
+    public function testAWriteInsideANestedTransactionIsRefused(): void
+    {
+        // Asked for each time: a rollback DBAL cannot finish closes the connection, and the next one has its own.
+        $native = function (): \PDO {
+            $native = $this->connection->getNativeConnection();
+            self::assertInstanceOf(\PDO::class, $native);
+
+            return $native;
+        };
+        foreach ([
+            'left a nested transaction open' => fn () => $this->connection->beginTransaction(),
+            'rolled the root back through the driver inside a nested transaction' => function () use ($native): void {
+                $this->connection->beginTransaction();
+                $native()->rollBack();
+            },
+            'rolled the root back inside transactional(), and ignored the failure' => function () use ($native): void {
+                try {
+                    $this->connection->transactional(static function () use ($native): void {
+                        $native()->rollBack();
+                        throw new \RuntimeException('The best-effort work failed.');
+                    });
+                } catch (\Throwable) {
+                }
+            },
+            'rolled the root back in SQL inside transactional(), and ignored the failure' => function (): void {
+                try {
+                    $this->connection->transactional(function (): void {
+                        $this->connection->executeStatement('ROLLBACK');
+                        throw new \RuntimeException('The best-effort work failed.');
+                    });
+                } catch (\Throwable) {
+                }
+            },
+        ] as $what => $callback) {
+            $written = false;
+            try {
+                $this->transaction->run(function () use ($callback, &$written): void {
+                    $callback();
+                    self::assertTrue($this->transaction->isActive());
+                    $this->transaction->assertActive();
+                    $this->note(6);
+                    $written = true;
+                });
+                self::fail('The approval transaction reported success after the callback '.$what.'.');
+            } catch (\LogicException $error) {
+                self::assertStringContainsString('nested transaction', $error->getMessage(), $what);
+            }
+            self::assertFalse($written, 'The write after the callback '.$what.' was refused before it ran.');
+            self::assertFalse($this->connection->isTransactionActive(), 'Nothing is left open after it '.$what.'.');
+        }
+        self::assertSame([], $this->notes(), 'No write inside a nested transaction reached the database.');
+
+        // Once a nested transaction has ended, as an ORM flush ends its own, the root takes writes again.
+        $this->transaction->run(function (): void {
+            $this->connection->beginTransaction();
+            $this->note(1);
+            $this->connection->commit();
+            $this->transaction->assertActive();
+            $this->note(2);
+        });
+        self::assertSame([1, 2], $this->notes());
     }
 
     public function testAStatementThatFailedInsideItNeverReadsAsACommit(): void
