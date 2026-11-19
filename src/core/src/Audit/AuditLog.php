@@ -37,12 +37,13 @@ use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
  * hide a row from a lookup.
  *
  * So the checks grow with the chain. Each reading fetches every row and checks the signatures of the entries it
- * reads, which is most of the cost. A log remembers the signatures that verified and does not check them again, so
- * its later readings, later in a request or in a long-running worker, cost a fraction of the first. A passkey's
- * standing is read from its enrollment on, or from the first entry once an entry since is signed with a key that
- * has an end, as after a rotation: an approval step in a request of its own checks every signature in that stretch
- * once. The chain grows with what is recorded here, passkeys enrolled and revoked, rotations and the host's own
- * events, and never with approvals.
+ * reads, which is most of the cost. A log remembers up to 50,000 signatures that verified, the first it checks, and
+ * does not check those again, so its later readings, later in a request or in a long-running worker, cost a fraction
+ * of the first; in a longer chain, the entries beyond those are checked at each reading. A passkey's standing is read
+ * from its enrollment on, or from the first entry once an entry since is signed with a key that has an end, as after
+ * a rotation: an approval step in a request of its own checks every signature in that stretch once. The chain grows
+ * with what is recorded here, passkeys enrolled and revoked, rotations and the host's own events, and never with
+ * approvals.
  *
  * @phpstan-import-type AuditHead from AuditStore
  * @phpstan-import-type AuditRecord from AuditStore
@@ -58,7 +59,7 @@ final class AuditLog
     /** The tenant of an entry about the whole application, such as a key rotation: it concerns every tenant. */
     public const ALL_TENANTS = '';
 
-    /** How many verified signatures signed() keeps before it starts again, which bounds its memory in a long-running worker. */
+    /** How many verified signatures signed() remembers at most, which bounds its memory in a long-running worker. */
     private const REMEMBERED = 50000;
 
     /** @var array<string, true> the signatures that verified, by a digest of the key id, entry hash and signature */
@@ -495,10 +496,10 @@ final class AuditLog
         if (!$key->signed($row['entry'], $row['signature'])) {
             return false;
         }
-        if (\count($this->verified) >= self::REMEMBERED) {
-            $this->verified = [];
+        // Kept, not replaced, once full: starting again would check every entry of a longer chain at each reading.
+        if (\count($this->verified) < self::REMEMBERED) {
+            $this->verified[$signature] = true;
         }
-        $this->verified[$signature] = true;
 
         return true;
     }
