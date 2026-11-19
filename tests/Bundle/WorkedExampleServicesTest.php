@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\Bundle;
 
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
 use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
@@ -54,6 +55,8 @@ final class WorkedExampleServicesTest extends TestCase
         (new Filesystem())->remove($this->directory);
     }
 
+    // In a process of its own: the container it compiles would otherwise stay loaded for the rest of the run.
+    #[RunInSeparateProcess]
     public function testTheVerifierReadsPasskeysThroughTheAnchoredRepository(): void
     {
         $container = $this->boot();
