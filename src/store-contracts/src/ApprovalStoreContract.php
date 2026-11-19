@@ -627,6 +627,50 @@ abstract class ApprovalStoreContract extends TestCase
         self::assertSame(['requests' => 1, 'effects' => 0, 'executions' => 0, 'receipts' => 0, 'credentialUses' => 0], $this->connect()->counts());
     }
 
+    /** @return iterable<string, array{'options'|'nonce'|'expires_at', \Closure(string): string}> */
+    public static function editedCeremonies(): iterable
+    {
+        yield 'its options, cut short' => ['options', static fn (string $options): string => substr($options, 0, 20)];
+        yield 'its options, to a JSON list' => ['options', static fn (): string => '[]'];
+        yield 'its nonce, to text that is not base64url' => ['nonce', static fn (): string => 'not a nonce'];
+        yield 'its expiry, to text that is not a time' => ['expires_at', static fn (): string => 'soon'];
+    }
+
+    /**
+     * A passkey ceremony whose stored parts no longer read back is one nobody can use. Reading it is refused as
+     * corrupt_ceremony, an approval error like any other, never an exception of another kind, keeping what failed;
+     * nothing runs, and a fresh review still completes the request.
+     *
+     * @param 'options'|'nonce'|'expires_at' $part
+     * @param \Closure(string): string       $edit
+     */
+    #[DataProvider('editedCeremonies')]
+    public function testACeremonyThatCannotBeReadBackIsRefusedAsCorrupt(string $part, \Closure $edit): void
+    {
+        $harness = $this->connect();
+        [$request, $ceremony] = $this->pending($harness);
+        $harness->editCeremony($ceremony->id, $part, $edit);
+
+        $observer = $this->connect();
+        try {
+            $observer->store()->transaction(static fn () => $observer->store()->getCeremony($ceremony->id));
+            self::fail('A damaged ceremony was read back.');
+        } catch (ApprovalException $error) {
+            self::assertSame('corrupt_ceremony', $error->reason);
+            self::assertNotNull($error->getPrevious(), 'What failed is kept.');
+        }
+        try {
+            $observer->service()->complete($observer->reviewer(), $ceremony->id, $observer->proof($ceremony));
+            self::fail('A damaged ceremony was used.');
+        } catch (ApprovalException $error) {
+            self::assertSame('corrupt_ceremony', $error->reason);
+        }
+        self::assertSame(['requests' => 1, 'effects' => 0, 'executions' => 0, 'receipts' => 0, 'credentialUses' => 0], $observer->counts());
+
+        $fresh = $observer->service()->begin($observer->reviewer(), $request->request->id);
+        self::assertSame('completed', $observer->service()->complete($observer->reviewer(), $fresh->id, $observer->proof($fresh))->status);
+    }
+
     public function testALockTimeoutLeavesNothingHalfDoneAndRunsNothingTwice(): void
     {
         $harness = $this->connect();

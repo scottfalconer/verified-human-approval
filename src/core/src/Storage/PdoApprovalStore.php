@@ -276,7 +276,7 @@ final class PdoApprovalStore implements ApprovalStore, ApprovalHistory
         $statement->execute([$id]);
         $row = $statement->fetch(\PDO::FETCH_ASSOC);
 
-        return false === $row ? null : new Ceremony($row['id'], $row['request_id'], $row['nonce'], $row['challenge'], $row['expires_at'], CanonicalJson::map(CanonicalJson::decode($row['options'])), (bool) $row['consumed']);
+        return false === $row ? null : Ceremony::fromStorage((string) $row['id'], (string) $row['request_id'], (string) $row['nonce'], (string) $row['challenge'], (string) $row['expires_at'], (string) $row['options'], (bool) $row['consumed']);
     }
 
     public function retireCeremony(string $id): void

@@ -18,6 +18,26 @@ final readonly class Ceremony
     ) {
     }
 
+    /**
+     * Reads a ceremony back from the parts a store keeps, the options as a JSON object. A part that does not read back
+     * as it was written (options that are not a JSON object, a nonce that is not base64url, an expiry that is not a
+     * time) leaves a ceremony nobody can use, refused before anything relies on it.
+     *
+     * @throws ApprovalException with the reason corrupt_ceremony, and what failed as its previous exception
+     */
+    public static function fromStorage(string $id, string $requestId, string $nonce, string $challenge, string $expiresAt, string $options, bool $consumed): self
+    {
+        try {
+            // Each part is read here as the approval service reads it, so a ceremony that loads can always be used.
+            ChallengeBinding::decode($nonce);
+            new \DateTimeImmutable($expiresAt);
+
+            return new self($id, $requestId, $nonce, $challenge, $expiresAt, CanonicalJson::map(CanonicalJson::decode($options)), $consumed);
+        } catch (\Exception $error) {
+            throw new ApprovalException('corrupt_ceremony', 'The stored passkey ceremony cannot be read back. Start a fresh review.', $error);
+        }
+    }
+
     /** @return array{ceremonyId: string, options: array<string, mixed>, expiresAt: string} */
     public function toArray(): array
     {

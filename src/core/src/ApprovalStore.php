@@ -66,6 +66,11 @@ interface ApprovalStore
 
     public function putCeremony(Ceremony $ceremony): void;
 
+    /**
+     * Read the stored ceremony back with Ceremony::fromStorage() and pass its error on as it is.
+     *
+     * @throws ApprovalException corrupt_ceremony when the stored ceremony cannot be read back
+     */
     public function getCeremony(string $id): ?Ceremony;
 
     public function retireCeremony(string $id): void;

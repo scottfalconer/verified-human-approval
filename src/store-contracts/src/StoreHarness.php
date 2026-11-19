@@ -98,6 +98,14 @@ abstract class StoreHarness
      */
     abstract public function editRecord(string $requestId, string $part, \Closure $edit): void;
 
+    /**
+     * Rewrites one stored part of a passkey ceremony from a connection of its own, as editRecord() does for a
+     * request: its 'options', its 'nonce' or its expiry ('expires_at').
+     *
+     * @param \Closure(string): string $edit
+     */
+    abstract public function editCeremony(string $ceremonyId, string $part, \Closure $edit): void;
+
     /** Makes the next insert of an execution record or a receipt fail inside the storage itself. */
     abstract public function failInserts(string $what): void;
 

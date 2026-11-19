@@ -214,6 +214,24 @@ abstract class DbalStoreHarness extends StoreHarness
         }
     }
 
+    public function editCeremony(string $ceremonyId, string $part, \Closure $edit): void
+    {
+        $column = match ($part) {
+            'options', 'nonce', 'expires_at' => $part,
+            default => throw new \InvalidArgumentException('Unknown part: '.$part),
+        };
+        $writer = $this->observer();
+        try {
+            $stored = $writer->fetchOne('SELECT '.$column.' FROM '.ApprovalSchema::CEREMONIES.' WHERE id = ?', [$ceremonyId]);
+            if (!\is_string($stored)) {
+                throw new \RuntimeException('Nothing is stored there.');
+            }
+            $writer->executeStatement('UPDATE '.ApprovalSchema::CEREMONIES.' SET '.$column.' = ? WHERE id = ?', [$edit($stored), $ceremonyId]);
+        } finally {
+            $writer->close();
+        }
+    }
+
     /** Files a request under another tenant and resource in the columns a history is read by, from a connection of its own. */
     public function refile(string $requestId, string $tenantId, string $resource): void
     {
