@@ -20,6 +20,9 @@ abstract class CredentialRepositoryContract extends TestCase
 {
     private ?string $location = null;
 
+    /** @var list<CredentialHarness> every harness connect() gave this test, closed when it ends */
+    private array $harnesses = [];
+
     /** @return class-string<CredentialHarness> */
     abstract protected static function harness(): string;
 
@@ -30,6 +33,10 @@ abstract class CredentialRepositoryContract extends TestCase
 
     protected function tearDown(): void
     {
+        foreach ($this->harnesses as $harness) {
+            $harness->close();
+        }
+        $this->harnesses = [];
         if (null !== $this->location) {
             static::harness()::destroy($this->location);
         }
@@ -132,7 +139,10 @@ abstract class CredentialRepositoryContract extends TestCase
 
     private function connect(): CredentialHarness
     {
-        return static::harness()::connect($this->location());
+        $harness = static::harness()::connect($this->location());
+        $this->harnesses[] = $harness;
+
+        return $harness;
     }
 
     /** @param callable(): mixed $write */

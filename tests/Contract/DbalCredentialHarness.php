@@ -44,6 +44,11 @@ abstract class DbalCredentialHarness extends CredentialHarness
         return new static($location);
     }
 
+    public function close(): void
+    {
+        $this->transaction->connection()->close();
+    }
+
     public function repository(): RevocableCredentialRepository
     {
         return new DbalCredentialRepository($this->transaction);

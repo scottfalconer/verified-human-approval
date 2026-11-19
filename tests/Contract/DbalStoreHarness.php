@@ -87,6 +87,11 @@ abstract class DbalStoreHarness extends StoreHarness
         return new static($location);
     }
 
+    public function close(): void
+    {
+        $this->connection->close();
+    }
+
     public function service(): ApprovalService
     {
         return $this->service;

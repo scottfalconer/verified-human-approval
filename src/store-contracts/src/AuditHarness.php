@@ -25,6 +25,15 @@ abstract class AuditHarness
     /** A new connection to prepared data; it runs no DDL, so concurrent workers can use it. */
     abstract public static function connect(string $location): static;
 
+    /**
+     * Closes the connection connect() opened. The contract closes every harness a test connected when the test ends,
+     * before destroy(), rather than wait for PHP to free it, which for a harness caught in a reference cycle happens
+     * only when PHP next collects cycles. The default does nothing, for a store with no connection to close.
+     */
+    public function close(): void
+    {
+    }
+
     abstract public function store(): AuditStore;
 
     /**

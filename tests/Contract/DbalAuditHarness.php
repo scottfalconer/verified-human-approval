@@ -51,6 +51,11 @@ abstract class DbalAuditHarness extends AuditHarness
         return new static($location);
     }
 
+    public function close(): void
+    {
+        $this->connection->close();
+    }
+
     public function store(): AuditStore
     {
         return $this->store;

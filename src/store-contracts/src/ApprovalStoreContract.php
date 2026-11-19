@@ -28,6 +28,9 @@ abstract class ApprovalStoreContract extends TestCase
 
     private ?string $location = null;
 
+    /** @var list<StoreHarness> every harness connect() gave this test, closed when it ends */
+    private array $harnesses = [];
+
     /** @return class-string<StoreHarness> */
     abstract protected static function harness(): string;
 
@@ -38,6 +41,10 @@ abstract class ApprovalStoreContract extends TestCase
 
     protected function tearDown(): void
     {
+        foreach ($this->harnesses as $harness) {
+            $harness->close();
+        }
+        $this->harnesses = [];
         if (null !== $this->location) {
             static::harness()::destroy($this->location);
         }
@@ -707,7 +714,10 @@ abstract class ApprovalStoreContract extends TestCase
 
     protected function connect(): StoreHarness
     {
-        return static::harness()::connect($this->location());
+        $harness = static::harness()::connect($this->location());
+        $this->harnesses[] = $harness;
+
+        return $harness;
     }
 
     /** @return array{ApprovalState, Ceremony} a pending request and one ceremony for it */
