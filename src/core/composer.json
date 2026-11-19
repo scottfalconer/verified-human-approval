@@ -15,8 +15,7 @@
     "ext-json": "*",
     "ext-mbstring": "*",
     "psr/clock": "^1.0",
-    "psr/log": "^1.1 || ^2.0 || ^3.0",
-    "root23/php-json-canonicalization": "^1.0"
+    "psr/log": "^1.1 || ^2.0 || ^3.0"
   },
   "suggest": {
     "ext-pdo": "Reference SQLite transactional persistence.",

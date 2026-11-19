@@ -47,6 +47,25 @@ final class BindingTest extends TestCase
         self::assertNotSame(CanonicalJson::encode('é'), CanonicalJson::encode("e\u{301}"), 'Approval text is not Unicode-normalized after review.');
     }
 
+    public function testPropertyOrderDoesNotDependOnMbstringsInternalEncoding(): void
+    {
+        // By UTF-16 code units a name beyond U+FFFF sorts before U+FB01, though its code point is higher.
+        $value = ['labels' => ["\u{fb01}" => 'ligature', "\u{1f600}" => 'emoji']];
+        $expected = '{"labels":{"'."\u{1f600}".'":"emoji","'."\u{fb01}".'":"ligature"}}';
+        self::assertSame($expected, CanonicalJson::encode($value));
+        $canonical = CanonicalJson::encode(['id' => 'apr_1', 'labels' => $value['labels']]);
+
+        $encoding = mb_internal_encoding();
+        try {
+            // A legacy setting, such as mbstring.internal_encoding in php.ini.
+            mb_internal_encoding('ISO-8859-1');
+            self::assertSame($expected, CanonicalJson::encode($value));
+            self::assertSame($canonical, (new ApprovalRequest('apr_1', $canonical, hash('sha256', $canonical)))->canonical, 'A proposal frozen under one setting reads back under another.');
+        } finally {
+            mb_internal_encoding($encoding);
+        }
+    }
+
     public function testExactIntegerBoundaryAndNestedObjectRoundTrip(): void
     {
         self::assertSame('9007199254740991', CanonicalJson::encode(9007199254740991));
@@ -62,6 +81,7 @@ final class BindingTest extends TestCase
         yield 'infinity' => [\INF];
         yield 'nan' => [\NAN];
         yield 'invalid utf8' => ["\xFF"];
+        yield 'object key starting with NUL' => [["\0key" => 1]];
         yield 'arbitrary object' => [new \DateTimeImmutable('2026-11-08')];
     }
 
