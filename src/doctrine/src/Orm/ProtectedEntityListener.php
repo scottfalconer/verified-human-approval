@@ -115,6 +115,11 @@ final class ProtectedEntityListener
     }
 
     /**
+     * The entity's protection, with its protected fields named as Doctrine names them in a change set: a field of
+     * an embedded object by its path, such as published.title. Marking the embedded property, or naming it in the
+     * configuration, protects each of its fields; a mark on a property of the embeddable protects that field
+     * wherever the embeddable is used.
+     *
      * @param ClassMetadata<object> $metadata
      *
      * @return array{entity: bool, fields: list<string>}
@@ -126,18 +131,36 @@ final class ProtectedEntityListener
             return $this->rules[$class];
         }
         $entity = false;
-        $fields = [];
+        $marked = [];
         for ($reflection = $metadata->getReflectionClass(); false !== $reflection; $reflection = $reflection->getParentClass()) {
             $entity = $entity || [] !== $reflection->getAttributes(RequiresApproval::class);
             foreach ($reflection->getProperties() as $property) {
                 if ([] !== $property->getAttributes(RequiresApproval::class)) {
-                    $fields[] = $property->getName();
+                    $marked[] = $property->getName();
                 }
             }
             if (\array_key_exists($reflection->getName(), $this->protected)) {
                 $configured = $this->protected[$reflection->getName()];
                 $entity = $entity || null === $configured;
-                $fields = [...$fields, ...($configured ?? [])];
+                $marked = [...$marked, ...($configured ?? [])];
+            }
+        }
+        $fields = [];
+        foreach ($marked as $name) {
+            if (!isset($metadata->embeddedClasses[$name])) {
+                $fields[] = $name;
+                continue;
+            }
+            foreach (array_keys($metadata->fieldMappings) as $field) {
+                if (str_starts_with($field, $name.'.')) {
+                    $fields[] = $field;
+                }
+            }
+        }
+        foreach ($metadata->fieldMappings as $field => $mapping) {
+            if (null !== $mapping->originalClass && null !== $mapping->originalField
+                && [] !== (new \ReflectionProperty($mapping->originalClass, $mapping->originalField))->getAttributes(RequiresApproval::class)) {
+                $fields[] = $field;
             }
         }
 
