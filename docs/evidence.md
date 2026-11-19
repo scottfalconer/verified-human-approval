@@ -213,7 +213,7 @@ One Ed25519 key signs new receipts and new audit log entries. Rotating it replac
 - An audit entry's time is its `at`. Once the chain records the rotation, an entry signed with the old key after that point is refused, whatever time it claims.
 - A record that names a key the trusted keys do not list verifies nothing.
 
-An audit entry that breaks these rules stops every passkey enrolled before it: from the chain alone, it could be what is left of a rewritten revocation. One signed with a key a host does not list stops them on that host until it lists the key. Any other stops them until their owners enroll new passkeys, which the [security model](security-model.md#protection-after-storage) describes. The order of the steps below keeps a rotation from writing such entries.
+An audit entry that breaks these rules stops every passkey enrolled before it: from the chain alone, it could be what is left of a rewritten revocation. One that a host refuses only because its own configuration is wrong, such as a key it does not list yet, stops them only until that is corrected. Any other stops them until their owners enroll new passkeys, which the [security model](security-model.md#protection-after-storage) describes. The order of the steps below keeps a rotation from writing such entries.
 
 ### With the Symfony bundle
 
