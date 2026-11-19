@@ -26,6 +26,7 @@ use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\NoPrivateNetworkHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\Session\Session;
 use Symfony\Component\HttpFoundation\Session\Storage\MockArraySessionStorage;
 use VerifiedHumanApproval\Demo\Account\AgentConnections;
@@ -643,6 +644,32 @@ final class OAuthTest extends TestCase
         self::assertSame(200, $this->ping($tokens['access_token']));
     }
 
+    public function testATokenSignedForAnotherAudienceIsRefusedAtMcp(): void
+    {
+        // Signed with this server's own key, for a live connection: only the audience it names is wrong.
+        $api = $this->client();
+        $registration = $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => [self::CALLBACK], 'client_name' => 'Claude']);
+        [$header, $payload] = explode('.', $this->connect($api, $registration['client_id'])['access_token']);
+        $claims = json_decode(base64_decode(strtr($payload, '-_', '+/')), true, 8, \JSON_THROW_ON_ERROR);
+        $key = json_decode((string) file_get_contents($this->runtime.'/settings.json'), true, 32, \JSON_THROW_ON_ERROR)['oauth_private_key'];
+        $sign = static function (array $claims) use ($header, $key): string {
+            $body = rtrim(strtr(base64_encode(json_encode($claims, \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES)), '+/', '-_'), '=');
+            self::assertTrue(openssl_sign($header.'.'.$body, $signature, $key, \OPENSSL_ALGO_SHA256));
+
+            return $header.'.'.$body.'.'.rtrim(strtr(base64_encode($signature), '+/', '-_'), '=');
+        };
+        self::assertSame(200, $this->ping($sign($claims)), 'Signed again as it was, the token still works.');
+
+        foreach ([
+            'another server’s MCP endpoint' => ['aud' => 'https://other.example/mcp', 'resource' => 'https://other.example/mcp'],
+            'its client, as League’s own tokens do' => ['aud' => $registration['client_id'], 'resource' => null],
+        ] as $case => $audience) {
+            $refused = $this->mcpResponse($sign(array_filter($audience + $claims, static fn (mixed $claim): bool => null !== $claim)));
+            self::assertSame(401, $refused->getStatusCode(), $case.': RFC 8707, a token is used only at the resource it names.');
+            self::assertStringContainsString('resource_metadata="'.self::ORIGIN.'/.well-known/oauth-protected-resource/mcp"', (string) $refused->headers->get('WWW-Authenticate'), $case);
+        }
+    }
+
     public function testOpenRegistrationHasABudgetPerAddress(): void
     {
         $settings = json_decode((string) file_get_contents($this->runtime.'/settings.json'), true, 32, \JSON_THROW_ON_ERROR);
@@ -1034,10 +1061,15 @@ final class OAuthTest extends TestCase
 
     private function ping(string $token): int
     {
+        return $this->mcpResponse($token)->getStatusCode();
+    }
+
+    private function mcpResponse(string $token): Response
+    {
         $api = $this->client();
         $api->request('POST', self::ORIGIN.'/mcp', server: ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json, text/event-stream', 'HTTP_AUTHORIZATION' => 'Bearer '.$token], content: '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"ping","version":"1"}}}');
 
-        return $api->getResponse()->getStatusCode();
+        return $api->getResponse();
     }
 
     private function connections(): OAuthConnections
