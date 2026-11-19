@@ -57,6 +57,8 @@ final class OAuthTest extends TestCase
     private const CHATGPT_CALLBACK = 'https://chatgpt.com/connector_platform_oauth_redirect';
     /** A return address registered by someone other than the person connecting. */
     private const ELSEWHERE = 'https://attacker.example/callback';
+    /** A return address on this computer, where a local client such as Claude Code listens for its code. */
+    private const LOOPBACK = 'http://127.0.0.1:33418/callback';
     private string $runtime;
     private array $accounts;
     /** @var list<KernelBrowser> */ private array $browsers = [];
@@ -201,9 +203,9 @@ final class OAuthTest extends TestCase
     public function testTheConsentPageSaysWhatConnectingMeansAndCannotBeFramed(): void
     {
         $api = $this->client();
-        $registration = $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => ['http://127.0.0.1:33418/callback'], 'client_name' => 'Claude Code']);
+        $registration = $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => [self::LOOPBACK], 'client_name' => 'Claude Code']);
         $browser = $this->signedIn('editor');
-        $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query(['response_type' => 'code', 'client_id' => $registration['client_id'], 'redirect_uri' => 'http://127.0.0.1:33418/callback', 'code_challenge' => self::challenge(str_repeat('d', 43)), 'code_challenge_method' => 'S256', 'resource' => self::ORIGIN.'/mcp', 'scope' => 'alert.read approval.read']));
+        $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query(['response_type' => 'code', 'client_id' => $registration['client_id'], 'redirect_uri' => self::LOOPBACK, 'code_challenge' => self::challenge(str_repeat('d', 43)), 'code_challenge_method' => 'S256', 'resource' => self::ORIGIN.'/mcp', 'scope' => 'alert.read approval.read']));
         $page = $browser->request('GET', self::absolute((string) $browser->getResponse()->headers->get('Location')));
         self::assertSame(200, $browser->getResponse()->getStatusCode());
         self::assertSame("frame-ancestors 'none'", $browser->getResponse()->headers->get('Content-Security-Policy'), 'Nobody can frame the page to trick a click on Allow.');
@@ -367,13 +369,25 @@ final class OAuthTest extends TestCase
         self::assertSame('/oauth/consent', $browser->getResponse()->headers->get('Location'), 'An Allow is used once.');
     }
 
-    public function testDontAllowTellsTheClientThePersonRefusedAndEndsTheRequest(): void
+    /** @return iterable<string, array{string, bool}> a return address the server trusts, and whether a client ID metadata document gives it */
+    public static function returnAddressesTheServerTrusts(): iterable
     {
-        $api = $this->client();
-        $claude = $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => [self::CALLBACK], 'client_name' => 'Claude']);
-        $browser = $this->signedIn('editor');
-        $authorize = self::authorizeQuery($claude['client_id'], self::CALLBACK);
-        $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query($authorize));
+        yield 'one that claude.ai’s metadata document gives' => [self::CALLBACK, true];
+        yield 'one on this computer, from a client that registered itself' => [self::LOOPBACK, false];
+    }
+
+    #[DataProvider('returnAddressesTheServerTrusts')]
+    public function testDontAllowTellsTheClientThePersonRefusedAndEndsTheRequest(string $redirectUri, bool $metadataDocument): void
+    {
+        $browser = $this->client();
+        if ($metadataDocument) {
+            $this->serveMetadataDocument($browser, ['client_id' => self::CLAUDE, 'client_name' => 'Claude', 'redirect_uris' => [$redirectUri]]);
+            $clientId = self::CLAUDE;
+        } else {
+            $clientId = $this->json($this->client(), 'POST', '/oauth/register', ['redirect_uris' => [$redirectUri], 'client_name' => 'Claude Code'])['client_id'];
+        }
+        $authorize = self::authorizeQuery($clientId, $redirectUri);
+        $this->signIn($browser, 'editor')->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query($authorize));
         $page = $browser->request('GET', self::ORIGIN.'/oauth/consent');
         $allow = $page->selectButton('Allow')->form();
         $browser->request('POST', self::ORIGIN.'/oauth/consent', array_diff_key($allow->getValues(), ['answer' => true]));
@@ -386,17 +400,74 @@ final class OAuthTest extends TestCase
 
         $browser->request('GET', self::absolute($resume));
         $location = (string) $browser->getResponse()->headers->get('Location');
-        self::assertStringStartsWith(self::CALLBACK.'?', $location, 'The person goes back to the client that asked.');
+        self::assertStringStartsWith($redirectUri.'?', $location, 'The person goes back to the client that asked.');
         parse_str((string) parse_url($location, \PHP_URL_QUERY), $refusal);
         self::assertSame('access_denied', $refusal['error'] ?? null, 'RFC 6749 §4.1.2.1: the client learns that the person refused.');
         self::assertSame($authorize['state'], $refusal['state'] ?? null, 'With the state of the request the person refused.');
         self::assertSame(self::ORIGIN, $refusal['iss'] ?? null, 'RFC 9207: the response names its issuer.');
         self::assertArrayNotHasKey('code', $refusal);
-        self::assertSame(0, (int) $this->database()->pdo->query('SELECT COUNT(*) FROM oauth2_authorization_codes')->fetchColumn(), 'No code was issued.');
-        self::assertNull($this->connections()->active('editor', $claude['client_id']), 'No connection was opened.');
+        $this->assertNothingConnected();
 
         $browser->request('GET', self::absolute($resume));
         self::assertSame('/oauth/consent', $browser->getResponse()->headers->get('Location'), 'A refusal is used once: the same request is asked about again.');
+    }
+
+    public function testDontAllowForAClientThatChoseItsOwnReturnAddressEndsOnThisSite(): void
+    {
+        // RFC 9700 §4.11.2: anyone can register a client that returns to a site of their own. A person who refuses
+        // it, because something looks wrong, must not be sent there all the same.
+        $impostor = $this->json($this->client(), 'POST', '/oauth/register', ['redirect_uris' => [self::ELSEWHERE], 'client_name' => 'acme-tools-9931']);
+        $browser = $this->signedIn('editor');
+        $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query(self::authorizeQuery($impostor['client_id'], self::ELSEWHERE)));
+        $page = $browser->request('GET', self::ORIGIN.'/oauth/consent');
+        $allow = $page->selectButton('Allow')->form();
+        $browser->submit($page->selectButton('Don’t allow')->form());
+        self::assertSame(302, $browser->getResponse()->getStatusCode());
+        $resume = (string) $browser->getResponse()->headers->get('Location');
+        $browser->submit($allow);
+        self::assertSame(410, $browser->getResponse()->getStatusCode(), 'Once refused, the request cannot be allowed from its page.');
+
+        $answer = $browser->request('GET', self::absolute($resume));
+        self::assertSame(200, $browser->getResponse()->getStatusCode(), (string) $browser->getResponse()->headers->get('Location'));
+        self::assertFalse($browser->getResponse()->headers->has('Location'), 'The person stays on this site.');
+        $text = $answer->filter('.approval-sheet')->text();
+        self::assertStringContainsString('Not connected', $text);
+        self::assertStringContainsString('You did not allow acme-tools-9931 to act for you. You can close this tab.', $text);
+        self::assertStringContainsString('It registered itself with this site, so you are not sent on to attacker.example, the address it chose.', $text);
+        self::assertCount(0, $answer->filter('a[href*="attacker.example"]'), 'Nor does the page link there.');
+        self::assertSame("frame-ancestors 'none'", $browser->getResponse()->headers->get('Content-Security-Policy'));
+        $this->assertNothingConnected();
+
+        $browser->request('GET', self::absolute($resume));
+        self::assertSame('/oauth/consent', $browser->getResponse()->headers->get('Location'), 'A refusal is used once: the same request is asked about again.');
+    }
+
+    /** @return iterable<string, array{string}> scopes that a client registered for alert.read alone cannot have */
+    public static function scopesTheClientCannotHave(): iterable
+    {
+        yield 'one beyond its own' => ['alert.read alert.publish'];
+    }
+
+    #[DataProvider('scopesTheClientCannotHave')]
+    public function testARequestForAScopeTheClientCannotHaveGoesBackOnlyToAnAddressTheServerTrusts(string $scope): void
+    {
+        $reader = $this->json($this->client(), 'POST', '/oauth/register', ['redirect_uris' => [self::ELSEWHERE, self::LOOPBACK], 'client_name' => 'Reader', 'scope' => 'alert.read']);
+        $browser = $this->signedIn('editor');
+        $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query(['scope' => $scope] + self::authorizeQuery($reader['client_id'], self::ELSEWHERE)));
+        self::assertSame(400, $browser->getResponse()->getStatusCode(), (string) $browser->getResponse()->headers->get('Location'));
+        self::assertFalse($browser->getResponse()->headers->has('Location'), 'It registered itself, so the error is not sent to the address it chose (RFC 9700 §4.11.2).');
+        self::assertSame('invalid_scope', json_decode((string) $browser->getResponse()->getContent(), true, 8)['error'] ?? null);
+
+        $query = ['scope' => $scope] + self::authorizeQuery($reader['client_id'], self::LOOPBACK);
+        $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query($query));
+        $location = (string) $browser->getResponse()->headers->get('Location');
+        self::assertStringStartsWith(self::LOOPBACK.'?', $location, 'Back on this computer, the error goes to the client (RFC 6749 §4.1.2.1).');
+        parse_str((string) parse_url($location, \PHP_URL_QUERY), $refusal);
+        self::assertSame('invalid_scope', $refusal['error'] ?? null);
+        self::assertSame($query['state'], $refusal['state'] ?? null);
+        self::assertArrayNotHasKey('code', $refusal);
+        $browser->request('GET', self::ORIGIN.'/oauth/consent');
+        self::assertSame(410, $browser->getResponse()->getStatusCode(), 'Neither request was put to the person.');
     }
 
     public function testAConsentPageLeftOpenCannotApproveTheRequestThatReplacedIt(): void
@@ -422,13 +493,6 @@ final class OAuthTest extends TestCase
         $api = $this->client();
         $reader = $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => [self::CALLBACK], 'client_name' => 'Reader', 'scope' => 'alert.read']);
         $browser = $this->signedIn('editor');
-        $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query(['scope' => 'alert.read alert.publish'] + self::authorizeQuery($reader['client_id'], self::CALLBACK)));
-        $location = (string) $browser->getResponse()->headers->get('Location');
-        self::assertStringStartsWith(self::CALLBACK.'?', $location, 'A request beyond the client’s own scopes goes back to it without asking the person.');
-        parse_str((string) parse_url($location, \PHP_URL_QUERY), $refusal);
-        self::assertSame('invalid_scope', $refusal['error'] ?? null);
-        self::assertArrayHasKey('state', $refusal);
-        self::assertArrayNotHasKey('code', $refusal);
 
         // Asking for no scope, it gets its own: the page lists those, and the token and the connection carry exactly them.
         [$code, $verifier] = $this->consentIn($browser, $reader['client_id'], self::ORIGIN.'/mcp', static fn (string $page) => self::assertStringContainsString('It asks to read public alerts.', $page));
@@ -922,6 +986,25 @@ final class OAuthTest extends TestCase
         self::assertSame(302, $browser->getResponse()->getStatusCode());
 
         return (string) $browser->getResponse()->headers->get('Location');
+    }
+
+    /**
+     * Answers this browser's fetch of a client ID metadata document with this one, as its host would.
+     *
+     * @param array<string, mixed> $document
+     */
+    private function serveMetadataDocument(KernelBrowser $browser, array $document): void
+    {
+        $browser->disableReboot();
+        $browser->getKernel()->boot();
+        $browser->getContainer()->get('test.service_container')->set(ClientMetadataHttpClient::class, new ClientMetadataHttpClient(new MockHttpClient(new MockResponse(json_encode($document, \JSON_THROW_ON_ERROR)))));
+    }
+
+    private function assertNothingConnected(): void
+    {
+        $database = $this->database();
+        self::assertSame(0, (int) $database->pdo->query('SELECT COUNT(*) FROM oauth2_authorization_codes')->fetchColumn(), 'No code was issued.');
+        self::assertSame(0, (int) $database->pdo->query('SELECT COUNT(*) FROM demo_grants WHERE token_hash IS NULL')->fetchColumn(), 'No connection was opened.');
     }
 
     private function resolver(MockResponse $answer): ClientIdMetadataResolver
