@@ -29,12 +29,13 @@ While signed in as the person who approved the request, open its review page and
 http://localhost:8080/approval/REQUEST_ID/evidence
 ```
 
-Use the actual request ID from the approval page URL or the tool result, and your own origin if the demo runs elsewhere. Only the signed-in owner can download it. A phone opened with a one-time code cannot: its page says to download the receipt from the signed-in browser. An administrator can also open **Audit log** and use a completed action's **Evidence** link, at `/admin/audit/REQUEST_ID/evidence`.
+Use the actual request ID from the approval page URL or the tool result, and your own origin if the demo runs elsewhere. Only the signed-in owner can download it. A phone opened with a one-time code cannot: its page says to download the receipt from the signed-in browser. An administrator can also open **Audit log** and use a completed action's **Evidence** link, at `/admin/audit/REQUEST_ID/evidence`. That link saves `approval-evidence.json`: the same evidence in compact JSON, so its bytes differ from the person's download, and either file verifies.
 
-Create a working directory and save the download there as `receipt.json`:
+Create a working directory and move the download into it as `receipt.json`. If your browser saves to `~/Downloads`:
 
 ```sh
 mkdir -p var/evidence-check
+mv ~/Downloads/receipt-REQUEST_ID.json var/evidence-check/receipt.json
 ```
 
 The download must be a completed action's evidence, not an error response. Its `format` is `verified-human-approval/evidence/v2`. Nothing is signed when you download it: it carries the receipt signed as the action committed.
