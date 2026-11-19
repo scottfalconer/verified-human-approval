@@ -61,16 +61,17 @@ final class AuditHeadCommandTest extends TestCase
 
         $head = $this->auditHead($log);
         self::assertSame(Command::FAILURE, $head->getStatusCode());
-        $display = $head->getDisplay();
-        self::assertStringContainsString('The chain does not verify, so this is no checkpoint to keep.', $display);
+        $display = self::said($head);
+        self::assertStringContainsString('[ERROR] The chain does not verify, so this is no checkpoint to keep.', $display);
         self::assertStringContainsString('Entry 1: it is signed with key "application-1", whose window has closed, and no later entry signed with a key in use vouches for it.', $display);
         self::assertStringContainsString('Record the rotation away from it: verified-human-approval:record-key-rotation application-1', $display);
         self::assertStringNotContainsString('does not record the rotation', $display, 'One key is named once.');
+        self::assertDoesNotMatchRegularExpression('/^\d+:[0-9a-f]{64}$/m', $head->getDisplay(), 'A chain that does not verify gives no checkpoint to keep.');
 
         $check = $this->auditHead($log, ['--check' => '1:'.$log->verify()['entries'][0]['hash']]);
         self::assertSame(Command::FAILURE, $check->getStatusCode());
-        self::assertStringContainsString('Entry 1 is unchanged, but the chain does not verify: some entry fails its signature, key window or chain check.', $check->getDisplay());
-        self::assertStringContainsString('Entry 1: it is signed with key "application-1"', $check->getDisplay());
+        self::assertStringContainsString('[ERROR] Entry 1 is unchanged, but the chain does not verify: some entry fails its signature, key window or chain check.', self::said($check));
+        self::assertStringContainsString('Entry 1: it is signed with key "application-1"', self::said($check));
     }
 
     public function testItNamesARotationThatIsDueButNotRecordedOnceTheChainVerifiesAgain(): void
@@ -84,7 +85,7 @@ final class AuditHeadCommandTest extends TestCase
         $head = $this->auditHead($log);
         self::assertSame(Command::SUCCESS, $head->getStatusCode(), $head->getDisplay());
         self::assertStringContainsString('All 2 entries verify in an unbroken chain.', $head->getDisplay());
-        self::assertStringContainsString('Key "application-1" has closed, and the log does not record the rotation away from it. Record it: verified-human-approval:record-key-rotation application-1', $head->getDisplay());
+        self::assertStringContainsString('[WARNING] Key "application-1" has closed, and the log does not record the rotation away from it. Record it: verified-human-approval:record-key-rotation application-1', self::said($head));
 
         $log->recordRotation('application-1');
         $after = $this->auditHead($log);
@@ -113,5 +114,11 @@ final class AuditHeadCommandTest extends TestCase
         $tester->execute($input);
 
         return $tester;
+    }
+
+    /** What the command printed, its lines joined: SymfonyStyle wraps a message at the terminal's width. */
+    private static function said(CommandTester $tester): string
+    {
+        return (string) preg_replace('/\s+/', ' ', $tester->getDisplay());
     }
 }

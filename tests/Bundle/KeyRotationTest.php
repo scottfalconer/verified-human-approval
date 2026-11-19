@@ -110,16 +110,17 @@ final class KeyRotationTest extends TestCase
         self::assertSame(['demo-application-2', true], [$json['keyId'], $json['intact']]);
         $check = $this->console('verified-human-approval:audit-head', ['--check' => $checkpoint]);
         self::assertSame(Command::SUCCESS, $check->getStatusCode(), $check->getDisplay());
-        self::assertStringContainsString('The checkpoint holds', $check->getDisplay());
+        self::assertStringContainsString('[OK] The checkpoint holds', self::said($check));
         $other = $this->console('verified-human-approval:audit-head', ['--check' => $json['seq'].':'.str_repeat('0', 64)]);
         self::assertSame(Command::FAILURE, $other->getStatusCode());
-        self::assertStringContainsString('is no longer the entry kept', $other->getDisplay());
+        self::assertStringContainsString('is no longer the entry kept', self::said($other));
         self::assertSame(Command::INVALID, $this->console('verified-human-approval:audit-head', ['--check' => 'yesterday'])->getStatusCode());
 
         $this->database->pdo->prepare('DELETE FROM verified_human_approval_audit WHERE seq = ?')->execute([$json['seq']]);
         $check = $this->console('verified-human-approval:audit-head', ['--check' => $checkpoint]);
         self::assertSame(Command::FAILURE, $check->getStatusCode());
-        self::assertStringContainsString('entries were cut off', $check->getDisplay());
+        self::assertStringContainsString('[ERROR] The log now ends at entry', self::said($check));
+        self::assertStringContainsString('entries were cut off', self::said($check));
     }
 
     public function testTheBundleCommandRecordsARotationOnlyOnceTheKeysSayItHappened(): void
@@ -127,11 +128,11 @@ final class KeyRotationTest extends TestCase
         // Nothing has rotated: the signer still uses the key a rotation would retire.
         $refused = $this->console('verified-human-approval:record-key-rotation', ['from' => 'demo-application-1']);
         self::assertSame(Command::FAILURE, $refused->getStatusCode());
-        self::assertStringContainsString('A rotation moves to a new key', $refused->getDisplay());
+        self::assertStringContainsString('A rotation moves to a new key', self::said($refused));
         // A key id as the operator typed it is printed as text, not read as the console's formatting.
         $typed = $this->console('verified-human-approval:record-key-rotation', ['from' => '<fg=green>no-such-key</>']);
         self::assertSame(Command::FAILURE, $typed->getStatusCode());
-        self::assertStringContainsString('The key "<fg=green>no-such-key</>" is not one of the trusted keys.', $typed->getDisplay());
+        self::assertStringContainsString('[ERROR] The key "<fg=green>no-such-key</>" is not one of the trusted keys.', self::said($typed));
         foreach (['verified-human-approval:record-key-rotation', 'verified-human-approval:audit-head'] as $name) {
             self::assertNotSame('', (new Application($this->kernel()))->find($name)->getDescription(), $name.' describes itself in the command list.');
         }
@@ -149,10 +150,11 @@ final class KeyRotationTest extends TestCase
 
         $recorded = $this->console('verified-human-approval:record-key-rotation', ['from' => 'demo-application-1', '--reason' => 'suspected compromise']);
         self::assertSame(Command::SUCCESS, $recorded->getStatusCode(), $recorded->getDisplay());
-        self::assertStringContainsString('trust moved from key "demo-application-1" to key "application-2026-11"', $recorded->getDisplay());
+        self::assertStringContainsString('[OK] Entry ', self::said($recorded));
+        self::assertStringContainsString('trust moved from key "demo-application-1" to key "application-2026-11"', self::said($recorded));
         $again = $this->console('verified-human-approval:record-key-rotation', ['from' => 'demo-application-1']);
         self::assertSame(Command::FAILURE, $again->getStatusCode());
-        self::assertStringContainsString('already records the rotation', $again->getDisplay());
+        self::assertStringContainsString('already records the rotation', self::said($again));
         self::assertSame(Command::SUCCESS, $this->console('verified-human-approval:audit-head')->getStatusCode(), 'The chain verifies across the move.');
     }
 
@@ -205,6 +207,12 @@ final class KeyRotationTest extends TestCase
         $tester->execute($input);
 
         return $tester;
+    }
+
+    /** What a command printed, its lines joined: SymfonyStyle wraps a message at the terminal's width. */
+    private static function said(CommandTester $tester): string
+    {
+        return (string) preg_replace('/\s+/', ' ', $tester->getDisplay());
     }
 
     /** A kernel reads the runtime's settings when it is made, so each step gets a new one. */
