@@ -237,7 +237,7 @@ final class DemoScriptsTest extends TestCase
         self::assertStringContainsString('Nothing was replaced.', $output, 'With nobody at a terminal to answer, it replaces nothing.');
         // Its tunnel publishes no demo set up for its address, so it stops rather than publish what takes the port next.
         self::assertStringEndsWith("Stopped this checkout's tunnel, so that it publishes nothing else.\n", $output);
-        self::assertSame(['launchctl remove '.self::TUNNEL], $this->calls(), 'Nothing else was stopped, set up or started.');
+        self::assertSame(['server status', 'launchctl remove '.self::TUNNEL], $this->calls(), 'Nothing else was stopped, set up or started.');
 
         $this->forgetCalls();
         [$status, $output] = $this->publicDemo($checkout, 'start', '--yes');
@@ -250,8 +250,9 @@ final class DemoScriptsTest extends TestCase
         // The tunnel the demo was set up for has stopped, and a new one answers at a new address.
         $checkout = $this->publicTree('https://old-tunnel-name.trycloudflare.com', 'https://new-tunnel-name.trycloudflare.com', running: false);
         self::assertSame([1, "The public demo was set up for https://old-tunnel-name.trycloudflare.com, and a new tunnel answers at a new address.\nPasskeys belong to one address, so a demo for the new one replaces this one: its accounts, passkeys, connections, records and signing key.\nNothing was replaced. To replace it without being asked: $checkout/demo/bin/public start --yes\n"], $this->publicDemo($checkout, 'start'));
-        self::assertSame([], $this->calls(), 'No tunnel was started to ask.');
+        self::assertSame(['server status'], $this->calls(), 'No tunnel was started to ask.');
 
+        $this->forgetCalls();
         [$status, $output] = $this->publicDemo($checkout, 'start', '--yes');
         self::assertSame(0, $status, $output);
         self::assertSame(['server status', $this->tunnelStart($checkout), 'server stop', 'setup --reset for https://new-tunnel-name.trycloudflare.com, registration 0', 'server start'], $this->calls());
@@ -500,6 +501,37 @@ final class DemoScriptsTest extends TestCase
         self::assertCount(1, $this->launched(), 'Only the tunnel was started, never a server on the taken port.');
         self::assertSame('launchctl remove '.self::TUNNEL, \array_slice($this->calls(), -1)[0]);
         self::assertSame([$program], array_keys($this->processes()), 'The tunnel stopped; the program was left running.');
+    }
+
+    public function testPublicStartRefusesATakenPortBeforeAskingAnything(): void
+    {
+        // The tunnel came back at another address, and a program has taken the port the public demo's server left.
+        $checkout = $this->checkout('https://old-tunnel-name.trycloudflare.com', 'var/public-demo');
+        $this->tunnel($checkout, 'https://new-tunnel-name.trycloudflare.com');
+        $program = $this->listen(8081, '/usr/bin/python3 -m http.server 8081');
+        self::assertSame([1, "Not running. Port 8081 is in use by another program: PID $program (/usr/bin/python3 -m http.server 8081).\nStopped this checkout's tunnel, so that it publishes nothing else.\nThe public demo uses port 8081, which nothing else may use while it runs. Free the port, then run: $checkout/demo/bin/public start\n"], $this->publicDemo($checkout, 'start'));
+        self::assertSame(['launchctl remove '.self::TUNNEL], $this->calls(), 'The tunnel stopped at once, not after a question.');
+    }
+
+    public function testPublicStartLooksAtThePortAgainOnceAReplacementIsAnswered(): void
+    {
+        // The tunnel the demo was set up for has stopped. While the question waits for its answer, a program takes the port.
+        $checkout = $this->checkout('https://old-tunnel-name.trycloudflare.com', 'var/public-demo');
+        $this->tunnelAddress('https://new-tunnel-name.trycloudflare.com');
+        $program = 0;
+        [$status, $output] = $this->startAnswering($checkout, 'y', function () use (&$program): void {
+            $program = $this->listen(8081, '/usr/bin/python3 -m http.server 8081');
+        });
+        self::assertSame(1, $status, $output);
+        self::assertStringEndsWith("Replace it? [y/N] Not running. Port 8081 is in use by another program: PID $program (/usr/bin/python3 -m http.server 8081).\nThe public demo uses port 8081, which nothing else may use while it runs. Free the port, then run: $checkout/demo/bin/public start\n", $output);
+        self::assertSame([], $this->calls(), 'No tunnel was started, and nothing was replaced.');
+
+        // With the port free, the answer replaces the demo, which is then served.
+        $this->stopEveryProcess();
+        [$status, $output] = $this->startAnswering($checkout, 'y', static function (): void {});
+        self::assertSame(0, $status, $output);
+        self::assertStringEndsWith("Public demo: https://new-tunnel-name.trycloudflare.com\nclaude.ai connector URL: https://new-tunnel-name.trycloudflare.com/mcp\nThe public demo uses port 8081, which nothing else may use while it runs.\n", $output);
+        self::assertSame('https://new-tunnel-name.trycloudflare.com', self::settings($checkout.'/var/public-demo')['origin']);
     }
 
     /** @return iterable<string, array{string, string}> what keeps failing, and what the server's start says about it */
@@ -792,6 +824,37 @@ final class DemoScriptsTest extends TestCase
     private function publicDemo(string $checkout, string ...$arguments): array
     {
         return $this->onThisComputer([$checkout.'/demo/bin/public', ...$arguments], []);
+    }
+
+    /**
+     * Runs $checkout's demo/bin/public start on this computer at a terminal, as a person does. Once it asks whether to
+     * replace the demo, $meanwhile runs, and then $answer is typed.
+     *
+     * @param callable(): void $meanwhile
+     *
+     * @return array{int, string} the exit status, and what it printed on both outputs
+     */
+    private function startAnswering(string $checkout, string $answer, callable $meanwhile): array
+    {
+        $environment = ['PATH' => $this->computer().':'.\dirname(\PHP_BINARY).':/usr/bin:/bin', 'PHP_BIN' => \PHP_BINARY] + getenv();
+        unset($environment['PORT'], $environment['VERIFIED_HUMAN_APPROVAL_RUNTIME']);
+        $process = @proc_open([$checkout.'/demo/bin/public', 'start'], [0 => ['pty'], 1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, \dirname(__DIR__, 2), $environment);
+        if (!\is_resource($process)) {
+            self::markTestSkipped('This PHP cannot start a program at a terminal.');
+        }
+        $output = '';
+        while (!str_ends_with($output, 'Replace it? [y/N] ') && !feof($pipes[1])) {
+            $output .= (string) fread($pipes[1], 8192);
+        }
+        if (str_ends_with($output, 'Replace it? [y/N] ')) {
+            $meanwhile();
+            fwrite($pipes[0], $answer."\n");
+        }
+        $output .= (string) stream_get_contents($pipes[1]);
+        fclose($pipes[0]);
+        fclose($pipes[1]);
+
+        return [proc_close($process), $output];
     }
 
     /**

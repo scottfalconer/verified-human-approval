@@ -97,6 +97,7 @@ start() {
     fi
     exit 1
   fi
+  guard_port start
   # A tunnel that runs keeps its address; one that starts gets a new one.
   ORIGIN=
   [ -z "$job" ] || ORIGIN=$(tunnel_url)
@@ -117,9 +118,9 @@ start() {
       y | Y | yes | Yes) ;;
       *) echo "Nothing was replaced. To replace it without being asked: $0 start --yes"; exit 1 ;;
     esac
+    # An answer can take a while, so the port is looked at again before the tunnel starts or is kept.
+    guard_port start
   fi
-  # After the question, whose answer can take a while: the port is checked just before the tunnel starts or is kept.
-  guard_port start
   if [ -z "$ORIGIN" ]; then
     [ -z "$job" ] || launchctl remove "$LABEL" 2>/dev/null || true
     : > "$LOG"
