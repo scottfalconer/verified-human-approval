@@ -94,7 +94,7 @@ The package `verified-human-approval/doctrine` needs DBAL 4.4 or later and suppo
 - With `doctrine/orm` 3.5 or later:
   - `Orm\ApprovalSchemaListener(Connection $connection)` adds the tables on `postGenerateSchema`.
   - `Orm\EntityAction` is an `ActionAdapter` whose final `execute()` clears the entity manager, loads `targets()` with pessimistic write locks, calls `apply()` and flushes. It offers `current()` (reload under a lock), `persist()`, `currentApproval()` (the executing approval) and `manager()`, and resets the entity manager after a rollback.
-  - `Orm\ProtectedEntityListener(ExecutionGuard $guard, array $protected = [])`, for `onFlush` and `preUpdate`, refuses with `approval_required` any change to an `#[Orm\RequiresApproval]` entity or field, or one named in `$protected`, that an approved execution did not `permit(object ...$entities)`. A change inside an embedded object is not caught; see the [security model](security-model.md#what-the-host-must-trust).
+  - `Orm\ProtectedEntityListener(ExecutionGuard $guard, array $protected = [])`, for `onFlush` and `preUpdate`, refuses with `approval_required` any change to an `#[Orm\RequiresApproval]` entity or field, or one named in `$protected` (each class's list of fields, or null for the whole entity), that an approved execution did not `permit(object ...$entities)`. Inside an embedded object, it catches a change only when the whole entity is protected or `$protected` names the field as Doctrine names it (`published.title`); `#[RequiresApproval]` on the `#[ORM\Embedded]` property, or on a field of the embeddable class, does not catch it. See the [security model](security-model.md#what-the-host-must-trust).
 
 ## The signed audit log
 
