@@ -22,11 +22,14 @@ final class DemoScriptsTest extends TestCase
         (new Filesystem())->remove($this->directory);
     }
 
-    public function testSetupLeavesOpenClientRegistrationOnUnlessItIsTurnedOff(): void
+    public function testSetupOpensClientRegistrationOnlyOnThisComputerUnlessTold(): void
     {
-        foreach (['not set' => [null, true], 'set to 0' => ['0', false], 'set to off' => ['off', false], 'set to 1' => ['1', true]] as $case => [$value, $open]) {
+        foreach ([
+            'not set' => [null, null, true], 'set to 0' => [null, '0', false], 'set to off' => [null, 'off', false], 'set to 1' => [null, '1', true],
+            'not set, at a public address' => ['https://alerts.example', null, false],
+        ] as $case => [$origin, $value, $open]) {
             $runtime = $this->directory.'/'.bin2hex(random_bytes(4));
-            [$status, $output] = self::script([\PHP_BINARY, 'demo/bin/setup.php'], ['VERIFIED_HUMAN_APPROVAL_RUNTIME' => $runtime, 'VERIFIED_HUMAN_APPROVAL_ORIGIN' => null, 'VERIFIED_HUMAN_APPROVAL_DYNAMIC_CLIENT_REGISTRATION' => $value]);
+            [$status, $output] = self::script([\PHP_BINARY, 'demo/bin/setup.php'], ['VERIFIED_HUMAN_APPROVAL_RUNTIME' => $runtime, 'VERIFIED_HUMAN_APPROVAL_ORIGIN' => $origin, 'VERIFIED_HUMAN_APPROVAL_DYNAMIC_CLIENT_REGISTRATION' => $value]);
             self::assertSame(0, $status, $output);
             self::assertSame($open, self::settings($runtime)['dynamic_client_registration'], $case);
         }

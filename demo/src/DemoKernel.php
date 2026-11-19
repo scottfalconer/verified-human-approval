@@ -264,8 +264,8 @@ final class DemoKernel extends Kernel
             'login_route' => 'demo_login',
             'consent' => 'page',
             'public_base_url' => $origin,
-            // MCP deprecates open registration in favour of client ID metadata documents. A local demo keeps it for
-            // clients that still register; the public one turns it off (demo/bin/public).
+            // MCP deprecates open registration in favour of client ID metadata documents. A demo on this computer keeps
+            // it for clients that still register; at any other address it is off unless the runtime turns it on.
             'dcr' => ['enabled' => '%env(bool:DEMO_RUNTIME_DYNAMIC_CLIENT_REGISTRATION)%'],
         ]);
         $container->extension('verified_human_approval', [

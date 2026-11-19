@@ -440,6 +440,31 @@ final class OAuthTest extends TestCase
         self::assertSame('Bearer', $this->token($browser, $this->codeExchange(self::CLAUDE, $code, $verifier))['token_type'] ?? null);
     }
 
+    public function testOpenRegistrationIsOnByDefaultOnlyForADemoOnThisComputer(): void
+    {
+        // Setup told nothing chooses by the address, and so does a runtime whose settings do not say.
+        $public = 'https://alerts.example';
+        foreach ([$public => false, self::ORIGIN => true] as $origin => $open) {
+            (new Filesystem())->remove($this->runtime);
+            $this->accounts = DemoSetup::initialize($this->runtime, $origin)['accounts'];
+            $settings = json_decode((string) file_get_contents($this->runtime.'/settings.json'), true, 32, \JSON_THROW_ON_ERROR);
+            self::assertSame($open, $settings['dynamic_client_registration'], $origin);
+            unset($settings['dynamic_client_registration']);
+            file_put_contents($this->runtime.'/settings.json', json_encode($settings, \JSON_THROW_ON_ERROR));
+            if (!$open) {
+                $browser = new KernelBrowser(new DemoKernel($this->runtime, 'test'));
+                $this->browsers[] = $browser;
+                $browser->request('GET', $origin.'/.well-known/oauth-authorization-server');
+                self::assertArrayNotHasKey('registration_endpoint', json_decode((string) $browser->getResponse()->getContent(), true, 8, \JSON_THROW_ON_ERROR));
+                $browser->request('POST', $origin.'/oauth/register', server: ['CONTENT_TYPE' => 'application/json'], content: json_encode(['redirect_uris' => [self::CALLBACK], 'client_name' => 'Claude'], \JSON_THROW_ON_ERROR));
+                self::assertSame(404, $browser->getResponse()->getStatusCode(), 'A demo at a public address does not let clients register themselves.');
+            }
+        }
+        $api = $this->client();
+        $this->json($api, 'POST', '/oauth/register', ['redirect_uris' => [self::CALLBACK], 'client_name' => 'Claude']);
+        self::assertSame(201, $api->getResponse()->getStatusCode(), 'A demo on this computer does.');
+    }
+
     public function testTheTokenEndpointIssuesTokensOnlyForThisServersMcpEndpoint(): void
     {
         $api = $this->client();

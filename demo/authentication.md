@@ -29,7 +29,7 @@ The only token audience is this application's `/mcp`. Access tokens carry it as 
 
 CIMD is the primary client discovery path. Fetches use Symfony's `NoPrivateNetworkHttpClient`, a 64 KiB download limit and a 10 second maximum duration. The provider caches metadata for five minutes.
 
-Dynamic client registration (RFC 7591), which the MCP specification deprecates in favour of CIMD, is a setting of each runtime. A local demo offers it, with a per-address budget, for clients that still register themselves; set `VERIFIED_HUMAN_APPROVAL_DYNAMIC_CLIENT_REGISTRATION=0` when running `php demo/bin/setup.php` to turn it off. The public demo turns it off, so only a client that publishes a client ID metadata document, as claude.ai does, can connect there. The provider marks its registration route deprecated; tests assert that exact warning only around that route, and every other deprecation still fails.
+Dynamic client registration (RFC 7591), which the MCP specification deprecates in favour of CIMD, is a setting of each runtime. A demo at an address on this computer (`localhost`, `127.0.0.1` or `[::1]`) offers it, with a per-address budget, for clients that still register themselves; a demo at any other address does not. `VERIFIED_HUMAN_APPROVAL_DYNAMIC_CLIENT_REGISTRATION=0` or `=1` when running `php demo/bin/setup.php` turns it off or on, and a runtime whose settings do not say follows its address. The public demo turns it off, so only a client that publishes a client ID metadata document, as claude.ai does, can connect there. The provider marks its registration route deprecated; tests assert that exact warning only around that route, and every other deprecation still fails.
 
 ## Reference-only dependency compatibility
 

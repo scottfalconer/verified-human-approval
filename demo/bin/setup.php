@@ -13,9 +13,10 @@ use VerifiedHumanApproval\Demo\DemoSetup;
 
 $directory = getenv('VERIFIED_HUMAN_APPROVAL_RUNTIME') ?: dirname(__DIR__, 2).'/var/demo';
 $origin = getenv('VERIFIED_HUMAN_APPROVAL_ORIGIN') ?: 'http://localhost:8080';
-// OAuth clients may register themselves unless this is set to a false value; the public demo sets it to 0.
+// Whether OAuth clients may register themselves. Unset, they may at an origin on this computer and not elsewhere;
+// the public demo sets it to 0.
 $registration = getenv('VERIFIED_HUMAN_APPROVAL_DYNAMIC_CLIENT_REGISTRATION');
-$registration = false === $registration || filter_var($registration, \FILTER_VALIDATE_BOOL);
+$registration = false === $registration || '' === $registration ? null : filter_var($registration, \FILTER_VALIDATE_BOOL);
 try {
     // --reset starts a fresh demo for another take. It only removes a directory this setup created.
     if (in_array('--reset', $argv, true) && is_dir($directory)) {
