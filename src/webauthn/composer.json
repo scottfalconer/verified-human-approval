@@ -8,6 +8,9 @@
     "php": "^8.3",
     "ext-json": "*",
     "ext-openssl": "*",
+    "ext-sodium": "*",
+    "paragonie/constant_time_encoding": "^2.6 || ^3.0",
+    "symfony/serializer": "^6.4 || ^7.0 || ^8.0",
     "verified-human-approval/core": "self.version",
     "web-auth/webauthn-lib": "^5.3.11"
   },

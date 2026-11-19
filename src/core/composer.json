@@ -20,7 +20,7 @@
   "suggest": {
     "ext-pdo": "Reference SQLite transactional persistence.",
     "ext-pdo_sqlite": "Reference SQLite transactional persistence.",
-    "ext-sodium": "Signed execution receipts."
+    "ext-sodium": "Signed receipts, the signed audit log and checking either."
   },
   "autoload": {
     "psr-4": {
