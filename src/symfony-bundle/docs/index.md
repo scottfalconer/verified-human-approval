@@ -237,7 +237,17 @@ The [tool example](first-action.md#6-expose-the-action-through-mcp) checks the v
 
 A pending response is a normal tool outcome. It contains a `requestId`, `review_url`, status and instructions. The agent must not say the action is completed while it is pending. Call `approval_status` to read the outcome. Status reads never perform the business mutation. A client that generates a unique id for each new request can send it as `request_key` and resend it to retry. An agent should leave it out, as the [tool example](first-action.md#6-expose-the-action-through-mcp) explains.
 
-URL-mode elicitation is optional and off by default. Enable it only for clients you have tested. The card and review link do not depend on it. See [MCP presentation](https://github.com/scottfalconer/verified-human-approval/blob/main/src/mcp/README.md) for client and protocol details.
+URL-mode elicitation is optional and off by default; the card and the review link do not depend on it. To send it, list the clients that get it by the name they send in `clientInfo`, or give `'*'` for every client that declares URL mode:
+
+```yaml
+# config/packages/verified_human_approval.yaml
+verified_human_approval:
+    url_elicitation:
+        enabled: true
+        clients: ['*']          # or only the clients you have tested, such as [claude-code]
+```
+
+`'*'` leaves the decision to the capability each client declares, as the specification advises. A list of names is for clients that declare URL mode and then drop the prompt; it changes the server's behaviour by `clientInfo`, which the specification advises against, and decides nothing about security. The prompt is sent only on MCP 2026-07-28 or later, and its retry carries signed request state, so the MCP server needs the `request_state.key` shown above. See [MCP presentation](https://github.com/scottfalconer/verified-human-approval/blob/main/src/mcp/README.md) for client and protocol details.
 
 ### Scope challenges over HTTP
 
