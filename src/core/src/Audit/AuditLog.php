@@ -45,19 +45,16 @@ final readonly class AuditLog
     /** The tenant of an entry about the whole application, such as a key rotation: it concerns every tenant. */
     public const ALL_TENANTS = '';
 
-    private TrustedKeys $keys;
-
     /**
-     * @param TrustedKeys|string $trustedPublicKey the keys that check entries. One base64url public key, as
-     *                                             before, is a one-key set for the signer's key id, without a window.
+     * @param TrustedKeys $keys the keys that check entries, the signer's among them: for its key alone, without a
+     *                          window, TrustedKeys::single($signer->keyId(), $signer->publicKey())
      */
     public function __construct(
         private AuditStore $store,
         private EvidenceSigner $signer,
-        TrustedKeys|string $trustedPublicKey,
+        private TrustedKeys $keys,
         private ClockInterface $clock,
     ) {
-        $this->keys = $trustedPublicKey instanceof TrustedKeys ? $trustedPublicKey : TrustedKeys::single($signer->keyId(), $trustedPublicKey);
     }
 
     /** The keys this log checks entries against, with their windows. */

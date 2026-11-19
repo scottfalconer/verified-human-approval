@@ -141,7 +141,7 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame(200, $anyone->getResponse()->getStatusCode());
         $key = json_decode((string) $anyone->getResponse()->getContent(), true, 8, \JSON_THROW_ON_ERROR);
         self::assertSame(['format' => 'verified-human-approval/receipt-key/v1', 'keyId' => $evidence['receipt']['keyId'], 'publicKey' => $key['publicKey'], 'rpId' => 'localhost', 'origin' => self::ORIGIN], $key);
-        $verified = (new ReceiptVerifier())->verify(CanonicalJson::map(CanonicalJson::decode($content)), $key['keyId'], $key['publicKey']);
+        $verified = (new ReceiptVerifier())->verify(CanonicalJson::map(CanonicalJson::decode($content)), TrustedKeys::single($key['keyId'], $key['publicKey']));
         self::assertSame(Receipt::COMMIT, $verified['receiptSignedAt'], 'Signed as it ran, not when downloaded.');
 
         // The page links the key set, every key the site signs with and when, which checks the same file.

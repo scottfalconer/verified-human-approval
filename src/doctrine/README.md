@@ -161,6 +161,7 @@ The check covers the unit of work. DQL `UPDATE` and `DELETE`, and plain SQL, do 
 
 ```php
 use VerifiedHumanApproval\Core\Audit\AuditLog;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 use VerifiedHumanApproval\Doctrine\DbalApprovalStore;
 use VerifiedHumanApproval\Doctrine\DbalAuditStore;
 use VerifiedHumanApproval\Doctrine\DbalCredentialRepository;
@@ -169,7 +170,8 @@ use VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository;
 
 $transaction = new DbalTransaction($connection);    // the application's own connection
 $store = new DbalApprovalStore($transaction);
-$audit = new AuditLog(new DbalAuditStore($transaction), $signer, $trustedPublicKey, $clock);
+// Every key the application has signed with: the signer's, open since it began, and any it replaced.
+$audit = new AuditLog(new DbalAuditStore($transaction), $signer, TrustedKeys::forSigner($signer, $signingSince, $retiredKeys), $clock);
 $credentials = new AnchoredCredentialRepository(new DbalCredentialRepository($transaction), $audit);
 // $store and $credentials go to ApprovalService and WebAuthnVerifier; the transaction's lock clauses to your Authorizer.
 ```

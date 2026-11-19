@@ -10,6 +10,7 @@ use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 use VerifiedHumanApproval\Testing\VirtualAuthenticator;
 use VerifiedHumanApproval\Tests\Support\InMemoryAuditStore;
 use VerifiedHumanApproval\Tests\Support\InMemoryCredentialRepository;
@@ -34,7 +35,7 @@ final class PortableCredentialStorageTest extends TestCase
         $this->stored = new InMemoryCredentialRepository();
         $this->auditRows = new InMemoryAuditStore();
         $signer = new SodiumEvidenceSigner('app-key', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
-        $this->anchored = new AnchoredCredentialRepository($this->stored, new AuditLog($this->auditRows, $signer, $signer->publicKey(), new MockClock()));
+        $this->anchored = new AnchoredCredentialRepository($this->stored, new AuditLog($this->auditRows, $signer, TrustedKeys::single($signer->keyId(), $signer->publicKey()), new MockClock()));
         $this->verifier = new WebAuthnVerifier(new Configuration('approval.test', 'https://approval.test'), $this->anchored);
         $this->actor = new Actor('editor', 'acme');
     }

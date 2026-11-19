@@ -10,13 +10,13 @@ namespace VerifiedHumanApproval\Core\Evidence;
  * list verifies nothing, and neither does a record whose claimed time falls outside its key's window. One
  * current signer signs new records; rotating it adds a key here and closes the old one's window.
  *
- * A single public key is a one-key set without a window, which is how a lone key has always been trusted.
+ * A single public key is a one-key set without a window (single()): it vouches for what it signed at any time.
  */
 final readonly class TrustedKeys
 {
     /** The published key set: every key, with its window. */
     public const FORMAT = 'verified-human-approval/receipt-keys/v2';
-    /** The earlier published file: one key, without a window. */
+    /** The published one-key file: one key, without a window. */
     public const SINGLE_KEY_FORMAT = 'verified-human-approval/receipt-key/v1';
     /** The fields of one retired key in an application's settings, such as the Symfony bundle's receipt_keys.retired. */
     public const RETIRED_FIELDS = ['key_id', 'public_key', 'valid_from', 'valid_until'];
@@ -40,7 +40,7 @@ final readonly class TrustedKeys
         $this->keys = $byId;
     }
 
-    /** One trusted public key, without a window: what a single configured key has always meant. */
+    /** One trusted public key, without a window: it vouches for what it signed at any time. */
     public static function single(string $keyId, string $publicKey): self
     {
         return new self([new TrustedKey($keyId, $publicKey)]);
@@ -101,7 +101,7 @@ final readonly class TrustedKeys
 
     /**
      * The keys a published key file names. It reads the key set (format verified-human-approval/receipt-keys/v2)
-     * and the earlier one-key file (verified-human-approval/receipt-key/v1, or no format at all, as a
+     * and the one-key file (verified-human-approval/receipt-key/v1, or no format at all, as a
      * hand-written trust file has), which becomes a one-key set without a window.
      *
      * @param array<string, mixed> $document

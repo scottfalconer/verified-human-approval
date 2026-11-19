@@ -12,6 +12,7 @@ use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\Audit\AuditStore;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 use VerifiedHumanApproval\Core\Storage\PdoAuditStore;
 use VerifiedHumanApproval\Testing\VirtualAuthenticator;
 use VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository;
@@ -39,7 +40,7 @@ final class AnchoredCredentialRepositoryTest extends TestCase
         $signer = new SodiumEvidenceSigner('app-key', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
         $auditStore = new PdoAuditStore($this->pdo);
         $auditStore->initialize();
-        $this->audit = new AuditLog($auditStore, $signer, $signer->publicKey(), new MockClock());
+        $this->audit = new AuditLog($auditStore, $signer, TrustedKeys::single($signer->keyId(), $signer->publicKey()), new MockClock());
         $this->anchored = new AnchoredCredentialRepository($this->stored, $this->audit);
         $this->verifier = new WebAuthnVerifier(new Configuration('approval.test', 'https://approval.test'), $this->anchored);
         $this->actor = new Actor('editor', 'acme');
@@ -202,7 +203,7 @@ final class AnchoredCredentialRepositoryTest extends TestCase
             return $records;
         });
         $signer = new SodiumEvidenceSigner('portable-key', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
-        $anchored = new AnchoredCredentialRepository($raw, new AuditLog($store, $signer, $signer->publicKey(), new MockClock()));
+        $anchored = new AnchoredCredentialRepository($raw, new AuditLog($store, $signer, TrustedKeys::single($signer->keyId(), $signer->publicKey()), new MockClock()));
         self::assertNull($anchored->find($credential->id), 'A raw row alone is not a trusted enrollment.');
         $anchored->anchor($credential, ['method' => 'trusted-host']);
         self::assertSame($credential, $anchored->find($credential->id));

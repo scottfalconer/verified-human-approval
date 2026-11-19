@@ -9,6 +9,7 @@ use Symfony\Component\Clock\MockClock;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\Audit\AuditStore;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 use VerifiedHumanApproval\Core\Storage\PdoAuditStore;
 
 /** The security log: signed entries, each naming the one before, so edits and deletions show. */
@@ -24,7 +25,7 @@ final class AuditLogTest extends TestCase
         $this->signer = new SodiumEvidenceSigner('app-key', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
         $store = new PdoAuditStore($this->pdo);
         $store->initialize();
-        $this->log = new AuditLog($store, $this->signer, $this->signer->publicKey(), new MockClock('2026-11-08 12:00:00'));
+        $this->log = new AuditLog($store, $this->signer, TrustedKeys::single($this->signer->keyId(), $this->signer->publicKey()), new MockClock('2026-11-08 12:00:00'));
         foreach (['one', 'two', 'three'] as $subject) {
             $this->log->append('tenant-a', 'passkey.enrolled', $subject, ['userId' => 'alice', 'label' => $subject]);
         }
@@ -91,7 +92,7 @@ final class AuditLogTest extends TestCase
         $store->method('recordsFor')->willReturnCallback(static function () use (&$record): array {
             return [$record];
         });
-        $log = new AuditLog($store, $this->signer, $this->signer->publicKey(), new MockClock('2026-11-08 12:00:00'));
+        $log = new AuditLog($store, $this->signer, TrustedKeys::single($this->signer->keyId(), $this->signer->publicKey()), new MockClock('2026-11-08 12:00:00'));
         $log->append('tenant-b', 'passkey.enrolled', 'portable', []);
         self::assertSame('{"at":"2026-11-08T12:00:00.000000Z","data":{},"format":"verified-human-approval/audit/v1","previous":null,"seq":1,"subject":"portable","tenantId":"tenant-b","type":"passkey.enrolled"}', $record['entry']);
         self::assertTrue($log->verify()['intact']);

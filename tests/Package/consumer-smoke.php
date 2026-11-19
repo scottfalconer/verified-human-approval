@@ -20,6 +20,7 @@ use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalService;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 use VerifiedHumanApproval\Doctrine\ApprovalSchema;
 use VerifiedHumanApproval\Doctrine\DbalApprovalStore;
 use VerifiedHumanApproval\Doctrine\DbalAuditStore;
@@ -83,7 +84,7 @@ if ('doctrine' === $variant) {
     ApprovalSchema::install($connection);
     $transaction = new DbalTransaction($connection);
     $signer = new SodiumEvidenceSigner('consumer-key', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
-    $log = new AuditLog(new DbalAuditStore($transaction), $signer, $signer->publicKey(), new class implements Psr\Clock\ClockInterface {
+    $log = new AuditLog(new DbalAuditStore($transaction), $signer, TrustedKeys::single($signer->keyId(), $signer->publicKey()), new class implements Psr\Clock\ClockInterface {
         public function now(): DateTimeImmutable
         {
             return new DateTimeImmutable('2026-11-09T10:00:00Z');

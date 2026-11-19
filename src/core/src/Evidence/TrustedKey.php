@@ -45,7 +45,7 @@ final readonly class TrustedKey
         return (null === $this->validFrom || $time >= $this->validFrom) && (null === $this->validUntil || $time <= $this->validUntil);
     }
 
-    /** Whether the key has a window at all. A key without one, such as a lone legacy key, trusts any time. */
+    /** Whether the key has a window at all. A key without one, such as a lone configured key, trusts any time. */
     public function bounded(): bool
     {
         return null !== $this->validFrom || null !== $this->validUntil;
@@ -53,7 +53,7 @@ final readonly class TrustedKey
 
     /**
      * Whether a record that claims the timestamp $claimed was signed inside this key's window. A key without a
-     * window accepts any claim, as a single trusted key always has; otherwise the claim must be a valid time.
+     * window accepts any claim; otherwise the claim must be a valid time.
      */
     public function coversClaim(mixed $claimed): bool
     {

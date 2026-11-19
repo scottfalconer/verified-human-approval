@@ -224,7 +224,7 @@ final class AuditKeyRotationTest extends TestCase
         $before = $this->before();
         $before->append('tenant-a', 'passkey.enrolled', 'cred-1', ['userId' => 'alice']);
         $stranger = new SodiumEvidenceSigner('application-9', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
-        (new AuditLog($this->store, $stranger, $stranger->publicKey(), $this->clock))->append('tenant-a', 'passkey.enrolled', 'cred-9', ['userId' => 'alice']);
+        (new AuditLog($this->store, $stranger, TrustedKeys::single($stranger->keyId(), $stranger->publicKey()), $this->clock))->append('tenant-a', 'passkey.enrolled', 'cred-9', ['userId' => 'alice']);
 
         $after = new AuditLog($this->store, $this->new, $this->rotatedKeys(), $this->clock);
         self::assertNull($after->find('passkey.enrolled', 'cred-9'));

@@ -14,6 +14,7 @@ use VerifiedHumanApproval\Core\Ceremony;
 use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
 use VerifiedHumanApproval\Core\Evidence\Receipt;
 use VerifiedHumanApproval\Core\Evidence\ReceiptVerifier;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 
 /**
  * The approval storage contract (the rules on ApprovalStore), run against one adapter through its harness.
@@ -55,7 +56,7 @@ abstract class ApprovalStoreContract extends TestCase
         self::assertSame($completed->request->canonical, $stored->request->canonical, 'The proposal comes back byte for byte.');
         self::assertSame($completed->receipt, $stored->receipt);
         // The stored proof and record still match the receipt signed at commit, so their canonical JSON survived.
-        $verified = (new ReceiptVerifier())->verify(self::export($stored), $harness->receiptKeyId(), $harness->receiptPublicKey());
+        $verified = (new ReceiptVerifier())->verify(self::export($stored), TrustedKeys::single($harness->receiptKeyId(), $harness->receiptPublicKey()));
         self::assertSame(Receipt::COMMIT, $verified['receiptSignedAt']);
     }
 
@@ -304,7 +305,7 @@ abstract class ApprovalStoreContract extends TestCase
             self::assertSame($reviewed + 2, $observer->article()['revision']);
             self::assertSame(1, $observer->counts()['effects']);
             $stored = $observer->service()->get($harness->actor(), $request->request->id);
-            self::assertSame(Receipt::COMMIT, (new ReceiptVerifier())->verify(self::export($stored), $harness->receiptKeyId(), $harness->receiptPublicKey())['receiptSignedAt'], 'A later edit does not touch the historical receipt.');
+            self::assertSame(Receipt::COMMIT, (new ReceiptVerifier())->verify(self::export($stored), TrustedKeys::single($harness->receiptKeyId(), $harness->receiptPublicKey()))['receiptSignedAt'], 'A later edit does not touch the historical receipt.');
         } else {
             // The edit came first: what was reviewed is no longer the source, so nothing was published.
             self::assertSame('invalidated', $approval['status']);
@@ -438,7 +439,7 @@ abstract class ApprovalStoreContract extends TestCase
         self::assertStringContainsString('"context":{},"notes":[]', CanonicalJson::encode((object) $stored->result));
         self::assertSame(CanonicalJson::encode((object) $completed->execution), CanonicalJson::encode((object) $stored->execution));
         self::assertSame(CanonicalJson::encode((object) $completed->proof), CanonicalJson::encode((object) $stored->proof));
-        self::assertSame(Receipt::COMMIT, (new ReceiptVerifier())->verify(self::export($stored), $harness->receiptKeyId(), $harness->receiptPublicKey())['receiptSignedAt']);
+        self::assertSame(Receipt::COMMIT, (new ReceiptVerifier())->verify(self::export($stored), TrustedKeys::single($harness->receiptKeyId(), $harness->receiptPublicKey()))['receiptSignedAt']);
     }
 
     public function testALockTimeoutLeavesNothingHalfDoneAndRunsNothingTwice(): void

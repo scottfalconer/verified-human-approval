@@ -75,7 +75,7 @@ final class ReceiptKeyRotationTest extends TestCase
             self::assertSame([$keyId, 'commit', true], [$result['applicationKeyId'], $result['applicationReportSignedAt'], $result['applicationSignedExecutionReport']]);
         }
 
-        // The earlier one-key file still checks what its key signed, and vouches for nothing else.
+        // The one-key file checks what its key signed, and vouches for nothing else.
         $oneKey = $this->file('receipt-key.json', ['format' => TrustedKeys::SINGLE_KEY_FORMAT, 'keyId' => 'application-1', 'publicKey' => $this->old->publicKey()] + self::site());
         [$exit, , $stderr] = $this->check($before, $oneKey);
         self::assertSame(0, $exit, $stderr);
@@ -100,9 +100,9 @@ final class ReceiptKeyRotationTest extends TestCase
             self::assertSame(1, $exit);
             self::assertStringContainsString(\sprintf('outside the window of its key "%s"', $keyId), $stderr);
         }
-        // The signatures themselves are genuine: checked against the lone key without a window, as before, each verifies.
-        self::assertSame('application-1', (new ReceiptVerifier())->verify($late, 'application-1', $this->old->publicKey())['keyId']);
-        self::assertSame('application-2', (new ReceiptVerifier())->verify($early, 'application-2', $this->new->publicKey())['keyId']);
+        // The signatures themselves are genuine: checked against the lone key without a window, each verifies.
+        self::assertSame('application-1', (new ReceiptVerifier())->verify($late, TrustedKeys::single('application-1', $this->old->publicKey()))['keyId']);
+        self::assertSame('application-2', (new ReceiptVerifier())->verify($early, TrustedKeys::single('application-2', $this->new->publicKey()))['keyId']);
     }
 
     public function testEvidenceReadAsArraysIsRefusedWithHowToReadIt(): void

@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Symfony\Component\Clock\NativeClock;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 use VerifiedHumanApproval\StoreContracts\AuditHarness;
 use VerifiedHumanApproval\StoreContracts\ProcessRace;
 
@@ -27,7 +28,7 @@ try {
         throw new InvalidArgumentException('The payload must name an audit harness.');
     }
     $signer = SodiumEvidenceSigner::fromEncoded($input['keyId'], $input['secretKey']);
-    $log = new AuditLog($harness::connect($input['location'])->store(), $signer, $signer->publicKey(), new NativeClock());
+    $log = new AuditLog($harness::connect($input['location'])->store(), $signer, TrustedKeys::single($signer->keyId(), $signer->publicKey()), new NativeClock());
     ProcessRace::start($input);
     $sequences = [];
     for ($i = 0; $i < $input['appends']; ++$i) {

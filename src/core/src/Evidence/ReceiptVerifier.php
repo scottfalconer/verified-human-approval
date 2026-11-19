@@ -15,21 +15,19 @@ final class ReceiptVerifier
     /**
      * Trust keys must be supplied out-of-band. No public key contained in evidence is accepted.
      *
-     * Pass the application's TrustedKeys as $trustedKeyId, or, as before, one key id and its public key, which
-     * are a one-key set without a window. The receipt names its key: an id the set does not list fails. A receipt signed at
-     * commit was signed when its execution record says the action was recorded (`recordedAt`, which the
-     * receipt signs), and that time must fall inside its key's window. A receipt signed at export does not
-     * sign when it was exported, only that it came after the action was recorded, so its key must not have
-     * been retired before then.
+     * The receipt names its key: an id $keys does not list fails. A receipt signed at commit was signed when its
+     * execution record says the action was recorded (`recordedAt`, which the receipt signs), and that time must
+     * fall inside its key's window. A receipt signed at export does not sign when it was exported, only that it
+     * came after the action was recorded, so its key must not have been retired before then. For one public key
+     * on its own, pass TrustedKeys::single().
      *
      * @param array<string, mixed> $bundle
      *
      * @return array{request: ApprovalRequest, proof: array<string, mixed>|null, execution: array<string, mixed>, applicationSignatureValid: true, receiptSignedAt: Receipt::COMMIT|Receipt::EXPORT, keyId: string}
      */
-    public function verify(array $bundle, TrustedKeys|string $trustedKeyId, ?string $trustedPublicKey = null): array
+    public function verify(array $bundle, TrustedKeys $keys): array
     {
         try {
-            $keys = $trustedKeyId instanceof TrustedKeys ? $trustedKeyId : TrustedKeys::single($trustedKeyId, $trustedPublicKey ?? throw new \InvalidArgumentException('A trusted key id needs its public key.'));
             if (($bundle['format'] ?? null) !== EvidenceExporter::FORMAT || !\is_string($bundle['proposal'] ?? null)) {
                 throw new \UnexpectedValueException('Unknown evidence format.');
             }
