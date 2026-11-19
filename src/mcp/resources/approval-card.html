@@ -110,6 +110,9 @@
   }
   function notify(method, params) { parent.postMessage({ jsonrpc: '2.0', method, params }, '*'); }
   function resize() { notify('ui/notifications/size-changed', { height: document.documentElement.scrollHeight }); }
+  // The host sizes the frame from these reports, so the card also reports what it did not draw itself: a change of
+  // the host's fonts, or of the frame's width, that wraps its lines differently.
+  if (typeof ResizeObserver === 'function') new ResizeObserver(() => resize()).observe(document.body);
   // The given colours painted one over the other, as one sRGB pixel. A canvas has the browser parse and blend them,
   // whatever their CSS notation, and a colour it cannot take paints nothing.
   let pixel = null;
@@ -391,7 +394,8 @@
   });
   // Only the hint has a deadline. It replaces the first line, never a result the host has delivered.
   const slow = setTimeout(() => { if (ended || shown) return; status.textContent = NOTE.stalled; resize(); }, REQUEST_TIMEOUT_MS);
-  request('ui/initialize', { protocolVersion: '2026-01-26', appInfo: { name: 'verified-human-approval-card', version: '0.1.0' }, appCapabilities: {} }, false, 0)
+  // The card is drawn inline only, so it declares no other display mode the host could switch it to.
+  request('ui/initialize', { protocolVersion: '2026-01-26', appInfo: { name: 'verified-human-approval-card', version: '0.1.0' }, appCapabilities: { availableDisplayModes: ['inline'] } }, false, 0)
     .then((result) => {
       clearTimeout(slow);
       if (ended) return;

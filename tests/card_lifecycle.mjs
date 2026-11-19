@@ -17,7 +17,7 @@ const phoneReply = (requestId = 'r1') => ({ content: [], structuredContent: {
 
 function host() {
   let now = 0, sequence = 0;
-  const timers = new Map(), messages = [], listeners = {}, elements = new Map(), answered = new Set(), applied = new Map();
+  const timers = new Map(), messages = [], listeners = {}, elements = new Map(), answered = new Set(), applied = new Map(), resized = [];
   function element(id) {
     if (!elements.has(id)) elements.set(id, {
       hidden: true, disabled: false, textContent: id === 'status' ? 'Waiting for the request…' : '', children: [], handlers: {},
@@ -35,6 +35,8 @@ function host() {
   };
   const context = vm.createContext({
     parent, URL, Map, Promise, Error, navigator: { userAgent: 'card-lifecycle-test' }, document,
+    // Records what the card watches; a test calls it back as the browser would after a reflow.
+    ResizeObserver: class { constructor(callback) { this.callback = callback; } observe(target) { resized.push(() => this.callback([{ target }])); } },
     Date: class extends Date { static now() { return now; } },
     addEventListener(name, handler) { listeners[name] = handler; },
     setTimeout(callback, delay) { const id = ++sequence; timers.set(id, { callback, at: now + delay }); return id; },
@@ -53,6 +55,8 @@ function host() {
     call: name => messages.findLast(m => m.method === 'tools/call' && m.params.name === name),
     calls: name => messages.filter(m => m.method === 'tools/call' && m.params.name === name).length,
     opened: () => messages.findLast(m => m.method === 'ui/open-link'),
+    sizes: () => messages.filter(m => m.method === 'ui/notifications/size-changed').length,
+    reflow() { for (const observer of resized) observer(); },
     async visible(value) { document.hidden = !value; listeners['document-visibilitychange'](); await flush(); },
     // Lets time pass a second at a time while the site answers every status check with "pending".
     async pendingFor(milliseconds) {
@@ -315,6 +319,16 @@ test('a refusal that names no request is shown as a refusal, and an unknown stat
     const g = host(); await g.initialize(); g.show(approval(status));
     assert.equal(g.status(), `Status: ${status}.`, status);
   }
+});
+
+test('the card declares that it is drawn inline, and reports its size when the host restyles it', async () => {
+  const h = host();
+  assert.deepEqual(h.messages[0].params.appCapabilities, { availableDisplayModes: ['inline'] });
+  await h.initialize(); h.show();
+  const before = h.sizes();
+  h.dispatch({ method: 'ui/notifications/host-context-changed', params: { styles: { variables: { '--font-text-md-size': '22px' } } } });
+  h.reflow();
+  assert.equal(h.sizes(), before + 1);
 });
 
 test('a new request does not inherit the colour of the one before it', async () => {
