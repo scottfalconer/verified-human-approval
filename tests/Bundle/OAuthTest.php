@@ -5,6 +5,10 @@ declare(strict_types=1);
 namespace VerifiedHumanApproval\Tests\Bundle;
 
 use League\Bundle\OAuth2ServerBundle\Model\AuthorizationCode;
+use League\Bundle\OAuth2ServerBundle\Model\Client as OAuthClient;
+use League\Bundle\OAuth2ServerBundle\ValueObject\Grant;
+use League\Bundle\OAuth2ServerBundle\ValueObject\RedirectUri;
+use League\Bundle\OAuth2ServerBundle\ValueObject\Scope;
 use League\OAuth2\Server\AuthorizationServer;
 use League\OAuth2\Server\Exception\OAuthServerException;
 use Mcp\Client;
@@ -33,6 +37,7 @@ use VerifiedHumanApproval\Demo\OAuth\ConnectionOpeningCodeManager;
 use VerifiedHumanApproval\Demo\OAuth\ConsentRequest;
 use VerifiedHumanApproval\Demo\OAuth\ConsentSession;
 use VerifiedHumanApproval\Demo\OAuth\OAuthConnections;
+use VerifiedHumanApproval\Demo\OAuth\ReturnAddress;
 use VerifiedHumanApproval\Demo\OAuth\Storage\PdoAccessTokenManager;
 use VerifiedHumanApproval\Demo\OAuth\Storage\PdoClientManager;
 use VerifiedHumanApproval\Testing\VirtualAuthenticator;
@@ -238,6 +243,91 @@ final class OAuthTest extends TestCase
         self::assertStringNotContainsString('this computer', $text, 'The loopback warning follows the checked return address, not the link.');
     }
 
+    /** @return iterable<string, array{string}> redirect URIs in which PHP's parse_url and a browser find different hosts */
+    public static function redirectUrisReadTwoWays(): iterable
+    {
+        // parse_url takes "attacker.example\" for a user name and finds claude.ai; a browser ends the host at the backslash.
+        yield 'a backslash before a user name' => ['https://attacker.example\@claude.ai/api/mcp/auth_callback'];
+        // The same over plain HTTP, which the provider accepts only back to this computer.
+        yield 'plain HTTP, a backslash, then this computer' => ['http://attacker.example\@localhost/callback'];
+        // parse_url finds no host; a browser reads attacker.example as one.
+        yield 'one slash after the scheme' => ['https:/attacker.example/callback'];
+    }
+
+    #[DataProvider('redirectUrisReadTwoWays')]
+    public function testARedirectUriABrowserReadsAnotherWayIsRefusedBeforeAnyoneIsAsked(string $redirectUri): void
+    {
+        // Sent without json(): refused before the provider's controller, it raises no registration deprecation.
+        $api = $this->client();
+        $api->request('POST', self::ORIGIN.'/oauth/register', server: ['CONTENT_TYPE' => 'application/json'], content: json_encode(['redirect_uris' => [$redirectUri], 'client_name' => 'Claude'], \JSON_THROW_ON_ERROR));
+        self::assertSame(400, $api->getResponse()->getStatusCode(), (string) $api->getResponse()->getContent());
+        self::assertSame('invalid_redirect_uri', json_decode((string) $api->getResponse()->getContent(), true, 4)['error'] ?? null);
+        self::assertSame(0, (int) $this->database()->pdo->query('SELECT COUNT(*) FROM oauth2_clients')->fetchColumn());
+
+        // A client stored with one all the same, as a client ID metadata document could list it, is refused before
+        // the person is asked, and its code goes nowhere.
+        $client = (new OAuthClient('Claude', bin2hex(random_bytes(16)), null))->setRedirectUris(new RedirectUri($redirectUri))
+            ->setGrants(new Grant('authorization_code'))->setScopes(new Scope('alert.read'), new Scope('alert.publish'), new Scope('approval.read'));
+        $this->kernelService(PdoClientManager::class)->save($client);
+        $browser = $this->signedIn('editor');
+        $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query(self::authorizeQuery($client->getIdentifier(), $redirectUri)));
+        self::assertSame(400, $browser->getResponse()->getStatusCode(), (string) $browser->getResponse()->getContent());
+        self::assertSame('invalid_request', json_decode((string) $browser->getResponse()->getContent(), true, 8)['error'] ?? null);
+        self::assertFalse($browser->getResponse()->headers->has('Location'));
+        $browser->request('GET', self::ORIGIN.'/oauth/consent');
+        self::assertSame(410, $browser->getResponse()->getStatusCode(), 'Nothing waits for the person’s answer.');
+    }
+
+    /** @return iterable<string, array{string, string, bool}> a redirect URI, where the consent page says it returns, and whether that is this computer */
+    public static function plainRedirectUris(): iterable
+    {
+        yield 'claude.ai' => [self::CALLBACK, 'claude.ai', false];
+        yield 'a host in capitals' => ['https://Claude.AI/api/mcp/auth_callback', 'claude.ai', false];
+        yield 'a port, a path and a query' => ['https://app.example:8443/oauth/callback?from=mcp', 'app.example', false];
+        yield 'a loopback address' => ['http://127.0.0.1:33418/callback', '127.0.0.1', true];
+        yield 'another loopback address' => ['https://127.0.0.2/callback', '127.0.0.2', true];
+        yield 'localhost' => ['http://localhost:6274/oauth/callback', 'localhost', true];
+        yield 'a name under localhost' => ['https://app.localhost/callback', 'app.localhost', true];
+        yield 'the IPv6 loopback address' => ['http://[::1]:8080/callback', '[::1]', true];
+        yield 'an application link' => ['cursor://anysphere.cursor-retrieval/oauth/callback', 'cursor://anysphere.cursor-retrieval', true];
+        yield 'a private-use scheme' => ['com.example.app:/oauth2redirect', 'com.example.app:', true];
+    }
+
+    #[DataProvider('plainRedirectUris')]
+    public function testTheConsentPageNamesTheHostABrowserSendsTheCodeTo(string $redirectUri, string $returnsTo, bool $thisComputer): void
+    {
+        $address = ReturnAddress::of($redirectUri);
+        self::assertNotNull($address);
+        self::assertSame([$redirectUri, $returnsTo, $thisComputer], [$address->uri, $address->host, $address->thisComputer]);
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function redirectUrisNotPlain(): iterable
+    {
+        yield from self::redirectUrisReadTwoWays();
+        yield 'no slash after the scheme' => ['https:attacker.example/callback'];
+        yield 'three slashes' => ['https:///attacker.example/callback'];
+        yield 'a user name' => ['https://claude.ai@attacker.example/callback'];
+        yield 'a tab, which a browser drops' => ["https://claude.ai\t@attacker.example/callback"];
+        yield 'a space' => ['https://claude.ai/call back'];
+        yield 'a fragment' => ['https://claude.ai/callback#done'];
+        yield 'a letter beyond ASCII' => ['https://сlaude.ai/callback'];
+        yield 'a percent-encoded host' => ['https://claude%2Eai/callback'];
+        yield 'an IPv4 address as one number' => ['http://2130706433/callback'];
+        yield 'an IPv4 address in short form' => ['http://127.1/callback'];
+        yield 'an IPv4 address in hexadecimal' => ['http://0x7f.0.0.1/callback'];
+        yield 'an IPv4 address with a trailing dot' => ['http://127.0.0.1./callback'];
+        yield 'the IPv6 loopback address in full' => ['http://[0:0:0:0:0:0:0:1]/callback'];
+        yield 'a port past 65535' => ['https://claude.ai:65536/callback'];
+        yield 'a scheme browsers parse like http' => ['ftp://claude.ai/callback'];
+    }
+
+    #[DataProvider('redirectUrisNotPlain')]
+    public function testARedirectUriNotInAPlainFormHasNoReturnAddress(string $redirectUri): void
+    {
+        self::assertNull(ReturnAddress::of($redirectUri));
+    }
+
     public function testAnAllowApprovesOnlyTheRequestItAnsweredAndOnlyOnce(): void
     {
         $api = $this->client();
@@ -310,7 +400,7 @@ final class OAuthTest extends TestCase
         $clock = new MockClock();
         $consents = new ConsentSession($clock);
         $session = new Session(new MockArraySessionStorage());
-        $request = new ConsentRequest('page', 'binding', '/oauth/authorize?client_id=claude', 'Claude', 'claude.ai', self::CALLBACK, ['alert.read']);
+        $request = new ConsentRequest('page', 'binding', '/oauth/authorize?client_id=claude', 'Claude', 'claude.ai', ReturnAddress::of(self::CALLBACK) ?? self::fail('claude.ai’s callback is plain.'), ['alert.read']);
         $consents->ask($session, $request);
         self::assertNull($consents->allow($session, 'another page'), 'Allow names the page that asked.');
         $clock->sleep(ConsentSession::LIFETIME_SECONDS);

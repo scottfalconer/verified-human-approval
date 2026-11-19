@@ -23,7 +23,7 @@ final readonly class ConsentRequest
         public string $resumeUri,
         public string $clientName,
         public ?string $publisher,
-        public string $redirectUri,
+        public ReturnAddress $returnAddress,
         public array $scopes,
     ) {
     }
@@ -53,24 +53,5 @@ final readonly class ConsentRequest
     public static function grantedScopes(array $asked, array $clientScopes): array
     {
         return array_values(array_unique([] === $asked ? $clientScopes : $asked));
-    }
-
-    /** Where the code goes: the redirect URI's host, or for an application's own link scheme, that scheme. */
-    public function returnHost(): string
-    {
-        $parts = parse_url($this->redirectUri) ?: [];
-        $scheme = strtolower($parts['scheme'] ?? '');
-        $host = strtolower($parts['host'] ?? '');
-
-        return \in_array($scheme, ['http', 'https'], true) ? $host : $scheme.':'.('' === $host ? '' : '//'.$host);
-    }
-
-    /** The code returns to this computer, where any application could be the one listening for it. */
-    public function returnsToThisComputer(): bool
-    {
-        $parts = parse_url($this->redirectUri) ?: [];
-
-        return !\in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https'], true)
-            || \in_array(strtolower($parts['host'] ?? ''), ['localhost', '127.0.0.1', '[::1]'], true);
     }
 }
