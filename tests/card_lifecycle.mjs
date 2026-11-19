@@ -51,7 +51,7 @@ function host(application = ALERTS) {
   return {
     element, messages, dispatch,
     status: () => element('status').textContent,
-    // The status the card's colour follows (body[data-status]).
+    // The status the card's color follows (body[data-status]).
     shade: () => document.body.dataset.status,
     // The theme and the style variables the card has put on its root element.
     theme: () => document.documentElement.dataset.theme,
@@ -210,6 +210,34 @@ for (const order of ['in the order they were made', 'in the other order']) {
     assert.equal(h.status(), 'Approved with a passkey. The site recorded the change.');
   });
 }
+
+test('a host that announces one of the card’s calls twice changes nothing the card shows', async () => {
+  const announce = (call) => h.dispatch({ method: 'ui/notifications/tool-input', params: { arguments: call.params.arguments } });
+  const h = host(); await h.initialize(); h.show();
+  // The phone code's call, announced twice before its one result.
+  const click = h.element('phone-show').handlers.click(); await flush();
+  const phone = h.call('approval_handoff');
+  announce(phone); announce(phone);
+  h.dispatch({ method: 'ui/notifications/tool-result', params: phoneReply() });
+  await h.reply(phone, phoneReply()); await click;
+  assert.equal(h.element('phone-code').hidden, false);
+  assert.equal(h.status(), 'Waiting for your approval on your phone. Nothing has changed yet.');
+  // A status check, announced twice and its result sent twice.
+  await h.advance(3000);
+  const check = h.call('approval_status');
+  announce(check); announce(check);
+  await h.reply(check, approval());
+  for (let i = 0; i < 2; i++) h.dispatch({ method: 'ui/notifications/tool-result', params: approval() });
+  assert.equal(h.element('phone-code').hidden, false);
+  assert.equal(h.status(), 'Waiting for your approval on your phone. Nothing has changed yet.');
+  // The card still checks, and shows what the site records.
+  await h.advance(3000);
+  await h.reply(h.call('approval_status'), approval('completed'));
+  assert.equal(h.status(), 'Approved with a passkey. The site recorded the change.');
+  // A call the host makes itself is still a new request.
+  h.dispatch({ method: 'ui/notifications/tool-input', params: { arguments: { alert_id: 'riverside-evacuation' } } });
+  assert.equal(h.status(), 'Waiting for the request…');
+});
 
 test('a call the host announced without its result does not hide the next request’s refusal', async () => {
   const h = host(); await h.initialize(); h.show();
@@ -457,7 +485,7 @@ test('the card declares that it is drawn inline, and reports its size when the h
   assert.equal(h.sizes(), before + 1);
 });
 
-test('a new request does not inherit the colour of the one before it', async () => {
+test('a new request does not inherit the color of the one before it', async () => {
   const h = host(); await h.initialize(); h.show(approval('completed'));
   assert.equal(h.shade(), 'completed');
   h.dispatch({ method: 'ui/notifications/tool-input', params: { arguments: {} } });
@@ -467,7 +495,7 @@ test('a new request does not inherit the colour of the one before it', async () 
   assert.equal(h.shade(), 'pending');
 });
 
-test('where the card cannot see its colours it starts all the same, with its own colours and the host’s font', async () => {
+test('where the card cannot see its colors it starts all the same, with its own colors and the host’s font', async () => {
   // This shim computes no styles, like a browser that will not report them or read a canvas back.
   const h = host();
   await h.initialize(undefined, { theme: 'dark', styles: { variables: {
@@ -476,11 +504,11 @@ test('where the card cannot see its colours it starts all the same, with its own
   } } });
   assert.equal(h.status(), 'Waiting for the request…');
   assert.equal(h.theme(), 'dark');
-  // The host's colours are not used unseen, and a variable outside the specification cannot replace one of the card's own.
+  // The host's colors are not used unseen, and a variable outside the specification cannot replace one of the card's own.
   assert.deepEqual(h.variables(), { '--font-sans': 'Georgia, serif', '--border-radius-md': '3px' });
   h.show();
   assert.equal(h.element('open').hidden, false);
-  // A change of theme alone is taken, and the colours sent earlier are still not used unseen.
+  // A change of theme alone is taken, and the colors sent earlier are still not used unseen.
   h.dispatch({ method: 'ui/notifications/host-context-changed', params: { theme: 'light' } });
   assert.equal(h.theme(), 'light');
   assert.deepEqual(h.variables(), { '--font-sans': 'Georgia, serif', '--border-radius-md': '3px' });

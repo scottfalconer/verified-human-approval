@@ -18,6 +18,7 @@ use Symfony\Component\Filesystem\Filesystem;
 use VerifiedHumanApproval\Bundle\Event\ApprovalCompleted;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\ApprovalService;
 use VerifiedHumanApproval\Core\CanonicalJson;
 use VerifiedHumanApproval\Core\ChallengeBinding;
 use VerifiedHumanApproval\Core\Evidence\Receipt;
@@ -335,6 +336,29 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame(403, $browser->getResponse()->getStatusCode());
         self::assertSame('ceremony_mismatch', $foreign['reason'] ?? null);
         self::assertSame(0, $this->mutationCount());
+    }
+
+    public function testTheSameApprovalSentTwiceIssuesTheAlertOnce(): void
+    {
+        $id = $this->requestAction();
+        $browser = $this->browser('editor');
+        $authenticator = $this->enroll($browser);
+        [$csrf, $ceremony] = $this->begin($browser, $id);
+        $approval = ['ceremony_id' => $ceremony['ceremony_id'], 'credential' => $authenticator->assertion($ceremony['publicKey'])];
+        self::assertSame('completed', $this->post($browser, '/approval/'.$id.'/complete', $csrf, $approval)['status']);
+        self::assertSame(1, $this->mutationCount());
+
+        // Sent again, as a second click or a replay would send it: the page's ceremony ended with the approval.
+        $again = $this->post($browser, '/approval/'.$id.'/complete', $csrf, $approval);
+        self::assertSame(403, $browser->getResponse()->getStatusCode());
+        self::assertSame('ceremony_mismatch', $again['reason'] ?? null);
+        // Had both passed the page's check, as two sent at once can, the second gets the recorded outcome.
+        $approvals = $browser->getContainer()->get(ApprovalService::class);
+        self::assertInstanceOf(ApprovalService::class, $approvals);
+        $recorded = $approvals->complete(new Actor('editor', 'campaigns'), $approval['ceremony_id'], $approval['credential']);
+        self::assertSame(['completed', 'published'], [$recorded->status, $recorded->result['disposition'] ?? null]);
+        self::assertSame(1, $this->mutationCount(), 'The alert was issued once.');
+        self::assertStringContainsString('Approved with your passkey', $browser->request('GET', self::ORIGIN.'/approval/'.$id)->filter('.approval-sheet')->text());
     }
 
     public function testSecurityHeadersFollowTheRoutesThatAskForThemNotARouteNamePrefix(): void

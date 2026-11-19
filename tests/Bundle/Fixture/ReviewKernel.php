@@ -27,8 +27,8 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
  * The bundle on its own, as an application installs it: FrameworkBundle, TwigBundle and the bundle, over the core
  * test fixtures' SQLite application, with alice signed in and receipts signed. Each test chooses the bundle's
  * configuration, whether there is a translator, an application layout around the review pages, whether an MCP
- * server at /mcp serves alice's agent, which others serve beside it, and which of the bundle's services the
- * application replaces with its own.
+ * server at /mcp serves alice's agent, which others serve beside it, which of the bundle's services the
+ * application replaces with its own, and whether the bundle is listed before the MCP bundle.
  *
  * The compiled container depends only on those choices, so kernels that make the same ones share it; the
  * database is the runtime's, reached through the kernel at runtime.
@@ -44,6 +44,7 @@ final class ReviewKernel extends Kernel
      * @param list<class-string>|null                    $tools        the MCP server's tools, beside the fixture's PublishArticleTool and the card; or no MCP server
      * @param array<string, class-string>                $services     services the application defines, by id, in place of any the bundle defines under that id
      * @param array<string, array<string, list<string>>> $servers      further MCP servers beside it, by name, each at /mcp/<name> with this registry, as the MCP bundle takes it: its tools, and its apps such as the card
+     * @param bool                                       $bundleFirst  the bundle listed before the MCP bundle, as an application's bundles.php may list them
      */
     public function __construct(
         private readonly string $runtime,
@@ -55,6 +56,7 @@ final class ReviewKernel extends Kernel
         private readonly ?array $tools = null,
         private readonly array $services = [],
         private readonly array $servers = [],
+        private readonly bool $bundleFirst = false,
     ) {
         parent::__construct('test', false);
     }
@@ -73,10 +75,8 @@ final class ReviewKernel extends Kernel
     {
         yield new FrameworkBundle();
         yield new TwigBundle();
-        if (null !== $this->tools) {
-            yield new McpBundle();
-        }
-        yield new VerifiedHumanApprovalBundle();
+        $mcp = null === $this->tools ? [] : [new McpBundle()];
+        yield from $this->bundleFirst ? [new VerifiedHumanApprovalBundle(), ...$mcp] : [...$mcp, new VerifiedHumanApprovalBundle()];
     }
 
     public function getCacheDir(): string
@@ -184,6 +184,6 @@ final class ReviewKernel extends Kernel
         $shared = getenv('VERIFIED_HUMAN_APPROVAL_TEST_CACHE');
         $root = \is_string($shared) && '' !== $shared ? $shared : sys_get_temp_dir().'/verified-human-approval-review-kernel';
 
-        return $root.'/review-kernel-'.hash('xxh128', serialize([$this->approval, $this->translations, $this->templates, $this->realTranslator, $this->tools, $this->services, $this->servers]));
+        return $root.'/review-kernel-'.hash('xxh128', serialize([$this->approval, $this->translations, $this->templates, $this->realTranslator, $this->tools, $this->services, $this->servers, $this->bundleFirst]));
     }
 }

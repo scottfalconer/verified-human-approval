@@ -48,7 +48,7 @@ use Symfony\Component\HttpKernel\KernelEvents;
  *   by the time the controller is chosen: require a role for the MCP path in `access_control`. A request
  *   that needs a scope and carries no such attribute is answered `401`.
  * - A tool the policy does not name needs nothing beyond the policy's default scopes.
- * - It recognises the endpoint by the MCP bundle's controller, wherever the path is, so one policy
+ * - It recognizes the endpoint by the MCP bundle's controller, wherever the path is, so one policy
  *   covers every HTTP server the application serves. A container in which no service is that controller
  *   does not build, since this would challenge nothing there.
  *

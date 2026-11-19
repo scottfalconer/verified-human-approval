@@ -134,6 +134,21 @@ final class McpToolsTest extends TestCase
         self::assertSame([ApprovalStatusTool::NAME], $this->tools($each, '/mcp/scripts'));
     }
 
+    public function testThePhoneToolCheckSeesEachServerWhicheverBundleTheApplicationListsFirst(): void
+    {
+        // Listed before the MCP bundle, whose passes tell each server what it serves: the check still runs after them,
+        // so a server that lists the phone tool beside the card builds, and one that leaves it out does not.
+        $first = new ReviewKernel($this->runtime, tools: [ApprovalStatusTool::class, ApprovalHandoffTool::class], bundleFirst: true);
+        $first->boot();
+        $this->kernels[] = $first;
+        self::assertContains(ApprovalHandoffTool::NAME, $this->tools($first));
+        self::assertSame(ApprovalHandoffTool::NAME, $this->card($first)['handoffTool']);
+        self::assertStringStartsWith(
+            'The MCP server "application" serves the approval card without '.ApprovalHandoffTool::class,
+            $this->refusal(new ReviewKernel($this->runtime, tools: [ApprovalStatusTool::class], bundleFirst: true)),
+        );
+    }
+
     /** Why the kernel's container does not build. */
     private function refusal(ReviewKernel $kernel): string
     {

@@ -9,6 +9,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\ResponseInterface;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\KernelEvents;
 use VerifiedHumanApproval\Bundle\Security\McpScopeChallengeSubscriber;
 use VerifiedHumanApproval\Demo\DemoDatabase;
@@ -34,6 +35,8 @@ final class ScopeAuthorizationTest extends TestCase
     protected function tearDown(): void
     {
         (new Filesystem())->remove($this->runtime);
+        // The demo trusts its own host only, and Symfony keeps that for the whole process.
+        Request::setTrustedHosts([]);
     }
 
     public static function missingScopes(): iterable

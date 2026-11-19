@@ -90,20 +90,20 @@ def host(browser, review=REVIEW, handoff="approval_handoff", theme="light", plat
     return page, card
 
 
-# A host's style variables. The colours are one light theme and one dark theme; the rest must reach the card in every case.
+# A host's style variables. The colors are one light theme and one dark theme; the rest must reach the card in every case.
 LIGHT = {"--color-background-primary": "rgb(255, 255, 255)", "--color-text-primary": "rgb(20, 20, 19)", "--color-text-secondary": "rgb(61, 61, 58)",
          "--color-background-inverse": "rgb(20, 20, 19)", "--color-text-inverse": "rgb(255, 255, 255)"}
 DARK = {"--color-background-primary": "rgb(38, 38, 36)", "--color-text-primary": "rgb(250, 249, 245)", "--color-text-secondary": "rgb(194, 192, 182)",
         "--color-background-inverse": "rgb(250, 249, 245)", "--color-text-inverse": "rgb(20, 20, 19)"}
 SHAPE = {"--font-sans": "Georgia, serif", "--border-radius-md": "3px"}
-# The form the specification asks of a host: one light-dark() value for each colour, which the view resolves for the host's theme.
+# The form the specification asks of a host: one light-dark() value for each color, which the view resolves for the host's theme.
 EITHER = {name: f"light-dark({LIGHT[name]}, {DARK[name]})" for name in LIGHT}
-# The Claude iOS app on 2026-11-18, read off a recording: this surface behind the card, and LIGHT's text colour drawn on it.
+# The Claude iOS app on 2026-11-18, read off a recording: this surface behind the card, and LIGHT's text color drawn on it.
 DARK_PAGE = "rgb(29, 29, 29)"
 
 
 def channels(color):
-    # Chrome reports an sRGB colour as rgb(r, g, b), or rgba(r, g, b, a) when it is not opaque.
+    # Chromium reports an sRGB color as rgb(r, g, b), or rgba(r, g, b, a) when it is not opaque.
     values = [float(value) for value in re.fullmatch(r"rgba?\((.+)\)", color).group(1).split(",")]
     return values[:3], values[3] if len(values) > 3 else 1.0
 
@@ -120,7 +120,7 @@ def contrast(one, other):
 
 
 def painted(card):
-    """The card's text colour and the surface it painted, once both are shown to be readable together.
+    """The card's text color and the surface it painted, once both are shown to be readable together.
 
     Every text the card draws is checked against the surface behind it, at WCAG AA for body text (4.5 to 1).
     """
@@ -223,41 +223,41 @@ def main():
         expect(card.locator("#open")).to_be_hidden()
         checks.append("a stopped tool call is not reported as changing nothing")
 
-        # A host that names a theme and sends its colours as the specification asks. The card takes the side of each
-        # that the theme names, also where the device is set the other way. Left to itself a light-dark() colour takes
+        # A host that names a theme and sends its colors as the specification asks. The card takes the side of each
+        # that the theme names, also where the device is set the other way. Left to itself a light-dark() color takes
         # its light side: dark text over a dark host, which is the picture the Claude iOS app showed.
-        for theme, colours, system in [("dark", DARK, "light"), ("light", LIGHT, "dark")]:
-            page, card = host(browser, theme=theme, styles={**EITHER, **SHAPE}, background=colours["--color-background-primary"], system=system)
-            assert painted(card) == (colours["--color-text-primary"], colours["--color-background-primary"]), f"not the {theme} host's colours: {painted(card)}"
+        for theme, colors, system in [("dark", DARK, "light"), ("light", LIGHT, "dark")]:
+            page, card = host(browser, theme=theme, styles={**EITHER, **SHAPE}, background=colors["--color-background-primary"], system=system)
+            assert painted(card) == (colors["--color-text-primary"], colors["--color-background-primary"]), f"not the {theme} host's colors: {painted(card)}"
             if shots: page.screenshot(path=str(shots / f"card-{theme}-host.png"))
-            checks.append(f"a {theme} host's colours are used for its theme on a device set to {system}")
+            checks.append(f"a {theme} host's colors are used for its theme on a device set to {system}")
 
-        # The host changes its theme and says only that. The colours it sent before follow.
+        # The host changes its theme and says only that. The colors it sent before follow.
         page.evaluate("card().contentWindow.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: { theme: 'dark' } }, '*')")
         expect(card.locator("html")).to_have_attribute("data-theme", "dark")
-        assert painted(card) == (DARK["--color-text-primary"], DARK["--color-background-primary"]), f"not the dark colours after the change: {painted(card)}"
-        checks.append("a change of theme alone moves the host's colours to the new theme")
+        assert painted(card) == (DARK["--color-text-primary"], DARK["--color-background-primary"]), f"not the dark colors after the change: {painted(card)}"
+        checks.append("a change of theme alone moves the host's colors to the new theme")
 
-        # The other way to that picture: a host that names the dark theme and sends the light theme's colours outright,
-        # over its dark page. The card uses its own dark colours. The host's font and corner radius still apply.
+        # The other way to that picture: a host that names the dark theme and sends the light theme's colors outright,
+        # over its dark page. The card uses its own dark colors. The host's font and corner radius still apply.
         page, card = host(browser, theme="dark", styles={**LIGHT, **SHAPE}, background=DARK_PAGE)
         text, surface = painted(card)
         assert luminance(text) > 0.5 > luminance(surface), f"a dark theme needs light text on a dark surface, not {text} on {surface}"
-        assert card.locator("body").evaluate("(body) => getComputedStyle(body).fontFamily") == SHAPE["--font-sans"], "the host's font was dropped with its colours"
-        assert card.locator("#open").evaluate("(button) => getComputedStyle(button).borderRadius") == SHAPE["--border-radius-md"], "the host's radius was dropped with its colours"
-        if shots: page.screenshot(path=str(shots / "card-dark-theme-light-colours.png"))
-        # When the host then sends the dark theme's colours, the card takes them.
+        assert card.locator("body").evaluate("(body) => getComputedStyle(body).fontFamily") == SHAPE["--font-sans"], "the host's font was dropped with its colors"
+        assert card.locator("#open").evaluate("(button) => getComputedStyle(button).borderRadius") == SHAPE["--border-radius-md"], "the host's radius was dropped with its colors"
+        if shots: page.screenshot(path=str(shots / "card-dark-theme-light-colors.png"))
+        # When the host then sends the dark theme's colors, the card takes them.
         page.evaluate("(styles) => card().contentWindow.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: { styles } }, '*')",
                       {"variables": {**DARK, **SHAPE}})
         expect(card.locator("body")).to_have_css("color", DARK["--color-text-primary"])
         assert painted(card) == (DARK["--color-text-primary"], DARK["--color-background-primary"])
-        checks.append("a host that names the dark theme and sends the light theme's colours gets the card's own dark colours, with the host's font and radius")
+        checks.append("a host that names the dark theme and sends the light theme's colors gets the card's own dark colors, with the host's font and radius")
 
-        # A host that sends a text colour and no surface. The card does not put the host's text on its own surface.
+        # A host that sends a text color and no surface. The card does not put the host's text on its own surface.
         page, card = host(browser, theme="dark", styles={"--color-text-primary": DARK["--color-text-primary"], **SHAPE}, background=DARK_PAGE)
         text, surface = painted(card)
         assert text != DARK["--color-text-primary"] and luminance(text) > 0.5 > luminance(surface), f"not the card's own dark pair: {text} on {surface}"
-        checks.append("a host that sends a text colour without a surface gets the card's own text and surface")
+        checks.append("a host that sends a text color without a surface gets the card's own text and surface")
 
         # A host that sends no styles. The card follows its theme, or the device where it names none, and since the host
         # may be drawn the other way the card's own surface has to carry its text.
@@ -266,7 +266,7 @@ def main():
             text, surface = painted(card)
             assert (luminance(text) > luminance(surface)) == ((theme or system) == "dark"), f"{text} on {surface} is not the {theme or system} palette"
             if shots: page.screenshot(path=str(shots / f"card-no-styles-{theme or 'no-theme'}-on-{system}-device.png"))
-        checks.append("a host that sends no styles gets the card's own colours on a surface the card paints")
+        checks.append("a host that sends no styles gets the card's own colors on a surface the card paints")
 
         # A device set to light, a host drawn dark that takes its time to answer. Until it answers the card paints no
         # surface, so nothing white flashes in the dark app; left unanswered, it paints its own after a moment.
@@ -278,7 +278,7 @@ def main():
         expect(card.locator("#statement")).to_be_hidden()
         page.clock.run_for(5000)
         expect(card.locator("#statement")).to_contain_text("Evacuation order")
-        assert painted(card) == (DARK["--color-text-primary"], DARK["--color-background-primary"]), f"not the dark host's colours once it answered: {painted(card)}"
+        assert painted(card) == (DARK["--color-text-primary"], DARK["--color-background-primary"]), f"not the dark host's colors once it answered: {painted(card)}"
         checks.append("the card paints no surface until the host answers, and its own if the host stays silent")
 
         browser.close()

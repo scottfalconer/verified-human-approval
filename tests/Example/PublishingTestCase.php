@@ -15,6 +15,7 @@ use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\HttpFoundation\Request;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalService;
@@ -74,6 +75,9 @@ abstract class PublishingTestCase extends TestCase
 
     protected function setUp(): void
     {
+        // Symfony keeps the hosts a kernel trusts for the whole process, and the example names none of its own: an
+        // application booted by an earlier test may have left its hosts behind, which would refuse localhost.
+        Request::setTrustedHosts([]);
         $this->location = TestDatabase::create(static::KIND);
         $this->state = sys_get_temp_dir().'/vha-publishing-state-'.bin2hex(random_bytes(6));
         // The compiled container is shared by every test on this database; what differs per test is read at runtime.
@@ -370,6 +374,28 @@ abstract class PublishingTestCase extends TestCase
         $draft->editDraft('A draft, edited', 'Edited text.');
         $entities->flush();
         self::assertSame('A draft, edited', $this->articles()[$draft->id()]['draft_title']);
+    }
+
+    /**
+     * The tripwire's limit: it sees what the ORM flushes, and a DQL UPDATE or DELETE goes to the database without a
+     * flush. Neither is refused, and only the badge shows that the live text is no longer what was approved.
+     */
+    public function testADqlUpdateOrDeleteGoesAroundTheTripwire(): void
+    {
+        $edited = $this->live('Ferry timetable', 'Ferries leave every hour.');
+        $deleted = $this->live('Harbour notice', 'The harbour is open.');
+        $entities = $this->container()->get(EntityManagerInterface::class);
+        \assert($entities instanceof EntityManagerInterface);
+
+        $updated = $entities->createQuery('UPDATE '.Article::class.' a SET a.liveBody = :body WHERE a.id = :id')
+            ->setParameter('body', 'No ferries today.')->setParameter('id', $edited)->execute();
+        $removed = $entities->createQuery('DELETE FROM '.Article::class.' a WHERE a.id = :id')->setParameter('id', $deleted)->execute();
+
+        self::assertSame([1, 1], [$updated, $removed]);
+        self::assertSame('No ferries today.', $this->articles()[$edited]['live_body'], 'Live text changed with no approval.');
+        self::assertArrayNotHasKey($deleted, $this->articles(), 'A live article is gone with no approval.');
+        self::assertContains($edited, $this->publicIds());
+        self::assertNotContains($edited, $this->badged());
     }
 
     public function testTheBadgeShowsOnlyWhileTheLiveTextIsWhatWasApproved(): void

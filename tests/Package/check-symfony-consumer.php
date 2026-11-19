@@ -5,7 +5,9 @@ declare(strict_types=1);
 /*
  * Install all seven packages into a separate Symfony application, copied from the public publishing example.
  * No root Composer replacements, test autoloader, demo services, database or secrets participate.
- * This is example-derived adoption evidence, not a published-package or blind human adoption claim.
+ * The packages come from this checkout through a path repository and the application is the example's own code, so
+ * this shows the packages working apart from this monorepo; it installs no published release, and no application
+ * was written from the documentation alone.
  * Usage: php tests/Package/check-symfony-consumer.php [--keep]
  */
 

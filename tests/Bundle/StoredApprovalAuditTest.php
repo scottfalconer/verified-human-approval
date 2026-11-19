@@ -11,7 +11,9 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\HttpFoundation\Request;
 use VerifiedHumanApproval\Core\CanonicalJson;
+use VerifiedHumanApproval\Core\ChallengeBinding;
 use VerifiedHumanApproval\Demo\DemoDatabase;
 use VerifiedHumanApproval\Demo\DemoKernel;
 use VerifiedHumanApproval\Demo\DemoSetup;
@@ -39,6 +41,8 @@ final class StoredApprovalAuditTest extends TestCase
             $browser->getKernel()->shutdown();
         }
         (new Filesystem())->remove($this->runtime);
+        // The demo trusts its own host only, and Symfony keeps that for the whole process.
+        Request::setTrustedHosts([]);
     }
 
     #[DataProvider('projectionChanges')]
@@ -161,6 +165,67 @@ final class StoredApprovalAuditTest extends TestCase
         yield 'the proposal, cut short' => [self::update('proposal = substr(proposal, 1, 40)')];
         yield 'the result, to text that is not JSON' => [self::update("result = 'published'")];
         yield 'the status, to one that does not exist' => [self::update("status = 'done'")];
+    }
+
+    /**
+     * A proposal rewritten with its digest recomputed reads back, and can be made to agree with every digest stored
+     * beside it, but not with what the passkey signed or the receipt signed at commit. Its owner's review page and the
+     * agent's tools say that its outcome cannot be confirmed, and never show the rewritten proposal as approved.
+     */
+    #[DataProvider('rewrittenProposals')]
+    public function testAProposalRewrittenWithItsDigestRecomputedCannotBeConfirmedToItsOwner(bool $everyDigest): void
+    {
+        [$editor, $agent, $arguments, $id] = $this->publishedWithApproval('rewritten-proposal');
+        self::rewriteProposal($this->database->pdo, $id, $everyDigest);
+
+        $page = $editor->request('GET', self::ORIGIN.'/approval/'.$id);
+        self::assertSame(409, $editor->getResponse()->getStatusCode());
+        self::assertCount(1, $page->filter('[data-status="integrity_error"]'));
+        self::assertStringContainsString('We cannot confirm this approval’s outcome', $page->text());
+        self::assertStringNotContainsString('something else entirely', $page->text());
+        foreach (['approval_status' => ['request_id' => $id], 'publish_alert' => $arguments] as $tool => $input) {
+            $error = $agent->callTool($tool, $input);
+            self::assertTrue($error->isError, $tool);
+            self::assertSame(['integrity_error', 'record_integrity_error'], [$error->structuredContent['status'] ?? null, $error->structuredContent['reason'] ?? null], $tool);
+            self::assertStringNotContainsString('something else entirely', json_encode($error, \JSON_THROW_ON_ERROR), $tool);
+        }
+        self::assertSame(1, (int) $this->database->alert('riverside-evacuation')['mutation_count']);
+    }
+
+    /** @return iterable<string, array{bool}> whether every digest stored beside the proposal is recomputed too */
+    public static function rewrittenProposals(): iterable
+    {
+        yield 'the proposal and its digest' => [false];
+        yield 'with every digest beside it' => [true];
+    }
+
+    /**
+     * Rewrites what a completed request says was approved, as someone with database access could: the proposal and its
+     * digest, and with $everyDigest the execution record's and the proof's digest and challenge too.
+     */
+    private static function rewriteProposal(\PDO $pdo, string $id, bool $everyDigest): void
+    {
+        $read = static function (string $sql) use ($pdo, $id): array {
+            $query = $pdo->prepare($sql);
+            $query->execute([$id]);
+
+            return CanonicalJson::map(CanonicalJson::decode((string) $query->fetchColumn()));
+        };
+        $proposal = $read('SELECT proposal FROM verified_human_approval_requests WHERE id = ?');
+        $proposal['statement'] = 'I approve something else entirely.';
+        $canonical = CanonicalJson::encode((object) $proposal);
+        $digest = hash('sha256', $canonical);
+        $pdo->prepare('UPDATE verified_human_approval_requests SET proposal = ?, digest = ? WHERE id = ?')->execute([$canonical, $digest, $id]);
+        if (!$everyDigest) {
+            return;
+        }
+        $execution = $read('SELECT record FROM verified_human_approval_executions WHERE request_id = ?');
+        $execution['proposalDigest'] = $digest;
+        $pdo->prepare('UPDATE verified_human_approval_executions SET record = ? WHERE request_id = ?')->execute([CanonicalJson::encode((object) $execution), $id]);
+        $proof = $read('SELECT proof FROM verified_human_approval_requests WHERE id = ?');
+        $proof['proposalDigest'] = $digest;
+        $proof['challenge'] = ChallengeBinding::encode(ChallengeBinding::challenge($digest, ChallengeBinding::decode($proof['nonce'])));
+        $pdo->prepare('UPDATE verified_human_approval_requests SET proof = ? WHERE id = ?')->execute([CanonicalJson::encode((object) $proof), $id]);
     }
 
     /**
