@@ -549,8 +549,8 @@ final class DemoScriptsTest extends TestCase
         // This checkout's tunnel came back at another address, so start asks about replacing the demo while it runs.
         $checkout = $this->checkout('https://old-tunnel-name.trycloudflare.com', 'var/public-demo');
         $this->tunnel($checkout, 'https://new-tunnel-name.trycloudflare.com');
-        [$status, $output] = $this->startAsking($checkout, static function ($script) use ($signal): void {
-            proc_terminate($script, $signal);
+        [$status, $output] = $this->startAsking($checkout, static function ($script, $terminal) use ($signal): void {
+            self::interrupt($script, $terminal, $signal);
         });
         self::assertSame(1, $status, $output);
         self::assertStringEndsWith("Replace it? [y/N] Stopped this checkout's tunnel, so that it publishes nothing else.\n", $output);
@@ -987,6 +987,21 @@ final class DemoScriptsTest extends TestCase
         fclose($pipes[1]);
 
         return [proc_close($process), $output];
+    }
+
+    /**
+     * Sends $signal to $script, which waits at its question for an answer on $terminal. A signal that comes after the
+     * question is printed but before the shell begins to read is held, in bash and dash alike, until the read returns,
+     * so Enter follows it: the shell then acts on the signal before it acts on the empty answer.
+     *
+     * @param resource $script
+     * @param resource $terminal
+     */
+    private static function interrupt($script, $terminal, int $signal): void
+    {
+        proc_terminate($script, $signal);
+        // A script that has already ended reads nothing more, and its terminal refuses what is typed.
+        @fwrite($terminal, "\n");
     }
 
     /**
