@@ -57,7 +57,7 @@ Deviations:
 
 Interoperability:
 
-- **Theme colors.** On 18 November 2026, in the Claude iOS app, the card showed dark text on a dark surface: it set `data-theme` but no `color-scheme`, and its body was transparent. It now sets `color-scheme`, paints its own surface, and uses the host's colors only as a pair that is readable in the host's theme. [`card_smoke.py`](../tests/card_smoke.py), which CI does not run, checks the colors in Chromium under dark, light and mismatched hosts. The change has not been checked in the iOS app.
+- **Theme colors.** On 18 November 2026, in the Claude iOS app, the card showed dark text on a dark surface: it set `data-theme` but no `color-scheme`, and its body was transparent. It now sets `color-scheme`, paints its own surface, and uses the host's colors only as a pair that is readable in the host's theme. [`card_smoke.py`](../tests/card_smoke.py), which CI does not run, checks the colors in Chromium under dark, light and mismatched hosts, but no run of those checks is recorded (see [verification status](verification.md#browser-checks-outside-ci)). The change has not been checked in the iOS app.
 
 ## Authorization
 
