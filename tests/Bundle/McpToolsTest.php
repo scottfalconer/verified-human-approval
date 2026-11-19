@@ -10,7 +10,9 @@ use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpFoundation\Request;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool;
+use VerifiedHumanApproval\Mcp\ProposalBudget;
 use VerifiedHumanApproval\Tests\Bundle\Fixture\ReviewKernel;
+use VerifiedHumanApproval\Tests\Bundle\Fixture\SpentBudget;
 
 /**
  * The bundle's MCP side as an application's own MCP server serves it: a protected tool written as the guide writes
@@ -51,6 +53,18 @@ final class McpToolsTest extends TestCase
         }
     }
 
+    public function testAnApplicationsOwnBudgetIsTheOneTheFlowSpendsFrom(): void
+    {
+        // As the guide says: the application defines its own ProposalBudget, by the interface's name.
+        $kernel = $this->kernel(services: [ProposalBudget::class => SpentBudget::class]);
+
+        $refused = $this->call($kernel, 'publish_article', ['article_id' => 1]);
+
+        self::assertTrue($refused['isError'] ?? false);
+        self::assertSame(['status' => 'rejected', 'reason' => 'rate_limited', 'message' => SpentBudget::MESSAGE], $refused['structuredContent'] ?? null);
+        self::assertSame(0, $this->requests());
+    }
+
     public function testTheCardOffersThePhoneOnlyWhereTheSiteServesIt(): void
     {
         // As the guide registers them: the status tool, the phone tool and the card.
@@ -86,10 +100,13 @@ final class McpToolsTest extends TestCase
         return array_column($this->call($kernel, null)['tools'] ?? [], 'name');
     }
 
-    /** @param array<string, mixed> $approval */
-    private function kernel(array $approval = [], ?array $tools = null): ReviewKernel
+    /**
+     * @param array<string, mixed>        $approval
+     * @param array<string, class-string> $services
+     */
+    private function kernel(array $approval = [], ?array $tools = null, array $services = []): ReviewKernel
     {
-        $kernel = new ReviewKernel($this->runtime, $approval, tools: $tools ?? [ApprovalStatusTool::class, ApprovalHandoffTool::class]);
+        $kernel = new ReviewKernel($this->runtime, $approval, tools: $tools ?? [ApprovalStatusTool::class, ApprovalHandoffTool::class], services: $services);
         $kernel->boot();
 
         return $this->kernels[] = $kernel;

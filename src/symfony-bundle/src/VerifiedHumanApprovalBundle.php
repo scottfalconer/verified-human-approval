@@ -281,7 +281,8 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
         $services->alias(ProposalBudget::class, 'verified_human_approval.proposal_budget');
         $services->set('verified_human_approval.flow', ApprovalFlow::class)->args([
             service('verified_human_approval.approval_service'), service('verified_human_approval.presenter'), service('verified_human_approval.url_prompt'),
-            service('verified_human_approval.proposal_budget'), service('verified_human_approval.clock'),
+            // By its interface, so a budget the application defines or decorates under either name is the one spent from.
+            service(ProposalBudget::class), service('verified_human_approval.clock'),
         ]);
         $services->alias(ApprovalFlow::class, 'verified_human_approval.flow');
 
