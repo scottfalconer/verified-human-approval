@@ -304,6 +304,7 @@ final readonly class ApprovalController
             return new JsonResponse($operation());
         } catch (ApprovalException $error) {
             $refusal = self::refused($error->reason, $error->getMessage());
+            $current = null;
             if (null !== $reviewer && null !== $id) {
                 // A record that fails its integrity check has no status to report. Naming that as the request's
                 // state makes the page reload, and the reloaded page says the outcome cannot be confirmed.
@@ -313,7 +314,9 @@ final readonly class ApprovalController
                 }
             }
 
-            return new JsonResponse($refusal, 409);
+            // A request this person cannot see is not found. Any other refusal, an action's own not_found for what it
+            // would change included, conflicts with where a request they can see stands.
+            return new JsonResponse($refusal, 'not_found' === $error->reason && null === $current ? 404 : 409);
         }
     }
 

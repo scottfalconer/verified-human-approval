@@ -293,6 +293,9 @@ final class SymfonyApprovalTest extends TestCase
             $browser->request('GET', self::ORIGIN.'/approval/'.$id);
             self::assertSame(404, $browser->getResponse()->getStatusCode());
             self::assertStringNotContainsString('Use the Hill Street route', (string) $browser->getResponse()->getContent());
+            $browser->request('GET', self::ORIGIN.'/approval/'.$id.'/status', server: ['HTTP_ACCEPT' => 'application/json']);
+            self::assertSame(404, $browser->getResponse()->getStatusCode(), 'The JSON status of a request that is not theirs is not found either.');
+            self::assertSame('not_found', json_decode((string) $browser->getResponse()->getContent(), true)['reason'] ?? null);
         }
         self::assertSame(0, $this->mutationCount());
     }
