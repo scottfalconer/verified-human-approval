@@ -34,13 +34,13 @@ The WebAuthn package registers passkeys without attestation: `WebAuthnVerifier` 
 
 ## What must be frozen
 
-The proposal is stored as canonical JSON, not rebuilt from later live values. It includes the actor, target, effect, preconditions, review content, policy version and approval statement.
+The proposal is stored as canonical JSON, not rebuilt from later live values. It includes the actor, target, effect, preconditions, review content, the approval rule and its version, and the approval statement.
 
 The core rejects mutation of the frozen data around adapter callbacks. The adapter must still declare every dependency that matters and verify the actual final effect. For example, if an image affects what is being approved, freeze its content or content digest; a URL whose bytes can change is not enough.
 
 ## Protection after storage
 
-With a receipt signer configured, `ApprovalService` signs the proposal, passkey proof and execution report inside the completing transaction. If signing fails, that transaction rolls back. Keep the signing key outside the database. The [evidence guide](evidence.md) explains the two signatures and provides a verification walkthrough.
+With a receipt signer configured, `ApprovalService` signs the proposal, passkey proof and execution report inside the completing transaction. If signing fails, that transaction rolls back. Keep the signing key outside the database. [Verify a receipt](evidence.md) explains the two signatures and walks through a verification.
 
 The demo also records passkey enrollment and revocation in a signed audit log. `AnchoredCredentialRepository` accepts a current credential only if its identity matches a valid signed enrollment and no signed revocation is found. Inserting a new credential row or replacing its public key in the database does not supply that enrollment proof. Hosts must wire this repository and record enrollment events to get this protection; a plain credential repository alone does not provide it. The wrapper accepts any `RevocableCredentialRepository`, and the log keeps its rows through an `AuditStore`, so a host can use its own storage. A revocation and its signed entry must commit in one transaction: the demo's owner and administrator routes both do, and a failure to sign or store the entry leaves the passkey active.
 
@@ -58,7 +58,7 @@ Recorded times remain application claims, and an old assertion does not independ
 
 ## Signing keys and rotation
 
-Receipts and audit entries are checked against the application's trusted keys: every public key it has signed with, each with the window it signed in. A record names its key. A key the verifier was not given verifies nothing, and a record whose own time falls outside its key's window fails: a receipt's `recordedAt`, which it signs, or an entry's `at`. One current key signs new records. Rotating it adds the new key, closes the old key's window, and appends a `signing_key.rotated` entry, signed with the new key, so the chain records where trust moved. While that entry verifies, the audit log refuses any later entry the old key signs, whatever time it claims. The bundle publishes the keys at `/approval/receipt-keys.json`, and gives the same keys to the approval service for its read check; the [evidence guide](evidence.md#rotate-the-signing-key) gives the procedure.
+Receipts and audit entries are checked against the application's trusted keys: every public key it has signed with, each with the window it signed in. A record names its key. A key the verifier was not given verifies nothing, and a record whose own time falls outside its key's window fails: a receipt's `recordedAt`, which it signs, or an entry's `at`. One current key signs new records. Rotating it adds the new key, closes the old key's window, and appends a `signing_key.rotated` entry, signed with the new key, so the chain records where trust moved. While that entry verifies, the audit log refuses any later entry the old key signs, whatever time it claims. The bundle publishes the keys at `/approval/receipt-keys.json`, and gives the same keys to the approval service for its read check; [Rotate the signing key](evidence.md#rotate-the-signing-key) gives the procedure.
 
 Rotation limits future exposure. It cannot stop someone who stole a key from backdating records into that key's window, because the times a record carries are the application's own claims:
 
@@ -89,4 +89,4 @@ The demo fetches client ID metadata documents through `NoPrivateNetworkHttpClien
 
 Share rate-limit and lock storage where a deployment runs on multiple hosts. Keep runtime settings, signing keys and database files outside the public document root. Keep assertions, tokens and complete approval content out of routine request logs.
 
-This is a tested initial implementation, not an independent security audit. See [verification](verification.md) for automated checks, recorded real-device runs and remaining coverage limits. Integration and release work is described in the [Symfony guide](../src/symfony-bundle/docs/index.md).
+This is a tested initial implementation, not an independent security audit. [Verification status](verification.md) lists the automated checks, the recorded runs with real clients and devices, and what is not proven. The [Symfony guide](../src/symfony-bundle/docs/index.md) covers integration and [what to do before deployment](../src/symfony-bundle/docs/index.md#before-deployment).

@@ -83,4 +83,4 @@ With the Symfony bundle, the person can download their own copy from the complet
 
 The offline verifier needs the application's public keys, trusted separately from the record, and optionally the credential's trusted record to check the passkey signature too. It reports the two signature checks separately and states when the application report was signed. It verifies the historical evidence, not the current live content or an independently observed database effect.
 
-See [receipt verification](evidence.md) for a complete example, including a changed copy that fails verification. See the [security model](security-model.md) for trust assumptions and [integration contracts](integration-contract.md) for the interfaces.
+[Verify a receipt](evidence.md) gives a complete example, including a changed copy that fails verification. See the [security model](security-model.md) for trust assumptions and [integration contracts](integration-contract.md) for the interfaces.
