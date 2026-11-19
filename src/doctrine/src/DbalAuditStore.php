@@ -22,6 +22,12 @@ use VerifiedHumanApproval\Core\Audit\AuditStore;
  */
 final readonly class DbalAuditStore implements AuditStore
 {
+    /**
+     * The columns of a record. Not subject_key, the subject's digest for the index: a reading of the chain fetches
+     * every row at once, and a column it never returns would still cost memory at every entry.
+     */
+    private const COLUMNS = 'seq, tenant_id, type, subject, entry, hash, key_id, signature';
+
     private Connection $connection;
 
     public function __construct(private DbalTransaction $transaction)
@@ -41,7 +47,7 @@ final readonly class DbalAuditStore implements AuditStore
     public function recordsFor(string $type, string $subject): iterable
     {
         $this->transaction->usePrimary();
-        $rows = $this->connection->fetchAllAssociative('SELECT * FROM '.ApprovalSchema::AUDIT.' WHERE type = ? AND subject_key = ? ORDER BY seq DESC', [$type, hash('sha256', $subject)]);
+        $rows = $this->connection->fetchAllAssociative('SELECT '.self::COLUMNS.' FROM '.ApprovalSchema::AUDIT.' WHERE type = ? AND subject_key = ? ORDER BY seq DESC', [$type, hash('sha256', $subject)]);
 
         return array_values(array_filter(array_map(self::row(...), $rows), static fn (array $row): bool => $row['type'] === $type && $row['subject'] === $subject));
     }
@@ -50,7 +56,7 @@ final readonly class DbalAuditStore implements AuditStore
     {
         $this->transaction->usePrimary();
 
-        return array_map(self::row(...), $this->connection->fetchAllAssociative('SELECT * FROM '.ApprovalSchema::AUDIT.' ORDER BY seq'));
+        return array_map(self::row(...), $this->connection->fetchAllAssociative('SELECT '.self::COLUMNS.' FROM '.ApprovalSchema::AUDIT.' ORDER BY seq'));
     }
 
     /**
