@@ -37,7 +37,11 @@ use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
  * hide a row from a lookup.
  *
  * So the checks grow with the chain. A reading fetches every row and checks the signatures of the entries it reads,
- * which is most of the cost. find() reads the chain only for an entry signed with a key that has an end, and
+ * which is most of the time it takes. It also holds every row, and the entry it decodes from each one it checks,
+ * until it is done: about 3 KB per entry at its peak when it checks every signature, some 120 MB at 37,000 entries.
+ * Under PHP's default memory_limit of 128M, an approval step or verify() then fails with a fatal error, not a
+ * refusal, once the chain passes about 37,000 entries, and sooner in a process that holds more: raise the limit
+ * before the chain grows that long. find() reads the chain only for an entry signed with a key that has an end, and
  * standing() reads it once however many subjects it weighs. A log remembers up to 50,000 signatures that verified,
  * the first it checks, and does not check those again, so its later readings, later in a request or in a
  * long-running worker, cost a fraction of the first; in a longer chain, the entries beyond those are checked at each
