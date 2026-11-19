@@ -267,7 +267,7 @@ final class DemoKernel extends Kernel
             // The hosts whose client ID metadata documents are fetched: the provider's own list leaves out ChatGPT,
             // which names itself this way too, and where registration is off it would have no other way in.
             'cimd' => ['trusted_domains' => ['claude.ai', 'chatgpt.com', 'vscode.dev', 'cursor.com']],
-            // MCP deprecates open registration in favour of client ID metadata documents. A demo on this computer keeps
+            // MCP deprecates open registration in favor of client ID metadata documents. A demo on this computer keeps
             // it for clients that still register; at any other address it is off unless the runtime turns it on.
             'dcr' => ['enabled' => '%env(bool:DEMO_RUNTIME_DYNAMIC_CLIENT_REGISTRATION)%'],
         ]);

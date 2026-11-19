@@ -190,7 +190,7 @@ def main():
                 assert errors == [], errors
                 browser.close()
 
-            # Exercise Symfony AI's actual Agent/McpToolbox, with a clearly labelled scripted model.
+            # Exercise Symfony AI's actual Agent/McpToolbox, with a clearly labeled scripted model.
             agent = subprocess.run([PHP, str(ROOT / "examples/agent.php"), "--scripted"], env=env, capture_output=True, text=True, check=True, timeout=30)
             assert "pending" in agent.stdout and "review_url" in agent.stdout, agent.stdout
             assert row()["mutation_count"] == 3

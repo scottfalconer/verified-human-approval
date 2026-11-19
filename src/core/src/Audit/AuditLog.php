@@ -56,7 +56,7 @@ use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
  * @phpstan-import-type AuditHead from AuditStore
  * @phpstan-import-type AuditRecord from AuditStore
  *
- * @phpstan-type Judgement array{row: AuditRecord, entry: ?array<string, mixed>, problem: ?string, fault: ?string, inUse: bool}
+ * @phpstan-type Judgment array{row: AuditRecord, entry: ?array<string, mixed>, problem: ?string, fault: ?string, inUse: bool}
  * @phpstan-type AuditReport array{entries: list<array{entry: ?array<string, mixed>, seq: int, valid: bool, problem: ?string, keyId: string, hash: string, unvouched: bool}>, intact: bool, newest: int}
  */
 final class AuditLog
@@ -366,7 +366,7 @@ final class AuditLog
     /**
      * What verify() reports of the chain judged from its first entry.
      *
-     * @param list<Judgement> $judged
+     * @param list<Judgment> $judged
      *
      * @return AuditReport
      */
@@ -415,7 +415,7 @@ final class AuditLog
      *
      * @param non-empty-array<string, int> $since
      * @param list<AuditRecord>            $rows   the whole chain, oldest first
-     * @param list<Judgement>|null         $judged $rows judged from the first entry
+     * @param list<Judgment>|null          $judged $rows judged from the first entry
      *
      * @return list<string>
      */
@@ -492,7 +492,7 @@ final class AuditLog
      *
      * @param iterable<AuditRecord> $rows the whole chain, oldest first
      *
-     * @return list<Judgement>
+     * @return list<Judgment>
      */
     private function judged(iterable $rows, int $from = 1): array
     {

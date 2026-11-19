@@ -9,7 +9,7 @@ parameters:
         - src/store-contracts/src
         - src/store-contracts/bin
         - src/testing/src
-        # One store test class that uses ApprovalHistoryContract, so the trait is analysed in a class that uses it.
+        # One store test class that uses ApprovalHistoryContract, so the trait is analyzed in a class that uses it.
         - tests/Contract/SqliteApprovalStoreContractTest.php
         - demo/src
         - src/webauthn/bin

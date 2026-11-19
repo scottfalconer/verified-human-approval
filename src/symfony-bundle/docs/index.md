@@ -248,7 +248,7 @@ verified_human_approval:
         clients: ['*']          # or only the clients you have tested, such as [claude-code]
 ```
 
-Listing clients turns the prompt on; `enabled: false` turns it off and keeps the list. `'*'` leaves the decision to the capability each client declares, as the specification advises. A list of names is for clients that declare URL mode and then drop the prompt; it changes the server's behaviour by `clientInfo`, which the specification advises against, and decides nothing about security. The prompt is sent only on MCP 2026-07-28 or later, and its retry carries signed request state, so the MCP server needs the `request_state.key` shown above: without it, a call the prompt is for fails before anything is made. See [MCP presentation](https://github.com/scottfalconer/verified-human-approval/blob/main/src/mcp/README.md) for client and protocol details.
+Listing clients turns the prompt on; `enabled: false` turns it off and keeps the list. `'*'` leaves the decision to the capability each client declares, as the specification advises. A list of names is for clients that declare URL mode and then drop the prompt; it changes the server's behavior by `clientInfo`, which the specification advises against, and decides nothing about security. The prompt is sent only on MCP 2026-07-28 or later, and its retry carries signed request state, so the MCP server needs the `request_state.key` shown above: without it, a call the prompt is for fails before anything is made. See [MCP presentation](https://github.com/scottfalconer/verified-human-approval/blob/main/src/mcp/README.md) for client and protocol details.
 
 ### Scope challenges over HTTP
 
@@ -285,7 +285,7 @@ Before relying on it:
 - **It is opt-in, and it is for OAuth.** With fixed personal tokens there is no authorization server for a client to ask. Leave the subscriber out and keep the refusal in the tool, where the model can read it; the [publishing example](https://github.com/scottfalconer/verified-human-approval/blob/main/examples/doctrine-publishing/README.md) does.
 - **A tool the policy does not name needs no scope** beyond the policy's `$default` list. Add every new tool to the map. The checks inside your tools are what holds if one is forgotten.
 - **Your authenticator must have run.** Require a role for the MCP path in `access_control`, and set the validated token as the `AccessToken::class` request attribute, as [section 3](#3-connect-existing-authentication) asks.
-- **It covers every HTTP MCP server the application serves.** It recognises the MCP bundle's controller, not a path. A container with the subscriber and no such controller does not build: it would challenge nothing there.
+- **It covers every HTTP MCP server the application serves.** It recognizes the MCP bundle's controller, not a path. A container with the subscriber and no such controller does not build: it would challenge nothing there.
 - **Keep the scope checks in your tools.** Stdio has no HTTP status to answer with. Ownership and permission refusals are not scope problems either: they stay tool results, because a broader token would not change them.
 - **If you build the transport yourself, add the SDK's `AuthorizationMiddleware` instead.** The subscriber applies the same policy and writes the same header.
 
