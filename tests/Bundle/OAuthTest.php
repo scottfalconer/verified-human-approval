@@ -233,7 +233,7 @@ final class OAuthTest extends TestCase
         $text = $browser->request('GET', self::ORIGIN.'/oauth/consent?'.http_build_query(['client_name' => 'Claude', 'redirect_host' => 'claude.ai']))->filter('.approval-sheet')->text();
         self::assertStringContainsString('Let acme-tools-9931 act for', $text);
         self::assertStringContainsString('Name not verified', $text);
-        self::assertStringContainsString('It returns to attacker.example.', $text);
+        self::assertStringContainsString('It returns to attacker.example. Allow it only if you started connecting from attacker.example.', $text);
         self::assertStringNotContainsString('claude.ai', $text);
         self::assertStringNotContainsString('this computer', $text, 'The loopback warning follows the checked return address, not the link.');
     }

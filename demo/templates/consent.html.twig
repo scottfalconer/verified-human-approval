@@ -10,7 +10,7 @@
     {% if consent.publisher %}
     <p>Published by <strong>{{ consent.publisher }}</strong>. It returns to <strong>{{ consent.returnHost }}</strong>.</p>
     {% else %}
-    <p class="notice"><strong>Name not verified:</strong> it registered itself with this site and chose that name. It returns to <strong>{{ consent.returnHost }}</strong>.</p>
+    <p class="notice"><strong>Name not verified:</strong> it registered itself with this site and chose that name. It returns to <strong>{{ consent.returnHost }}</strong>.{% if not consent.returnsToThisComputer %} Allow it only if you started connecting from {{ consent.returnHost }}.{% endif %}</p>
     {% endif %}
     <p>It asks to {{ consent_scopes(consent.scopes)|join(', ') }}.</p>
     <p class="statement">{% if rule == 'approval' %}Your role must approve each exact alert with your own passkey on this site. Connecting does not approve anything.{% elseif rule == 'direct' %}Your role can issue alerts directly, so its requests take effect without a passkey.{% else %}Your role cannot issue alerts, so its requests will be refused.{% endif %}</p>
