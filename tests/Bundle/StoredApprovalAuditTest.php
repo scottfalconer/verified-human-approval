@@ -157,11 +157,69 @@ final class StoredApprovalAuditTest extends TestCase
 
     public static function unreadableChanges(): iterable
     {
-        $update = static fn (string $set): \Closure => static fn (\PDO $pdo, string $id) => $pdo->prepare('UPDATE verified_human_approval_requests SET '.$set.' WHERE id = ?')->execute([$id]);
-        yield 'one character of the proposal' => [$update("proposal = replace(proposal, 'Evacuat', 'Evacuat0')")];
-        yield 'the proposal, cut short' => [$update('proposal = substr(proposal, 1, 40)')];
-        yield 'the result, to text that is not JSON' => [$update("result = 'published'")];
-        yield 'the status, to one that does not exist' => [$update("status = 'done'")];
+        yield 'one character of the proposal' => [self::update("proposal = replace(proposal, 'Evacuat', 'Evacuat0')")];
+        yield 'the proposal, cut short' => [self::update('proposal = substr(proposal, 1, 40)')];
+        yield 'the result, to text that is not JSON' => [self::update("result = 'published'")];
+        yield 'the status, to one that does not exist' => [self::update("status = 'done'")];
+    }
+
+    /**
+     * Someone else who names a damaged record is told what they would be told of a request that does not exist, as long
+     * as its proposal still shows whose the record is: a colleague, and another organization's account, agent and
+     * administrator. A record whose proposal cannot be read shows no one, so whoever names it is told that its proposal
+     * fails its check, and nothing about the rest of it.
+     *
+     * @param \Closure(\PDO, string): void $change
+     */
+    #[DataProvider('damagedRecords')]
+    public function testSomeoneElseLearnsNothingOfADamagedRecordThatShowsWhoseItIs(\Closure $change, bool $proposalReadsBack): void
+    {
+        [, , , $id] = $this->publishedWithApproval('damaged-record');
+        $change($this->database->pdo, $id);
+        // The other organization's account administers it, so its administrator's evidence route is asked too.
+        $this->database->pdo->exec("UPDATE demo_users SET is_admin = 1 WHERE id = 'other'");
+
+        foreach (['reader', 'other'] as $user) {
+            $browser = $this->signedIn($user);
+            $agent = $this->mcp($user);
+            $told = static function (string $requestId) use ($browser, $agent): array {
+                $answers = [];
+                foreach (['review page' => '/approval/'.$requestId, 'status' => '/approval/'.$requestId.'/status', 'receipt' => '/approval/'.$requestId.'/evidence', 'audit evidence' => '/admin/audit/'.$requestId.'/evidence'] as $surface => $path) {
+                    $browser->request('GET', self::ORIGIN.$path);
+                    $response = $browser->getResponse();
+                    // An error page is compared by its status alone: the JSON answers are compared whole.
+                    $answers[$surface] = $response->getStatusCode().(str_contains((string) $response->headers->get('Content-Type'), 'json') ? ' '.$response->getContent() : '');
+                }
+                $status = $agent->callTool('approval_status', ['request_id' => $requestId]);
+                $answers['approval_status'] = json_encode($status->structuredContent ?? $status->content, \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_UNICODE);
+
+                return $answers;
+            };
+            $answers = $told($id);
+            if ($proposalReadsBack) {
+                self::assertSame($told('apr_'.str_repeat('0', 32)), $answers, $user);
+                continue;
+            }
+            self::assertSame('409', $answers['review page'], $user);
+            foreach ('other' === $user ? ['status', 'receipt', 'audit evidence', 'approval_status'] : ['status', 'receipt', 'approval_status'] as $surface) {
+                self::assertStringContainsString('"reason":"record_integrity_error","message":"The stored approval proposal fails its integrity check. Its outcome cannot be trusted."', $answers[$surface], $user.', '.$surface);
+            }
+        }
+    }
+
+    /** @return iterable<string, array{\Closure(\PDO, string): void, bool}> each edit, and whether the proposal still reads back after it */
+    public static function damagedRecords(): iterable
+    {
+        yield 'the result, to text that is not JSON' => [self::update("result = 'published'"), true];
+        yield 'the status, to one that does not exist' => [self::update("status = 'done'"), true];
+        yield 'the execution record, cut short' => [static fn (\PDO $pdo, string $id) => $pdo->prepare('UPDATE verified_human_approval_executions SET record = substr(record, 1, 40) WHERE request_id = ?')->execute([$id]), true];
+        yield 'one character of the proposal' => [self::update("proposal = replace(proposal, 'Evacuat', 'Evacuat0')"), false];
+    }
+
+    /** @return \Closure(\PDO, string): void an edit to the stored request's own row */
+    private static function update(string $set): \Closure
+    {
+        return static fn (\PDO $pdo, string $id) => $pdo->prepare('UPDATE verified_human_approval_requests SET '.$set.' WHERE id = ?')->execute([$id]);
     }
 
     /**
@@ -235,11 +293,11 @@ final class StoredApprovalAuditTest extends TestCase
         return json_decode((string) $browser->getResponse()->getContent(), true, flags: \JSON_THROW_ON_ERROR);
     }
 
-    private function mcp(): Client
+    private function mcp(string $user = 'editor'): Client
     {
         $factory = new Psr17Factory();
         $client = Client::builder()->setClientInfo('integrity-test', '1.0')->setMaxRetries(0)->build();
-        $client->connect(new HttpTransport(endpoint: self::ORIGIN.'/mcp', headers: ['Authorization' => 'Bearer '.$this->accounts['editor']['personal_token']], httpClient: new SymfonyKernelHttpClient($this->runtime), requestFactory: $factory, streamFactory: $factory));
+        $client->connect(new HttpTransport(endpoint: self::ORIGIN.'/mcp', headers: ['Authorization' => 'Bearer '.$this->accounts[$user]['personal_token']], httpClient: new SymfonyKernelHttpClient($this->runtime), requestFactory: $factory, streamFactory: $factory));
 
         return $client;
     }

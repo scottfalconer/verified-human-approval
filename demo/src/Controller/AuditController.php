@@ -122,7 +122,12 @@ final readonly class AuditController
         try {
             $state = $this->store->get($id);
         } catch (ApprovalException $error) {
-            // A record that cannot be read back no longer shows its organization, so this says no more than that.
+            // While its proposal reads back, a damaged record is its organization's alone, like any other. One whose
+            // proposal cannot be read shows no organization, so whoever names it is told only that it fails its check.
+            if (null !== $error->request && $error->request->actor()->tenantId !== $admin->tenantId) {
+                throw new NotFoundHttpException('No such action in your organization.');
+            }
+
             return self::unavailable($error);
         }
         if (null === $state || $state->request->actor()->tenantId !== $admin->tenantId) {

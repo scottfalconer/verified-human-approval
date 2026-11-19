@@ -36,12 +36,13 @@ trait ApprovalHistoryContract
 
     /**
      * A record edited in the database keeps its place in the history: as its state when it still reads back, for the
-     * caller to check, or as an UnreadableApproval naming it. The requests around it are listed as before.
+     * caller to check, or as an UnreadableApproval naming it, whose error carries the request while the proposal reads
+     * back. The requests around it are listed as before.
      *
      * @param \Closure(StoreHarness, string): void $edit
      */
     #[DataProvider('editedRecords')]
-    public function testAHistoryListsAnEditedRecordInItsPlace(\Closure $edit): void
+    public function testAHistoryListsAnEditedRecordInItsPlace(\Closure $edit, bool $proposalReadsBack): void
     {
         $harness = $this->connect();
         $edited = $harness->service()->request($harness->actor(), 'article.publish', ['id' => 1], 'history-edited');
@@ -56,6 +57,7 @@ trait ApprovalHistoryContract
         self::assertSame([$newer->request->id, $edited->request->id], self::listedIds($listed));
         if ($listed[1] instanceof UnreadableApproval) {
             self::assertSame('record_integrity_error', $listed[1]->error->reason);
+            self::assertSame($proposalReadsBack ? $edited->request->id : null, $listed[1]->error->request?->id);
         }
         self::assertSame([$other->request->id], self::listedIds($history->forResource('tenant-a', '2')));
     }

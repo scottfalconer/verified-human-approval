@@ -40,7 +40,8 @@ final readonly class ApprovalStatusTool
 
             return $this->presenter->toolResult($state);
         } catch (ApprovalException $error) {
-            // The person's own record, damaged: "unavailable" would read as "nothing happened".
+            // The person's own record, damaged, or one too damaged to show whose it is: "unavailable" would read
+            // as "nothing happened".
             if ('record_integrity_error' === $error->reason) {
                 return ApprovalFlow::errorResult($error, $request_id);
             }

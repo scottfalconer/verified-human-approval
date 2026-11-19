@@ -21,7 +21,7 @@ trait RecentApprovalsContract
 {
     /** @param \Closure(StoreHarness, string): void $edit */
     #[DataProvider('editedRecords')]
-    public function testTheAuditListShowsAnEditedRecordInItsPlace(\Closure $edit): void
+    public function testTheAuditListShowsAnEditedRecordInItsPlace(\Closure $edit, bool $proposalReadsBack): void
     {
         $harness = $this->connect();
         $edited = $harness->service()->request($harness->actor(), 'article.publish', ['id' => 1], 'recent-edited');
@@ -35,6 +35,7 @@ trait RecentApprovalsContract
         if ($listed[1] instanceof UnreadableApproval) {
             self::assertSame('record_integrity_error', $listed[1]->error->reason);
             self::assertSame('tenant-a', $listed[1]->tenantId, 'The tenant the row names, so the host can decide who sees it.');
+            self::assertSame($proposalReadsBack ? $edited->request->id : null, $listed[1]->error->request?->id);
         }
     }
 

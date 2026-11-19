@@ -54,7 +54,8 @@ final readonly class ApprovalController
         try {
             $state = $this->approvals->get($this->reviewer($request, $id), $id);
         } catch (ApprovalException $error) {
-            // The person's own record, damaged: "not found" would read as "nothing happened".
+            // The person's own record, damaged, or one too damaged to show whose it is: "not found" would read
+            // as "nothing happened".
             if ('record_integrity_error' === $error->reason) {
                 return new Response($this->twig->render('@VerifiedHumanApproval/integrity_error.html.twig', ['id' => $id]), 409);
             }

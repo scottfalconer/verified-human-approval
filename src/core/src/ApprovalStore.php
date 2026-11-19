@@ -21,7 +21,7 @@ namespace VerifiedHumanApproval\Core;
  * 5. Keep canonical data exact. Stored proposals, proofs and records come back with the same bytes, and
  *    JSON keeps null, an empty object and an empty array apart. A record that no longer reads back as it was
  *    written is reported, never repaired or skipped: read it with ApprovalState::fromStorage(), whose
- *    record_integrity_error get() and the lookups pass on.
+ *    record_integrity_error get() and the lookups pass on as it is, with the request it carries.
  * 6. Enforce identity and immutability. A frozen proposal or a terminal record cannot be overwritten through
  *    this API, and database constraints back the identities and the request-key rules.
  * 7. Handle every Throwable. Roll back before rethrowing, reset any transaction bookkeeping, and if the

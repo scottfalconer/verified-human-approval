@@ -442,9 +442,10 @@ abstract class ApprovalStoreContract extends TestCase
     }
 
     /**
-     * Edits someone with write access to the database could make to one part of a completed record.
+     * Edits someone with write access to the database could make to one part of a completed record, each with whether
+     * the proposal still reads back afterwards, and so still shows whose record it is.
      *
-     * @return iterable<string, array{\Closure(StoreHarness, string): void}>
+     * @return iterable<string, array{\Closure(StoreHarness, string): void, bool}>
      */
     public static function editedRecords(): iterable
     {
@@ -459,35 +460,36 @@ abstract class ApprovalStoreContract extends TestCase
         };
         $character = static fn (string $proposal): string => str_replace('Summer Campaign', 'Summer Campaigm', $proposal);
         $cut = static fn (string $json): string => substr($json, 0, 40);
-        yield 'one character of the proposal' => [$edit('proposal', $character)];
-        yield 'the digest' => [$edit('digest', static fn (string $digest): string => ('0' === $digest[0] ? '1' : '0').substr($digest, 1))];
-        yield 'the proposal and its digest, to match each other' => [$withDigest($character)];
+        yield 'one character of the proposal' => [$edit('proposal', $character), false];
+        yield 'the digest' => [$edit('digest', static fn (string $digest): string => ('0' === $digest[0] ? '1' : '0').substr($digest, 1)), false];
+        yield 'the proposal and its digest, to match each other' => [$withDigest($character), true];
         yield 'the proposal and its digest, with a number for the person' => [$withDigest(static function (string $proposal): string {
             $payload = CanonicalJson::map(CanonicalJson::decode($proposal));
             $payload['actor']->userId = 5;
 
             return CanonicalJson::encode((object) $payload);
-        })];
-        yield 'the result, to text that is not JSON' => [$edit('result', static fn (): string => 'published')];
-        yield 'the result, to a JSON list' => [$edit('result', static fn (): string => '[]')];
-        yield 'the proof, cut short' => [$edit('proof', $cut)];
-        yield 'the execution record, cut short' => [$edit('execution', $cut)];
-        yield 'the status, to one that does not exist' => [$edit('status', static fn (): string => 'done')];
-        yield 'the status, to cancelled' => [$edit('status', static fn (): string => 'cancelled')];
-        yield 'the receipt signature, emptied' => [$edit('signature', static fn (): string => '')];
+        }), false];
+        yield 'the result, to text that is not JSON' => [$edit('result', static fn (): string => 'published'), true];
+        yield 'the result, to a JSON list' => [$edit('result', static fn (): string => '[]'), true];
+        yield 'the proof, cut short' => [$edit('proof', $cut), true];
+        yield 'the execution record, cut short' => [$edit('execution', $cut), true];
+        yield 'the status, to one that does not exist' => [$edit('status', static fn (): string => 'done'), true];
+        yield 'the status, to cancelled' => [$edit('status', static fn (): string => 'cancelled'), true];
+        yield 'the receipt signature, emptied' => [$edit('signature', static fn (): string => ''), true];
     }
 
     /**
      * Whatever part of a completed record is edited, every read through the service answers record_integrity_error:
      * never the stored outcome, never another refusal, never an exception of another kind, and nothing runs again.
-     * The store itself either reads the record back for the service to check, or refuses it with that reason and
-     * keeps what failed. A record that cannot be read does not show whose it is, so someone else who names it learns
-     * no more than that.
+     * The store itself either reads the record back for the service to check, or refuses it with that reason, keeping
+     * what failed and, while the proposal reads back, its request. So someone else who names the record is told what
+     * they would be told of a request that does not exist; only a record whose proposal no longer shows whose it is
+     * is reported to whoever names it, and then only as a proposal that fails its check.
      *
      * @param \Closure(StoreHarness, string): void $edit
      */
     #[DataProvider('editedRecords')]
-    public function testAnEditedRecordIsAnIntegrityErrorWhereverItIsRead(\Closure $edit): void
+    public function testAnEditedRecordIsAnIntegrityErrorWhereverItIsRead(\Closure $edit, bool $proposalReadsBack): void
     {
         $harness = $this->connect();
         $request = $harness->service()->request($harness->actor(), 'article.publish', ['id' => 1], 'edited-record');
@@ -515,17 +517,21 @@ abstract class ApprovalStoreContract extends TestCase
                 self::assertSame('record_integrity_error', $error->reason, $read);
             }
         }
-        try {
-            $service->get(new Actor('bob', 'tenant-a'), $id);
-            self::fail('Someone else read an edited record.');
-        } catch (ApprovalException $error) {
-            self::assertContains($error->reason, ['not_found', 'record_integrity_error']);
+        $unknown = self::refusal(static fn () => $service->get(new Actor('bob', 'tenant-a'), 'apr_'.str_repeat('0', 32)));
+        foreach ([new Actor('bob', 'tenant-a'), new Actor('alice', 'tenant-b', 'agent-1')] as $stranger) {
+            $refused = self::refusal(static fn () => $service->get($stranger, $id));
+            if ($proposalReadsBack) {
+                self::assertEquals([$unknown->reason, $unknown->getMessage(), null], [$refused->reason, $refused->getMessage(), $refused->getPrevious()], 'Someone else learns nothing of the record.');
+            } else {
+                self::assertSame(['record_integrity_error', 'The stored approval proposal fails its integrity check. Its outcome cannot be trusted.'], [$refused->reason, $refused->getMessage()]);
+            }
         }
         try {
             self::assertSame($id, $observer->store()->get($id)?->request->id, 'A record that reads back is left to the service to check.');
         } catch (ApprovalException $error) {
             self::assertSame('record_integrity_error', $error->reason);
             self::assertNotNull($error->getPrevious(), 'What failed is kept.');
+            self::assertSame($proposalReadsBack ? $id : null, $error->request?->id, 'While the proposal reads back, the error carries its request.');
         }
         self::assertSame(['requests' => 1, 'effects' => 1, 'executions' => 1, 'receipts' => 1, 'credentialUses' => 1], $observer->counts(), 'Nothing ran again.');
     }
@@ -605,6 +611,17 @@ abstract class ApprovalStoreContract extends TestCase
     private static function export(ApprovalState $state): array
     {
         return (new EvidenceExporter())->export($state);
+    }
+
+    /** The refusal an operation must end in. */
+    private static function refusal(\Closure $operation): ApprovalException
+    {
+        try {
+            $operation();
+        } catch (ApprovalException $error) {
+            return $error;
+        }
+        self::fail('The operation was not refused.');
     }
 
     /**
