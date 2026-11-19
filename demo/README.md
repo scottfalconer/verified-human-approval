@@ -164,11 +164,11 @@ The consent page can name claude.ai because claude.ai identifies itself with a c
 
 The phone code works once for two minutes. It opens only that review, without granting a general login, and still requires the person's passkey.
 
-`demo/bin/public status` shows the tunnel's address and whether the public demo is served, or what else holds its port. `demo/bin/public all-clear` takes down the alert and keeps the accounts, passkeys, and connector. `demo/bin/public reset` replaces the public demo data on the same address. `demo/bin/public stop` stops it.
+`demo/bin/public status` shows the tunnel's address and whether the public demo is served, or what else holds its port. `demo/bin/public all-clear` takes down the alert and keeps the accounts, passkeys, and connector. `demo/bin/public reset` replaces the public demo with a fresh one, with new accounts, passkey links and connections, on the same address. So it runs only while `status` shows this checkout's tunnel at that address: after `stop`, or once the tunnel has stopped or come back at a new address, it sets nothing up and says to run `start`. `demo/bin/public stop` stops the tunnel and the public demo's server.
 
-`start` and `reset` refuse while anything else holds port 8081. Whenever either stops before the public demo is served, for this or any other reason, it also stops this checkout's tunnel. Without a network connection, for example, `start` says that the tunnel did not start, points to `var/public-tunnel.log`, and leaves the public demo as it was. Once the tunnel has stopped, the next `start` gets a new address, and so needs a fresh demo: new accounts and passkeys, and a new connector URL in claude.ai.
+`start` and `reset` refuse while anything else holds port 8081. Whenever either is refused, fails or is interrupted, by Ctrl-C for instance, before the public demo is served, it also stops this checkout's tunnel. Without a network connection, for example, `start` says that the tunnel did not start, points to `var/public-tunnel.log`, and leaves the public demo as it was. A `kill -9` leaves the tunnel running: stop it with `demo/bin/public stop`. Once the tunnel has stopped, the next `start` gets a new address, and so needs a fresh demo: new accounts and passkeys, and a new connector URL in claude.ai.
 
-Only one public demo runs on a computer at a time. From another checkout, `start` refuses and names the checkout that runs it, and `stop` leaves it running.
+Only one public demo runs on a computer at a time. From another checkout, `start` refuses and names the checkout that runs it, `reset` refuses too, and `stop` leaves it running.
 
 ## Source map
 
