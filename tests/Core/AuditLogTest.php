@@ -9,6 +9,7 @@ use Symfony\Component\Clock\MockClock;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\Audit\AuditStore;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\Evidence\TrustedKey;
 use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 use VerifiedHumanApproval\Core\Storage\PdoAuditStore;
 
@@ -70,6 +71,35 @@ final class AuditLogTest extends TestCase
         self::assertNotNull($this->log->find('passkey.enrolled', 'three'), 'Each surviving entry still verifies on its own.');
     }
 
+    /**
+     * A log reads its chain several times in one operation, and checks each signature once: a signature that
+     * verified is remembered. It never stands in for the row as it is now. A row whose signature, entry or key has
+     * changed since is checked afresh, by the same log, and verifies again only as it was.
+     */
+    public function testARememberedSignatureNeverStandsInForARowThatChanged(): void
+    {
+        $other = new SodiumEvidenceSigner('other-key', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
+        $log = new AuditLog(new PdoAuditStore($this->pdo), $this->signer, new TrustedKeys([
+            new TrustedKey($this->signer->keyId(), $this->signer->publicKey()), new TrustedKey($other->keyId(), $other->publicKey()),
+        ]), new MockClock('2026-11-08 12:00:00'));
+        self::assertTrue($log->verify()['intact']);
+        $stored = $this->pdo->query('SELECT entry, hash, key_id, signature FROM verified_human_approval_audit WHERE seq = 2')->fetch(\PDO::FETCH_ASSOC);
+        self::assertIsArray($stored);
+        $edited = str_replace('"two"', '"mallory"', $stored['entry']);
+        foreach ([
+            'its signature, made with another key under its name' => ['signature' => (new SodiumEvidenceSigner('app-key', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair())))->sign($stored['entry'])],
+            'its entry, with the hash to match' => ['entry' => $edited, 'hash' => hash('sha256', $edited)],
+            'the key it names, another trusted key' => ['key_id' => $other->keyId()],
+        ] as $change => $columns) {
+            $this->rewrite(2, $columns);
+            self::assertSame('its signature or hash does not verify', $log->verify()['entries'][1]['problem'], $change);
+            self::assertNull($log->find('passkey.enrolled', 'two'), $change);
+            $this->rewrite(2, $stored);
+            self::assertTrue($log->verify()['intact'], 'As it was, after '.$change.', it verifies again.');
+        }
+        self::assertSame('two', $log->find('passkey.enrolled', 'two')['data']->label ?? null);
+    }
+
     public function testAppendJoinsTheCallersTransaction(): void
     {
         $this->pdo->beginTransaction();
@@ -101,5 +131,13 @@ final class AuditLogTest extends TestCase
         $record['entry'] = str_replace('portable', 'changed', $record['entry']);
         self::assertFalse($log->verify()['intact'], 'Raw damaged rows still reach the cryptographic verifier.');
         self::assertNull($log->find('passkey.enrolled', 'portable'));
+    }
+
+    /** @param array<string, string> $columns */
+    private function rewrite(int $seq, array $columns): void
+    {
+        foreach ($columns as $column => $value) {
+            $this->pdo->prepare('UPDATE verified_human_approval_audit SET '.$column.' = ? WHERE seq = ?')->execute([$value, $seq]);
+        }
     }
 }

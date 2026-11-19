@@ -36,10 +36,18 @@ use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
  * from a key being retired (find()), is read from the whole chain, since an edited index or storage class can
  * hide a row from a lookup.
  *
+ * So the checks grow with the chain. Each reading fetches every row, and each signature check, most of the cost,
+ * runs at most once per signature for one log: one that verified is remembered, so later readings by the same log
+ * (later in one request, or in a long-running worker) cost a fraction. A passkey's standing is read from its
+ * enrollment on, or from the first entry once an entry since is signed with a key that has an end, as after a
+ * rotation; so in a request of its own, each approval step checks the signature of every entry in that stretch
+ * once. The chain grows with what is recorded here: passkeys enrolled and revoked, rotations and the host's own
+ * events, never approvals.
+ *
  * @phpstan-import-type AuditHead from AuditStore
  * @phpstan-import-type AuditRecord from AuditStore
  */
-final readonly class AuditLog
+final class AuditLog
 {
     public const FORMAT = 'verified-human-approval/audit/v1';
     /**
@@ -50,15 +58,21 @@ final readonly class AuditLog
     /** The tenant of an entry about the whole application, such as a key rotation: it concerns every tenant. */
     public const ALL_TENANTS = '';
 
+    /** How many verified signatures signed() keeps before it starts again, which bounds its memory in a long-running worker. */
+    private const REMEMBERED = 50000;
+
+    /** @var array<string, true> the signatures that verified, by a digest of the key id, entry hash and signature */
+    private array $verified = [];
+
     /**
      * @param TrustedKeys $keys the keys that check entries, the signer's among them: for its key alone, without a
      *                          window, TrustedKeys::single($signer->keyId(), $signer->publicKey())
      */
     public function __construct(
-        private AuditStore $store,
-        private EvidenceSigner $signer,
-        private TrustedKeys $keys,
-        private ClockInterface $clock,
+        private readonly AuditStore $store,
+        private readonly EvidenceSigner $signer,
+        private readonly TrustedKeys $keys,
+        private readonly ClockInterface $clock,
     ) {
     }
 
@@ -441,7 +455,7 @@ final readonly class AuditLog
             return ['entry' => null, 'problem' => \sprintf('it is signed with key "%s", which is not one of the trusted keys', $row['key_id'])];
         }
         $broken = ['entry' => null, 'problem' => 'its signature or hash does not verify'];
-        if (!hash_equals(hash('sha256', $row['entry']), $row['hash']) || !$key->signed($row['entry'], $row['signature'])) {
+        if (!hash_equals(hash('sha256', $row['entry']), $row['hash']) || !$this->signed($key, $row)) {
             return $broken;
         }
         try {
@@ -461,6 +475,32 @@ final readonly class AuditLog
         }
 
         return ['entry' => $entry, 'problem' => null];
+    }
+
+    /**
+     * Whether $key signed the row's entry, for a row whose hash is already known to be its entry's. A signature that
+     * verified is not checked again: the answer depends only on the key, the entry, for which its hash stands, and the
+     * signature itself, and the Ed25519 check is most of what reading a long chain costs.
+     *
+     * @param AuditRecord $row
+     */
+    private function signed(TrustedKey $key, array $row): bool
+    {
+        // The key id's length comes first and the hash always has 64 characters, so two rows share this digest only
+        // when key, hash and signature are all the same.
+        $signature = hash('sha256', \strlen($key->keyId).':'.$key->keyId.$row['hash'].$row['signature'], true);
+        if (isset($this->verified[$signature])) {
+            return true;
+        }
+        if (!$key->signed($row['entry'], $row['signature'])) {
+            return false;
+        }
+        if (\count($this->verified) >= self::REMEMBERED) {
+            $this->verified = [];
+        }
+        $this->verified[$signature] = true;
+
+        return true;
     }
 
     /**
