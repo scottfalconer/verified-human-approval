@@ -211,6 +211,34 @@ for (const order of ['in the order they were made', 'in the other order']) {
   });
 }
 
+test('a host that announces one of the card’s calls twice changes nothing the card shows', async () => {
+  const announce = (call) => h.dispatch({ method: 'ui/notifications/tool-input', params: { arguments: call.params.arguments } });
+  const h = host(); await h.initialize(); h.show();
+  // The phone code's call, announced twice before its one result.
+  const click = h.element('phone-show').handlers.click(); await flush();
+  const phone = h.call('approval_handoff');
+  announce(phone); announce(phone);
+  h.dispatch({ method: 'ui/notifications/tool-result', params: phoneReply() });
+  await h.reply(phone, phoneReply()); await click;
+  assert.equal(h.element('phone-code').hidden, false);
+  assert.equal(h.status(), 'Waiting for your approval on your phone. Nothing has changed yet.');
+  // A status check, announced twice and its result sent twice.
+  await h.advance(3000);
+  const check = h.call('approval_status');
+  announce(check); announce(check);
+  await h.reply(check, approval());
+  for (let i = 0; i < 2; i++) h.dispatch({ method: 'ui/notifications/tool-result', params: approval() });
+  assert.equal(h.element('phone-code').hidden, false);
+  assert.equal(h.status(), 'Waiting for your approval on your phone. Nothing has changed yet.');
+  // The card still checks, and shows what the site records.
+  await h.advance(3000);
+  await h.reply(h.call('approval_status'), approval('completed'));
+  assert.equal(h.status(), 'Approved with a passkey. The site recorded the change.');
+  // A call the host makes itself is still a new request.
+  h.dispatch({ method: 'ui/notifications/tool-input', params: { arguments: { alert_id: 'riverside-evacuation' } } });
+  assert.equal(h.status(), 'Waiting for the request…');
+});
+
 test('a call the host announced without its result does not hide the next request’s refusal', async () => {
   const h = host(); await h.initialize(); h.show();
   await h.advance(3000);

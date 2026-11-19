@@ -84,24 +84,21 @@
   const waiting = new Map();
   // A host may also announce the card's own calls, as the specification's diagram draws: a tool-input with a call's
   // arguments, then that call's tool-result. The card leaves both alone, since the call's reply brings its result.
-  // The status and phone tools take the same arguments, so the card counts: each announcement takes one call made
-  // with its arguments for the current view, and each tool-result after it one announcement. A new request starts
-  // both counts again, so an announced call whose result never came cannot take a later result for itself.
-  const unannounced = new Map();
+  // So a tool-input with the arguments of a call the card made for the current view announces that call, however
+  // often the host sends it, and each announcement is owed one tool-result. A new request forgets the calls and what
+  // is owed, so an announced call whose result never came cannot take a later result for itself.
+  const called = new Set();
   function callTool(name, args) {
-    const key = JSON.stringify(args);
-    unannounced.set(key, (unannounced.get(key) || 0) + 1);
+    called.add(JSON.stringify(args));
     return request('tools/call', { name, arguments: args });
   }
   // Whether a tool-input announces one of the card's own calls, which is then owed one tool-result.
   function announces(args) {
-    const key = JSON.stringify(args ?? null), calls = unannounced.get(key) || 0;
-    if (!calls) return false;
-    unannounced.set(key, calls - 1);
+    if (!called.has(JSON.stringify(args ?? null))) return false;
     announced++;
     return true;
   }
-  function forget() { unannounced.clear(); announced = 0; }
+  function forget() { called.clear(); announced = 0; }
   // The request a tool result names, if it names one.
   function named(result) {
     const data = result && result.structuredContent;
