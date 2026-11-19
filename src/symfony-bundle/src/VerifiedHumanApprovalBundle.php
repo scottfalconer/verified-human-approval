@@ -360,7 +360,9 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
                 ->args([service('verified_human_approval.approval_service'), service('verified_human_approval.actor_provider'), service('verified_human_approval.handoff'), service($config['rate_limiter'])])
                 ->tag('mcp.tool', ['method' => 'handoff']);
         }
-        $services->set('verified_human_approval.card_app', ApprovalCardApp::class)->tag('mcp.app');
+        $services->set('verified_human_approval.card_app', ApprovalCardApp::class)
+            ->args([service('verified_human_approval.presenter')])
+            ->tag('mcp.app');
 
         // The review pages' headers, and their policy's nonce for your layout's templates.
         $services->set('verified_human_approval.content_security_policy', ContentSecurityPolicy::class)

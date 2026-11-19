@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real Chrome against the real approval card, inside a scripted MCP Apps host.
+"""Real Chrome against the real approval card, as the server writes it, inside a scripted MCP Apps host.
 
 The host speaks the card's side of io.modelcontextprotocol/ui over postMessage: it answers
 ui/initialize, sends the tool result, and answers the card's tools/call requests. The test
@@ -20,7 +20,6 @@ from playwright.sync_api import sync_playwright, expect
 
 ROOT = Path(__file__).resolve().parents[1]
 PHP = os.environ.get("PHP_BIN", "php")
-CARD = (ROOT / "src/mcp/resources/approval-card.html").read_text()
 LINK = "https://alerts.example/approval/handoff/" + "Q" * 43
 REVIEW = "https://alerts.example/approval/0b7d5f0e-6a4c-4c1e-9f57-1f3f8b6f2a10"
 
@@ -31,6 +30,12 @@ def php(code, *args):
 
 
 MODULES = json.loads(php("echo json_encode(VerifiedHumanApproval\\Bundle\\Handoff\\ApprovalHandoff::modules($argv[2]));", LINK))
+
+
+def served(review, handoff):
+    # The card as the server writes it for the site this review page is on, with the site's tools.
+    origin = re.match(r"https?://[^/]+", review).group(0)
+    return php("echo VerifiedHumanApproval\\Mcp\\ApprovalCard::html($argv[2], 'approval_status', '' === $argv[3] ? null : $argv[3]);", origin, handoff or "")
 
 # The host page: one sandboxed frame, like a real MCP Apps host, and a scripted server behind it.
 HOST = """<!doctype html><meta charset="utf-8"><body style="margin:0;background:%(background)s">
@@ -77,7 +82,7 @@ def host(browser, review=REVIEW, handoff="approval_handoff", theme="light", plat
         "background": background or ("#1f1f1e" if theme == "dark" else "#ffffff"), "review": json.dumps(review), "handoff": json.dumps(handoff),
         "context": json.dumps(context), "link": json.dumps(LINK), "modules": json.dumps(MODULES),
         "capabilities": json.dumps({"openLinks": {}, "serverTools": {}} if capabilities is None else capabilities),
-        "delay": delay, "info": json.dumps({"name": name, "version": "1"}), "card": html.escape(CARD, quote=True)})
+        "delay": delay, "info": json.dumps({"name": name, "version": "1"}), "card": html.escape(served(review, handoff), quote=True)})
     card = page.frame_locator("#card")
     if not delay:
         expect(card.locator("#statement")).to_contain_text("Evacuation order")

@@ -39,6 +39,7 @@
   <button id="open" type="button" hidden>Review and approve</button><button id="phone-show" type="button" class="secondary" hidden>Approve on your phone</button>
   <figure id="phone-code" hidden><div id="qr"></div><figcaption>Scan with your phone’s camera, then approve with your passkey (Face ID or fingerprint). The code works once and expires in two minutes.</figcaption></figure>
   <p id="status" role="status" aria-live="polite">Waiting for the request…</p>
+<script type="application/json" id="card-application">{}</script>
 <script>
   // MCP Apps (io.modelcontextprotocol/ui, 2026-01-26): JSON-RPC 2.0 with the host over postMessage.
   // The passkey ceremony never runs in this card. The button opens the application's own review
@@ -73,6 +74,7 @@
     link: 'Use the review link in the reply.',
     unopened: 'The page did not open. Use the review link in the reply.',
     maybeOpened: 'If the page did not open, use the review link in the reply.',
+    elsewhere: 'This result names a page on another site, so this card does not show it.',
   };
   const POLL_LIMIT_MS = 15 * 60 * 1000;
   const REQUEST_TIMEOUT_MS = 15000;
@@ -174,13 +176,31 @@
     const paired = hostVariables.has('--color-text-primary') && hostVariables.has('--color-background-primary');
     if (!(paired && legible())) for (const name of hostVariables.keys()) if (name.startsWith('--color-')) root.style.removeProperty(name);
   }
+  function secure(url) { return url.protocol === 'https:' || (url.protocol === 'http:' && url.hostname === 'localhost'); }
+  // The application this card belongs to, as its server wrote it in (ApprovalCard::html()). The card opens pages on
+  // that origin only and calls only those tools, whatever a result names; written nothing, it opens and calls nothing.
+  const APPLICATION = (() => {
+    try {
+      const written = JSON.parse($('card-application').textContent), origin = new URL(written.origin);
+      const tool = (name) => typeof name === 'string' && name !== '' ? name : null;
+      return { origin: secure(origin) ? origin.origin : null, statusTool: tool(written.statusTool), handoffTool: tool(written.handoffTool) };
+    } catch { return { origin: null, statusTool: null, handoffTool: null }; }
+  })();
   function reviewUrl(value) {
     try {
       const url = new URL(value);
-      return url.protocol === 'https:' || (url.protocol === 'http:' && url.hostname === 'localhost') ? url : null;
+      return secure(url) && url.origin === APPLICATION.origin ? url : null;
     } catch { return null; }
   }
-  // Reads the card's fixed view; older results without it still name the request and its link.
+  // The review link a result names, wherever it points. Older results without the card's view name it at the top.
+  function link(result) {
+    const data = (result && result.structuredContent) || {};
+    return (data.approval && data.approval.reviewUrl) || data.reviewUrl || data.review_url || null;
+  }
+  // Whether a link would send the person to a page that is not on this application's origin.
+  function elsewhere(value) { return value !== null && !reviewUrl(value); }
+  // Reads the card's fixed view, or the request an older result names. A result that links to another site is not
+  // shown at all. It can leave out a tool the site has, and cannot name one the site does not.
   function read(result) {
     const data = (result && result.structuredContent) || {};
     const card = data.approval || {};
@@ -188,10 +208,11 @@
       requestId: card.requestId || data.requestId, status: card.status || data.status, reason: card.reason ?? data.reason ?? null,
       approvedWithPasskey: typeof card.approvedWithPasskey === 'boolean' ? card.approvedWithPasskey : null,
       completedAt: typeof card.completedAt === 'string' ? card.completedAt : null, earlier: card.earlier === true,
-      reviewUrl: card.reviewUrl || data.reviewUrl || data.review_url, statusTool: card.statusTool || null, statement: card.statement || null,
-      handoffTool: card.handoffTool || null,
+      reviewUrl: link(result), statement: card.statement || null,
+      statusTool: APPLICATION.statusTool && card.statusTool === APPLICATION.statusTool ? APPLICATION.statusTool : null,
+      handoffTool: APPLICATION.handoffTool && card.handoffTool === APPLICATION.handoffTool ? APPLICATION.handoffTool : null,
     };
-    return found.requestId && found.status ? found : null;
+    return found.requestId && found.status && !elsewhere(found.reviewUrl) ? found : null;
   }
   function render() {
     if (!view) {
@@ -292,6 +313,7 @@
     // An error result can name no request: a refusal is still shown as one, and a damaged record as unconfirmed.
     const failure = view ? null : result?.structuredContent?.status;
     if (failure === 'rejected' || failure === 'integrity_error') { document.body.dataset.status = failure; status.textContent = TEXT[failure]; resize(); }
+    else if (!view && elsewhere(link(result))) { status.textContent = NOTE.elsewhere; resize(); }
     schedulePoll();
   }
   // The host ends this card: the tool call was cancelled, or the view is being torn down.

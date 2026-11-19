@@ -16,19 +16,19 @@ URL-mode elicitation is off by default and enabled per client by `clientInfo.nam
 
 ## The card
 
-`ApprovalCard::URI` is the card's `ui://` resource and `ApprovalCard::resource()` its HTML. Link a protected tool to it with `meta: ApprovalCard::TOOL_META`. The card reads `structuredContent.approval`:
+`ApprovalCard::URI` is the card's `ui://` resource. `ApprovalCard::resource($origin, $statusTool, $handoffTool)` is its HTML, written for one application: the card opens pages on the review pages' origin only, and calls only those tools, whatever a result names. Link a protected tool to it with `meta: ApprovalCard::TOOL_META`. The card reads `structuredContent.approval`:
 
 | Field | Meaning |
 | --- | --- |
 | `requestId` | The proposal |
 | `status` | `pending`, `completed`, `cancelled`, `expired`, `invalidated` or `denied`, as recorded. An [error result](#error-results) carries `rejected` or `integrity_error` instead |
-| `reviewUrl` | The application's review page |
-| `statusTool` | The read-only tool the card polls, called with `request_id` |
+| `reviewUrl` | The application's review page. The card does not show a result whose link is on another origin |
+| `statusTool` | The read-only tool the card polls, called with `request_id`, if it is the one the card was written with |
 | `statement` | The exact statement the person will approve |
 | `approvedWithPasskey` | Whether this completed action used passkey approval. Direct execution does not claim that it did. |
 | `completedAt` | When the action ran, RFC 3339 in UTC, or `null` until it has |
 | `earlier` | Whether this call's request key named an earlier request that had already finished. The result is that request's recorded outcome, nothing ran for this call, and the card says "Completed earlier, on …" instead of claiming a new approval |
-| `handoffTool` | Optional. An app-only tool that returns a one-time phone code, or `null` |
+| `handoffTool` | Optional. The app-only tool that returns a one-time phone code, if it is the one the card was written with, or `null` |
 
 The card never runs WebAuthn. The verifier rejects embedded and cross-origin ceremonies, and the card runs on the host's sandbox origin, so no assertion it could obtain would pass the application's exact-origin check.
 
@@ -41,7 +41,7 @@ The card sends only the requests the host allows in its answer to `ui/initialize
 | `openLinks` | **Review and approve** opens the review page through `ui/open-link` | No button. The card points at the review link in the reply |
 | `serverTools` | The card polls `statusTool`, and can offer the phone code | The card says it cannot check the result in this app, and asks the person to ask for the status after approving. It does not go on saying that nothing has changed, since it could not know |
 
-A result without `statusTool` is treated like a host without `serverTools`.
+A result without `statusTool`, or with another tool than the card was written with, is treated like a host without `serverTools`.
 
 The card waits for the answer to `ui/initialize` with no deadline, so a slow host still gets a working card; after 15 seconds without one it points at the review link in the reply. Every later request has a 15-second deadline. A `ui/open-link` request that gets no answer in that time is reported as "if the page did not open", not as a refusal: the host may be asking the person to confirm the link. A refusal is reported as one.
 
@@ -57,7 +57,7 @@ When the host stops a call (`ui/notifications/tool-cancelled`), the card stops p
 
 ### The phone code
 
-When `handoffTool` is set, the review page is on HTTPS and the host declares `serverTools`, the card also offers **Approve on your phone**, except inside Claude on a phone. It calls the tool with `request_id` and expects `structuredContent` with `requestId`, `expiresIn` (seconds) and `modules`: the QR code as one string of `0` and `1` per row, quiet zone included. The card draws those modules itself with SVG elements, so it never parses markup from the server, and takes the code down when it expires or the request leaves `pending`. The Symfony bundle supplies such a tool.
+When the card was written with a `handoffTool`, the result names the same one, the review page is on HTTPS and the host declares `serverTools`, the card also offers **Approve on your phone**, except in a host that is on a phone already. It calls the tool with `request_id` and expects `structuredContent` with `requestId`, `expiresIn` (seconds) and `modules`: the QR code as one string of `0` and `1` per row, quiet zone included. The card draws those modules itself with SVG elements, so it never parses markup from the server, and takes the code down when it expires or the request leaves `pending`. The Symfony bundle supplies such a tool.
 
 ## The URL-mode elicitation and its retry
 

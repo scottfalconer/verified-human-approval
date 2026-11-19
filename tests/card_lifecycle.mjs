@@ -14,8 +14,10 @@ const approval = (status = 'pending', requestId = 'r1', extra = {}) => ({ conten
 const phoneReply = (requestId = 'r1') => ({ content: [], structuredContent: {
   requestId, modules: Array(21).fill('0'.repeat(21)), expiresIn: 120,
 } });
+// What the server writes into the card (ApprovalCard::html()): the application's origin and its tools.
+const ALERTS = { origin: 'https://alerts.example', statusTool: 'approval_status', handoffTool: 'approval_handoff' };
 
-function host() {
+function host(application = ALERTS) {
   let now = 0, sequence = 0;
   const timers = new Map(), messages = [], listeners = {}, elements = new Map(), answered = new Set(), applied = new Map(), resized = [];
   function element(id) {
@@ -26,6 +28,8 @@ function host() {
     });
     return elements.get(id);
   }
+  // As the template leaves it when the server writes nothing in: {}.
+  element('card-application').textContent = JSON.stringify(application);
   const parent = { postMessage(message) { messages.push(structuredClone(message)); } };
   const document = {
     hidden: false, body: { dataset: {} },
@@ -285,6 +289,54 @@ test('a phone code that cannot be made points at a way the person still has', as
     assert.match(h.status(), /^The phone code could not be made\./);
     assert.match(h.status(), advice);
   }
+});
+
+test('a result that links to another site is not shown, and the card opens and calls nothing for it', async () => {
+  const elsewhere = 'This result names a page on another site, so this card does not show it.';
+  for (const reviewUrl of ['https://alerts.example.evil.test/approval/r1', 'https://alerts.example:8443/approval/r1', 'http://localhost/approval/r1', 'not a link']) {
+    const h = host(); await h.initialize();
+    h.show(approval('pending', 'r1', { reviewUrl, statusTool: 'read_alert', handoffTool: 'publish_alert' }));
+    assert.equal(h.status(), elsewhere, reviewUrl);
+    assert.equal(h.element('site').textContent, 'Approval');
+    assert.equal(h.element('statement').hidden, true);
+    assert.equal(h.element('open').hidden, true);
+    assert.equal(h.element('phone-show').hidden, true);
+    await h.element('open').handlers.click(); await h.element('phone-show').handlers.click();
+    await h.advance(60000);
+    assert.equal(h.messages.some(m => m.method === 'tools/call' || m.method === 'ui/open-link'), false, reviewUrl);
+  }
+  // A status check that answers with another site's link confirms nothing, and the request stays the one shown.
+  const h = host(); await h.initialize(); h.show();
+  await h.advance(3000);
+  await h.reply(h.call('approval_status'), approval('completed', 'r1', { reviewUrl: 'https://alerts.example.evil.test/approval/r1' }));
+  assert.equal(h.status(), 'This card can’t confirm the current status. Check the site before trying again.');
+  assert.equal(h.element('site').textContent, 'Approval needed on alerts.example');
+  // A card its server wrote nothing into opens and calls nothing.
+  const unwritten = host({}); await unwritten.initialize(); unwritten.show();
+  assert.equal(unwritten.status(), elsewhere);
+  await unwritten.advance(60000);
+  assert.equal(unwritten.messages.some(m => m.method === 'tools/call' || m.method === 'ui/open-link'), false);
+});
+
+test('the card calls only the tools its server wrote in, and a result can leave the phone out but not name another', async () => {
+  const h = host(); await h.initialize();
+  h.show(approval('pending', 'r1', { statusTool: 'read_alert', handoffTool: 'publish_alert' }));
+  assert.equal(h.element('open').hidden, false, 'The link is the site’s own.');
+  assert.equal(h.element('phone-show').hidden, true);
+  assert.match(h.status(), /can’t check the result in this app/);
+  await h.element('phone-show').handlers.click();
+  await h.advance(60000);
+  assert.equal(h.messages.some(m => m.method === 'tools/call'), false);
+  // A server without the phone tool writes none in: a result that names one is not offered the phone.
+  const unoffered = host({ ...ALERTS, handoffTool: null }); await unoffered.initialize(); unoffered.show();
+  assert.equal(unoffered.element('phone-show').hidden, true);
+  await unoffered.element('phone-show').handlers.click();
+  assert.equal(unoffered.calls('approval_handoff'), 0);
+  await unoffered.advance(3000);
+  assert.equal(unoffered.calls('approval_status'), 1, 'The status tool is still the site’s.');
+  // And a result for one request can go without it.
+  const left = host(); await left.initialize(); left.show(approval('pending', 'r1', { handoffTool: null }));
+  assert.equal(left.element('phone-show').hidden, true);
 });
 
 test('a request key that named a finished request shows its earlier outcome, not a new approval', async () => {

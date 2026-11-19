@@ -789,6 +789,11 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame($pending->structuredContent['review_url'], $view['reviewUrl']);
         self::assertSame('approval_status', $view['statusTool']);
         self::assertStringContainsString('I approve issuing the public alert', $view['statement']);
+        // The card is written for the review pages' origin and the site's tools: it opens and calls nothing else.
+        self::assertSame(1, preg_match('#<script type="application/json" id="card-application">(.*?)</script>#', $card['text'], $written));
+        $application = json_decode($written[1], true, 512, \JSON_THROW_ON_ERROR);
+        self::assertStringStartsWith(rtrim($application['origin'], '/').'/approval/', $view['reviewUrl']);
+        self::assertSame([$view['statusTool'], $view['handoffTool']], [$application['statusTool'], $application['handoffTool']]);
         $status = $client->callTool('approval_status', ['request_id' => $view['requestId']]);
         self::assertSame('pending', $status->structuredContent['approval']['status']);
         self::assertSame(0, $this->mutationCount());

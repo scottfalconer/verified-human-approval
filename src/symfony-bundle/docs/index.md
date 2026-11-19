@@ -231,6 +231,8 @@ verified_human_approval:
 
 The card then offers no code, the tool is not defined, and a code link answers 410. A server that still lists the tool does not build.
 
+`ApprovalCardApp` serves the card written for `public_origin` and these tools: it opens review pages on that origin only, and calls no other tool, whatever a result names.
+
 Set `allowed_hosts` to your application's host. Keep the MCP route import (`resource: '.', type: mcp`) supplied by your MCP integration. The session lock prevents the card's polling and a tool call from overwriting each other's session state. The request-state key must be at least 32 bytes and separate from the receipt key. Its TTL should exceed your approval lifetime; this example uses a 600-second approval lifetime.
 
 The [tool example](first-action.md#6-expose-the-action-through-mcp) checks the validated token's `approval.read` scope **before** calling `ApprovalFlow::respond()`. This matters because a retry may return a stored result without executing the action again. The tool also declares `ApprovalFlow::OUTPUT_SCHEMA`, uses `ApprovalCard::TOOL_META` and returns structured errors.

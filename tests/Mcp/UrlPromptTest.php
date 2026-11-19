@@ -88,7 +88,7 @@ final class UrlPromptTest extends TestCase
     public function testTheCardLinkMatchesTheSdkSerializationAndTheCardNeverRunsAPasskey(): void
     {
         self::assertSame(['ui' => (new UiToolMeta(resourceUri: ApprovalCard::URI))->jsonSerialize()], ApprovalCard::TOOL_META);
-        $resource = ApprovalCard::resource()->jsonSerialize();
+        $resource = ApprovalCard::resource('https://example.test', 'approval_status')->jsonSerialize();
         self::assertSame(McpApps::MIME_TYPE, $resource['mimeType']);
         self::assertSame(ApprovalCard::URI, $resource['uri']);
         self::assertStringContainsString('ui/open-link', $resource['text']);
@@ -102,6 +102,34 @@ final class UrlPromptTest extends TestCase
         self::assertFalse($view['approvedWithPasskey'], 'Nothing was approved yet.');
         self::assertNull($view['completedAt'], 'Nothing has run yet.');
         self::assertFalse($view['earlier']);
+    }
+
+    public function testTheCardIsWrittenForOneApplicationsOriginAndTools(): void
+    {
+        $application = '<script type="application/json" id="card-application">%s</script>';
+        self::assertStringContainsString(\sprintf($application, '{}'), (string) file_get_contents(\dirname(__DIR__, 2).'/src/mcp/resources/approval-card.html'), 'Served as it is, the card opens and calls nothing.');
+        self::assertStringContainsString(
+            \sprintf($application, '{"origin":"https://example.test","statusTool":"approval_status","handoffTool":"approval_handoff"}'),
+            ApprovalCard::html('https://example.test', 'approval_status', 'approval_handoff'),
+        );
+        self::assertStringContainsString(\sprintf($application, '{"origin":"http://localhost:8080","statusTool":"approval_status","handoffTool":null}'), ApprovalCard::html('http://localhost:8080', 'approval_status'));
+
+        $html = ApprovalCard::html('https://example.test', '</script><script>alert(1)</script>');
+        self::assertStringNotContainsString('<script>alert(1)', $html, 'No value closes the element it is written into.');
+        self::assertStringContainsString('"statusTool":"\\u003C/script\\u003E\\u003Cscript\\u003Ealert(1)\\u003C/script\\u003E"', $html);
+
+        foreach (['http://example.test', 'https://example.test/approval', 'https://alice@example.test', 'https://example.test?next=1', 'https://example.test/#top', 'example.test', 'javascript:alert(1)'] as $origin) {
+            self::assertFalse(ApprovalCard::isOrigin($origin), $origin);
+            try {
+                ApprovalCard::html($origin, 'approval_status');
+                self::fail('The card was written for '.$origin);
+            } catch (\InvalidArgumentException $error) {
+                self::assertSame('The approval card needs the review pages\' origin, on HTTPS or on HTTP localhost.', $error->getMessage());
+            }
+        }
+        foreach (['https://example.test', 'https://example.test/', 'https://example.test:8443', 'http://localhost', 'http://localhost:8080'] as $origin) {
+            self::assertTrue(ApprovalCard::isOrigin($origin), $origin);
+        }
     }
 
     private function assertReason(string $reason, callable $attempt): void
