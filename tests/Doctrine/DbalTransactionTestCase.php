@@ -335,7 +335,7 @@ abstract class DbalTransactionTestCase extends TestCase
         self::assertSame(['FOR UPDATE', $mysql ? 'LOCK IN SHARE MODE' : 'FOR SHARE'], [$this->transaction->forUpdate(), $this->transaction->forShare()]);
         // A session default of REPEATABLE READ does not reach the approval transaction, and is kept for the rest.
         $this->connection->executeStatement($mysql ? 'SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ' : 'SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL REPEATABLE READ');
-        // The behaviour itself, not a level the server reports (MySQL's InnoDB tables answer from a cache that can
+        // The behavior itself, not a level the server reports (MySQL's InnoDB tables answer from a cache that can
         // still list the previous transaction): whether a second read sees what another connection committed after
         // the first. Under READ COMMITTED it does; under REPEATABLE READ the transaction keeps its first snapshot.
         $this->note(11);
