@@ -181,7 +181,7 @@ final class AccountAndAuditTest extends TestCase
         $admin->request('GET', self::ORIGIN.'/admin/audit/'.$id.'/evidence');
         self::assertSame(200, $admin->getResponse()->getStatusCode(), 'An administrator can download the evidence.');
 
-        // Someone with database access rewrites what was approved, keeping every hash consistent.
+        // Someone with database access rewrites what was approved and recomputes its digest, so the proposal reads back.
         $proposal = CanonicalJson::map(CanonicalJson::decode($this->database->pdo->query("SELECT proposal FROM verified_human_approval_requests WHERE id = '$id'")->fetchColumn()));
         $proposal['statement'] = 'I approve something else entirely.';
         $canonical = CanonicalJson::encode((object) $proposal);
