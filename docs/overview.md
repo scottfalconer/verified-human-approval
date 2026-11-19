@@ -8,13 +8,16 @@ For a runnable walkthrough, start with the [demo](../demo/README.md). For a new 
 
 | Component | Responsibility |
 | --- | --- |
-| Host application | Accounts, current permissions, policy, trusted enrollment, business data and every protected write path. |
-| Core | Freeze proposals, manage requests and ceremonies, check current authority, coordinate the transaction and record signed receipts. |
-| WebAuthn bridge | Validate passkey assertions against the configured origin, relying party and trusted credential owner. |
-| MCP presentation | Return a review link, show an approval card where supported, and handle optional URL prompts and their retries. |
-| Symfony bundle | Wire the services, serve review routes, check CSRF, limit attempts and provide status and phone-handoff tools. |
+| Host application | Accounts, current permissions, the approval rule for each action, trusted enrollment, business data and every protected write path. |
+| Core (`verified-human-approval/core`) | Freeze proposals, manage requests and ceremonies, check current authority, coordinate the transaction and record signed receipts. Its PDO stores keep approvals and the signed audit log on SQLite. |
+| WebAuthn bridge (`verified-human-approval/webauthn`) | Validate passkey assertions against the configured origin, relying party and trusted credential owner, keep passkeys, and verify receipts offline. |
+| MCP presentation (`verified-human-approval/mcp`) | Return a review link, show an approval card where supported, and handle optional URL prompts and their retries. |
+| Symfony bundle (`verified-human-approval/symfony-bundle`) | Wire the services, serve review routes, check CSRF, limit attempts and provide status and phone-handoff tools. |
+| Doctrine storage (`verified-human-approval/doctrine`) | Keep approvals, the signed audit log and passkeys on the application's DBAL connection, in one transaction with its entities, and refuse unapproved changes to protected entities. |
+| Storage contracts (`verified-human-approval/store-contracts`) | The tests a storage adapter must pass, with a fixture application and process races, to run against an adapter of your own. |
+| Testing helpers (`verified-human-approval/testing`) | A software passkey, a client for the review page's passkey protocol and a PSR-18 client into the application's kernel, for the host's own integration tests. |
 
-The demo adds its own account administration, OAuth server, alerts site and audit page. Those are reference implementations, not services that the bundle installs into another application.
+The demo adds account administration, an OAuth integration built on maintained packages, the alerts site and an audit page. Those are reference application code, not services that the bundle installs into another application.
 
 ## 1. Request the action
 
@@ -22,17 +25,17 @@ A protected MCP tool derives an `Actor` from the authenticated principal. Its us
 
 The host checks the connection's current result-read permission before it calls `ApprovalFlow::respond()`, including on retries. The core separately checks permission to perform the action.
 
-`ApprovalService::request()` applies the current policy:
+`ApprovalService::request()` applies the action's current rule, an `ApprovalPolicy` from the host's `PolicyProvider`:
 
 - A denied caller receives a refusal.
-- An authorized caller whose policy requires approval receives a pending proposal.
-- An authorized caller whose policy allows direct execution runs through the guarded action and receives a record marked `not_required`.
+- An authorized caller whose rule requires approval receives a pending proposal.
+- An authorized caller whose rule allows direct execution runs through the guarded action and receives a record marked `not_required`.
 
-The application can use the same service from its own website. Its policy must apply at every supported entry point.
+The application can use the same service from its own website. Its rule must apply at every supported entry point.
 
 ## 2. Freeze the proposal
 
-An `ActionAdapter` prepares the exact effect and the state it depends on. The proposal binds the action and adapter version, actor, target, effect, source preconditions, declared dependencies, resolved statement, policy version, locale, request ID and expiry.
+An `ActionAdapter` prepares the exact effect and the state it depends on. The proposal binds the action and adapter version, actor, target, effect, source preconditions, declared dependencies, resolved statement, the rule and its version, locale, request ID and expiry.
 
 The core stores canonical JSON and its SHA-256 digest. It preserves exact string bytes, empty objects versus arrays, and null versus an absent value. Object key order is normalized. Floating point values and arbitrary PHP objects are rejected; represent decimals and large integers as strings.
 
@@ -52,7 +55,7 @@ On HTTPS, the optional phone handoff opens only one review in a scoped browser s
 
 The supplied `PdoApprovalStore` supports SQLite; the Doctrine adapter supports SQLite, PostgreSQL, MySQL and MariaDB. Both own the outer transaction. The action's data, current account and grant records, credentials and approval records must use **the same application connection**. See the [Doctrine guide](../src/doctrine/README.md) for supported versions and ORM integration.
 
-During completion, the core reloads the stored proposal, checks current authority and policy, verifies the assertion, checks preconditions, executes the stored effect and checks postconditions. It consumes the proof, updates the credential counter and records the execution and signed receipt in that transaction.
+During completion, the core reloads the stored proposal, checks current authority and the current rule, verifies the assertion, checks preconditions, executes the stored effect and checks postconditions. It consumes the proof, updates the credential counter and records the execution and signed receipt in that transaction.
 
 The mutation service calls `ExecutionGuard::assertExecuting()`. Every supported write path must use that service. The guard does not intercept unrelated database writes.
 
@@ -62,7 +65,7 @@ This boundary covers local database changes. A remote API call, email or payment
 
 ## 5. Read the outcome and handle retries
 
-Use an explicit request key for an intended action. Reusing it with the same arguments and unchanged target and effect returns the existing request or result. Changed arguments or content produce an `idempotency_conflict`. Use the original request ID to read its recorded outcome. A new intended action needs a new key.
+A request key names one intended action. Reusing it with the same arguments and unchanged target and effect returns the existing request or result. Changed arguments or content produce an `idempotency_conflict`. Use the original request ID to read its recorded outcome. A new intended action needs a new key.
 
 A key must be unique to one intended action, so let the client that generates it be a program. A language model asked to supply a key builds it from the arguments and the date, and often builds the same key in a later conversation, where it returns the earlier outcome. Describe the argument so that an agent leaves it out: `ApprovalFlow::REQUEST_KEY_DESCRIPTION` in the MCP package does.
 
