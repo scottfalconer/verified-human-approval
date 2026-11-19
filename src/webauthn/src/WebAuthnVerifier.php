@@ -252,12 +252,16 @@ final class WebAuthnVerifier implements ApprovalVerifier
         }
     }
 
-    /** This first integration deliberately supports top-level browser ceremonies only. */
+    /**
+     * Refuses a ceremony embedded in a page of another origin, which the browser reports as crossOrigin or with a
+     * topOrigin. Passkeys are enrolled and used on the application's own pages, where the person sees what they
+     * confirm, so a ceremony run inside another site, or inside an MCP host's card, never passes.
+     */
     private function assertTopLevel(PublicKeyCredential $response): void
     {
         $data = $response->response->clientDataJSON;
         if ($data->crossOrigin || null !== $data->topOrigin) {
-            throw new \UnexpectedValueException('Cross-origin and embedded approval ceremonies are not enabled.');
+            throw new \UnexpectedValueException('A ceremony embedded in a page of another origin is refused.');
         }
     }
 

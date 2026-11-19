@@ -187,7 +187,7 @@ final class AnchoredKeyRotationTest extends TestCase
             (new WebAuthnVerifier(new Configuration('approval.test', 'https://approval.test'), $after))->requestOptions($this->actor, random_bytes(32));
             self::fail('The passkey was offered.');
         } catch (ApprovalException $error) {
-            self::assertSame('credential_unvouched', $error->reason, 'Enrolling another passkey would not help, and the person is told so.');
+            self::assertSame('credential_unvouched', $error->reason, 'The person is told their passkey cannot approve now, not asked to enroll a first one.');
         }
         self::assertCount(1, $after->unvouched($this->actor));
         $audit->recordRotation('application-1');
