@@ -76,25 +76,27 @@ The [examples guide](examples/README.md) explains what each example runs, and th
 | Attempt | Result |
 | --- | --- |
 | A staff member's agent asks to issue the alert | Pending until that person approves with their passkey. The agent can't skip it |
-| A read-only colleague's agent asks | Refused: the rule doesn't let that role issue alerts |
+| A read-only colleague's agent asks | Refused: its token lacks the publishing scope, and with every scope the rule still refuses that role |
 | The administrator changes the rule while a request waits | That request can no longer be approved |
 | The draft is edited after you reviewed it | Not issued: the proposal no longer matches |
 | The alerts page layout changes after review | Not issued: the layout is part of what you approved |
 | A signed approval is replayed for another request | Rejected: the signature covers one proposal's digest |
 | A client answers "accept" without your passkey | Still pending: accepting only means the person agreed to open the page |
-| The same approval is repeated | The same receipt, and the alert issued once |
+| The same approval is sent twice, or the agent repeats its request key | The alert is issued once. A key repeated after it ran gets the recorded outcome, which says it is the earlier request's and that nothing ran now |
 | The rule lets a role act directly | It runs, and the agent's result and the review page say it ran without a passkey |
-| A phone code is used twice, or after two minutes | Refused: each code works once |
-| Someone with only the password tries to add a passkey | Refused: adding one takes a one-time link or a fresh confirmation with an existing passkey |
+| A phone code is used twice, or after two minutes | Refused: each code works once, for two minutes, and the phone session it opens lasts ten minutes |
+| Someone with only the password tries to add a passkey | Refused: the first passkey takes a one-time link; another takes a fresh confirmation with an existing passkey, or a new link that an administrator confirms with their own passkey to issue |
 | A passkey row is added or changed directly in the database | It approves nothing: no signed enrollment record vouches for it |
-| A record is edited and its receipt deleted to hide it | The audit page flags it, and no evidence is signed for that record |
 | A passkey is revoked just after it confirmed adding another | The confirmation ends with it: no new passkey or passkey link |
+| A passkey's revocation is deleted or rewritten in the database | It stays revoked, unless the log is cut back to before it, or rewritten from an earlier key rotation onward with the retired key. Only a checkpoint of the log's head, kept elsewhere, shows either |
+| A completed approval's stored record is edited, even by one character | Its owner's review page and the agent's tools say the outcome cannot be confirmed, and the audit page flags the record |
 | An approval's proposal is rewritten in the database, with its digest recomputed to match | The audit page's checks fail: the receipt was signed at commit, and the passkey signed the original |
+| A record is edited and its receipt deleted to hide it | The audit page flags it, and no evidence is signed for that record |
 | The site's record changes after the person kept their receipt | Their copy no longer matches it, checked with only the site's published key |
 | An administrator's password alone tries to switch verification off | Pending: the rule change waits for the administrator's passkey |
 | Another account, or the person's own personal token | Another account cannot open the request, and the token cannot approve it, add a passkey or change the rule |
 
-The tests in [tests](tests) cover each row, except the phone code's two-minute limit: the code enforces it, but no test moves the clock past it.
+The tests in [tests](tests) cover each row.
 
 ## Check the original record later
 
