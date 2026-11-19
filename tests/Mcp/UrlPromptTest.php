@@ -76,6 +76,8 @@ final class UrlPromptTest extends TestCase
         foreach (['decline', 'cancel', 'none'] as $answer) {
             self::assertStringContainsString('nothing was approved or changed', UrlPrompt::note($answer, $pending, 'approval_status'));
         }
+        self::assertStringStartsWith('The approval prompt was dismissed', UrlPrompt::note('decline', $pending, 'approval_status'));
+        self::assertStringStartsWith('The client sent no answer to the approval prompt', UrlPrompt::note('none', $pending, 'approval_status'), 'A client that answered nothing did not dismiss anything.');
         $cancelled = $fixture->service->cancel($fixture->reviewer, $pending->request->id);
         self::assertStringContainsString('did not change anything', UrlPrompt::note('accept', $cancelled, 'approval_status'));
         $message = UrlPrompt::message($pending, 'http://localhost:8080/approval/'.$pending->request->id);
