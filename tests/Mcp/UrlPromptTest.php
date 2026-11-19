@@ -38,6 +38,12 @@ final class UrlPromptTest extends TestCase
         self::assertNotSame($binding, UrlPrompt::binding(new Actor('bob', 'tenant-a', 'agent-1'), 'publish', ['id' => 1, 'key' => 'k']));
         self::assertNotSame($binding, UrlPrompt::binding($actor, 'delete', ['id' => 1, 'key' => 'k']));
         self::assertNotSame($binding, UrlPrompt::binding($actor, 'publish', ['id' => 2, 'key' => 'k']));
+
+        // A refund of 12.50, with a nested filter whose keys arrive in another order on the retry.
+        $refund = UrlPrompt::binding($actor, 'refund', ['amount' => 12.5, 'filter' => ['b' => 0.1, 'a' => [1.0, 2]]]);
+        self::assertSame($refund, UrlPrompt::binding($actor, 'refund', ['filter' => ['a' => [1, 2], 'b' => 0.1], 'amount' => 12.5]), 'The same JSON numbers, in any key order.');
+        self::assertNotSame($refund, UrlPrompt::binding($actor, 'refund', ['amount' => 12.51, 'filter' => ['b' => 0.1, 'a' => [1.0, 2]]]));
+        self::assertNotSame($refund, UrlPrompt::binding($actor, 'refund', ['amount' => 12.5, 'filter' => ['b' => 0.1, 'a' => [2, 1]]]), 'The order of a list is part of the arguments.');
     }
 
     public function testAResumedRoundYieldsTheBoundRequestAndTheClientAnswer(): void

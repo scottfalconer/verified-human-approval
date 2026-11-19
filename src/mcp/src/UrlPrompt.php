@@ -15,7 +15,6 @@ use Mcp\Server\Stateless\RequestMeta;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalState;
-use VerifiedHumanApproval\Core\CanonicalJson;
 
 /**
  * An optional URL-mode elicitation (MCP 2026-07-28 multi round-trip) for a pending approval.
@@ -79,11 +78,29 @@ final readonly class UrlPrompt
     /**
      * Binds a continuation to who called which tool with which arguments.
      *
+     * The binding is not evidence, so it takes whatever JSON the client sent, decimals included: every object's
+     * keys are put in order, so the order a client sent them in does not matter, and 1 and 1.0 bind alike.
+     *
      * @param array<string, mixed> $arguments
      */
     public static function binding(Actor $actor, string $tool, array $arguments): string
     {
-        return hash('sha256', CanonicalJson::encode([self::FORMAT, (object) $actor->toArray(), $tool, (object) $arguments]));
+        return hash('sha256', json_encode([self::FORMAT, $actor->toArray(), $tool, self::sorted($arguments)], \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE));
+    }
+
+    private static function sorted(mixed $value): mixed
+    {
+        if ($value instanceof \stdClass) {
+            $value = get_object_vars($value);
+        }
+        if (!\is_array($value)) {
+            return $value;
+        }
+        if (!array_is_list($value)) {
+            ksort($value, \SORT_STRING);
+        }
+
+        return array_map(self::sorted(...), $value);
     }
 
     /**

@@ -122,8 +122,9 @@ final readonly class ApprovalFlow
      */
     public function respond(RequestContext $context, Actor $actor, string $tool, array $arguments, callable $request): CallToolResult|InputRequiredResult
     {
-        $binding = UrlPrompt::binding($actor, $tool, $arguments);
-        $resumed = UrlPrompt::resumed($context->getInputContext(), $binding);
+        // The binding is worked out only for a call that carries a continuation, and for the prompt that starts one.
+        $input = $context->getInputContext();
+        $resumed = null === $input ? null : UrlPrompt::resumed($input, UrlPrompt::binding($actor, $tool, $arguments));
         if (null !== $resumed) {
             $state = $this->approvals->get($actor, $resumed['requestId']);
 
@@ -132,7 +133,7 @@ final readonly class ApprovalFlow
 
         $state = $request();
         if ('pending' === $state->status && $this->prompt->allowsContext($context)) {
-            return $this->prompt->ask($context, $state, $this->presenter->reviewUrl($state), $binding);
+            return $this->prompt->ask($context, $state, $this->presenter->reviewUrl($state), UrlPrompt::binding($actor, $tool, $arguments));
         }
 
         return $this->presenter->toolResult($state);
