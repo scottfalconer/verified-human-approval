@@ -503,6 +503,37 @@ final class ApplicationIntegrationTest extends TestCase
         $this->assertPublic($id, 'Verified story', 'A visible article with signed approval.', false);
     }
 
+    /** @return iterable<string, array{string, bool}> an edit that leaves a stored record unreadable, and whether its proposal still shows whose it is */
+    public static function editsPastReading(): iterable
+    {
+        yield 'one character of the proposal' => ["proposal = substr(proposal, 1, 20) || 'X' || substr(proposal, 22)", false];
+        yield 'the result, to text that is not JSON' => ["result = 'published'", true];
+    }
+
+    /** A record edited so far that it cannot be read back keeps its place in the history, and nothing in it is shown as what happened. */
+    #[DataProvider('editsPastReading')]
+    public function testARecordEditedPastReadingStaysInTheHistoryAsOneThatCannotBeRead(string $edit, bool $showsOwner): void
+    {
+        $id = $this->published('web', 'Recorded change', 'A page with an approval history.');
+        $damaged = $this->row($id)['live_request_id'];
+        $this->ask('web', 'archive', $id);
+        $this->database->executeStatement('UPDATE '.ApprovalSchema::REQUESTS.' SET '.$edit.' WHERE id = ?', [$damaged]);
+
+        foreach ($showsOwner ? ['editor' => 'View request', 'reader' => 'Another account’s request'] : ['editor' => $damaged, 'reader' => $damaged] as $account => $record) {
+            $browser = $this->browser($account);
+            $rows = $browser->request('GET', self::ORIGIN.'/desk/history/'.$id)->filter('tbody tr');
+            self::assertSame(200, $browser->getResponse()->getStatusCode(), $account.': a damaged record does not take the history down.');
+            self::assertCount(2, $rows, $account);
+            self::assertStringContainsString('Archive published page: Recorded change', $rows->eq(0)->text(), $account.': the records that read back are listed as before.');
+            self::assertSame(['This record cannot be read', 'Integrity error', 'Cannot be confirmed', $record], $rows->eq(1)->filter('td')->each(static fn (Crawler $cell): string => $cell->text()), $account);
+        }
+        if ($showsOwner) {
+            $editor = $this->browser();
+            $editor->request('GET', self::ORIGIN.(string) $editor->getCrawler()->filter('tbody tr')->eq(1)->filter('a')->attr('href'));
+            self::assertSame(409, $editor->getResponse()->getStatusCode(), 'Its owner’s link opens the page that says its outcome cannot be confirmed.');
+        }
+    }
+
     private function kernel(): Kernel
     {
         $kernel = new Kernel('test', false);

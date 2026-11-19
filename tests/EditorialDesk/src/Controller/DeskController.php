@@ -16,6 +16,7 @@ use VerifiedHumanApproval\Bundle\ActorProvider;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalHistory;
 use VerifiedHumanApproval\Core\ApprovalService;
+use VerifiedHumanApproval\Core\UnreadableApproval;
 
 final class DeskController extends AbstractController
 {
@@ -100,13 +101,19 @@ final class DeskController extends AbstractController
         $this->authority->assertReader($actor);
         $rows = [];
         foreach ($this->history->forResource($actor->tenantId, $id) as $state) {
+            if ($state instanceof UnreadableApproval) {
+                // Nothing in it is shown as what was asked or how it ended. While its proposal reads back, it still
+                // shows whose it is; otherwise only its id is known (owned is null).
+                $rows[] = ['unreadable' => true, 'id' => $state->requestId, 'owned' => $state->error->request?->actor()->samePerson($actor)];
+                continue;
+            }
             try {
                 $state->assertConsistent();
                 $integrity = true;
             } catch (ApprovalException) {
                 $integrity = false;
             }
-            $rows[] = ['state' => $state, 'integrity' => $integrity, 'owned' => $state->request->actor()->samePerson($actor)];
+            $rows[] = ['unreadable' => false, 'state' => $state, 'integrity' => $integrity, 'owned' => $state->request->actor()->samePerson($actor)];
         }
 
         return $this->render('desk/history.html.twig', ['resource_id' => $id, 'rows' => $rows]);
