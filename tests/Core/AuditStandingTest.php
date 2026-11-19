@@ -58,6 +58,10 @@ final class AuditStandingTest extends TestCase
         yield 'an entry before the rotation edited' => [static function (InMemoryAuditStore $store): void {
             $store->rows[3]['hash'] = str_repeat('0', 64);
         }, ['tablet']];
+        // Its hash and every link hold, so only checking the first entry itself shows the damage.
+        yield 'the first entry\'s signature broken' => [static function (InMemoryAuditStore $store): void {
+            $store->rows[1]['signature'] = 'AAAA';
+        }, ['tablet']];
         yield 'the rotation signed again with the retired key' => [static function (InMemoryAuditStore $store, SodiumEvidenceSigner $old): void {
             $store->rows[5]['key_id'] = $old->keyId();
             $store->rows[5]['signature'] = $old->sign($store->rows[5]['entry']);
@@ -86,6 +90,21 @@ final class AuditStandingTest extends TestCase
         self::assertSame($standing, array_map(strval(...), array_keys($weighed)));
         self::assertEquals($alone, $weighed, 'Each stands as it would alone, with the entry find() returns.');
         self::assertSame(1, $counted->readings, 'Three of them were enrolled under the retired key, and the chain was read once.');
+    }
+
+    public function testASubjectEnrolledAgainStandsWithItsNewestEntry(): void
+    {
+        // The revocation's signature is broken, so nothing enrolled before it stands; then the phone is enrolled again.
+        $this->store->rows[7]['signature'] = 'AAAA';
+        $log = $this->log($this->store);
+        $again = $log->append('acme', 'passkey.enrolled', 'phone', ['userId' => 'alice']);
+
+        $counted = $this->counted();
+        $weighed = $this->log($counted)->standing('passkey.enrolled', self::SUBJECTS, 'passkey.revoked');
+        self::assertSame(['phone'], array_map(strval(...), array_keys($weighed)), 'Judged from its newest entry, no damaged entry follows it.');
+        self::assertEquals($again, $weighed['phone']);
+        self::assertEquals($log->find('passkey.enrolled', 'phone'), $weighed['phone'], 'The entry find() returns.');
+        self::assertSame(1, $counted->readings);
     }
 
     public function testNothingToWeighReadsNothing(): void
