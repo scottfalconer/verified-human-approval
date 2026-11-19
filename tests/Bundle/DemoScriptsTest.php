@@ -534,6 +534,31 @@ final class DemoScriptsTest extends TestCase
         self::assertSame('https://new-tunnel-name.trycloudflare.com', self::settings($checkout.'/var/public-demo')['origin']);
     }
 
+    /** @return iterable<string, array{int}> how a person interrupts a script, and the signal that sends, by the number POSIX fixes for it */
+    public static function interruptions(): iterable
+    {
+        yield 'its terminal closing' => [1];
+        yield 'Ctrl-C' => [2];
+        yield 'Ctrl-\\' => [3];
+        yield 'kill' => [15];
+    }
+
+    #[DataProvider('interruptions')]
+    public function testPublicStartStopsItsTunnelWhenInterruptedAtTheQuestion(int $signal): void
+    {
+        // This checkout's tunnel came back at another address, so start asks about replacing the demo while it runs.
+        $checkout = $this->checkout('https://old-tunnel-name.trycloudflare.com', 'var/public-demo');
+        $this->tunnel($checkout, 'https://new-tunnel-name.trycloudflare.com');
+        [$status, $output] = $this->startAsking($checkout, static function ($script) use ($signal): void {
+            proc_terminate($script, $signal);
+        });
+        self::assertSame(1, $status, $output);
+        self::assertStringEndsWith("Replace it? [y/N] Stopped this checkout's tunnel, so that it publishes nothing else.\n", $output);
+        self::assertFileDoesNotExist($this->world().'/jobs/'.self::TUNNEL, 'Left in launchd, the tunnel would publish whatever takes the port next.');
+        self::assertSame(['launchctl remove '.self::TUNNEL], $this->calls(), 'Nothing was replaced, set up or started.');
+        self::assertSame('https://old-tunnel-name.trycloudflare.com', self::settings($checkout.'/var/public-demo')['origin']);
+    }
+
     public function testPublicResetRefusesATakenPort(): void
     {
         $checkout = $this->checkout('https://tunnel-name.trycloudflare.com', 'var/public-demo');
@@ -928,6 +953,22 @@ final class DemoScriptsTest extends TestCase
      */
     private function startAnswering(string $checkout, string $answer, callable $meanwhile): array
     {
+        return $this->startAsking($checkout, static function ($script, $terminal) use ($answer, $meanwhile): void {
+            $meanwhile();
+            fwrite($terminal, $answer."\n");
+        });
+    }
+
+    /**
+     * Runs $checkout's demo/bin/public start on this computer at a terminal, as a person does. Once it asks whether to
+     * replace the demo, $atTheQuestion is given the running script and the terminal it waits to read an answer from.
+     *
+     * @param callable(resource, resource): void $atTheQuestion
+     *
+     * @return array{int, string} the exit status, and what it printed on both outputs
+     */
+    private function startAsking(string $checkout, callable $atTheQuestion): array
+    {
         $environment = ['PATH' => $this->computer().':'.\dirname(\PHP_BINARY).':/usr/bin:/bin', 'PHP_BIN' => \PHP_BINARY] + getenv();
         unset($environment['PORT'], $environment['VERIFIED_HUMAN_APPROVAL_RUNTIME']);
         $process = @proc_open([$checkout.'/demo/bin/public', 'start'], [0 => ['pty'], 1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, \dirname(__DIR__, 2), $environment);
@@ -939,8 +980,7 @@ final class DemoScriptsTest extends TestCase
             $output .= (string) fread($pipes[1], 8192);
         }
         if (str_ends_with($output, 'Replace it? [y/N] ')) {
-            $meanwhile();
-            fwrite($pipes[0], $answer."\n");
+            $atTheQuestion($process, $pipes[0]);
         }
         $output .= (string) stream_get_contents($pipes[1]);
         fclose($pipes[0]);
