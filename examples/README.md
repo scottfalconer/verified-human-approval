@@ -82,7 +82,7 @@ php examples/agent.php 'Issue the riverside-evacuation alert. If approval is nee
 
 It uses `gpt-4.1-mini`. To use another model your API account offers, set `VERIFIED_HUMAN_APPROVAL_MODEL` to its ID first.
 
-This mode makes a live model request and may incur API charges. Its instructions tell the agent to show the application's review URL and stop while approval is pending. The application enforces approval regardless of the model's response. Check the application's recorded status before treating an action as complete.
+This mode makes a live model request and may incur API charges. No run of it is recorded. Its instructions tell the agent to show the application's review URL and stop while approval is pending. The application enforces approval regardless of the model's response. After the model's reply, the script prints `Review and approve:` with the review link from the application's tool result, whatever the reply said. Check the application's recorded status before treating an action as complete.
 
 ## Source map
 
