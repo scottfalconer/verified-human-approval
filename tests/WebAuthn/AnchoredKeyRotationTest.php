@@ -102,6 +102,75 @@ final class AnchoredKeyRotationTest extends TestCase
         self::assertTrue($this->approves($after, $phone), 'A passkey enrolled after it approves.');
     }
 
+    /** @return iterable<string, array{?string, ?string}> the window an operator gives the retired key again: its start and its end */
+    public static function windowsGivenAgain(): iterable
+    {
+        yield 'an end that covers the entry' => ['2026-11-01T00:00:00Z', '2026-11-09T14:00:00Z'];
+        yield 'no end' => ['2026-11-01T00:00:00Z', null];
+        yield 'no window at all' => [null, null];
+    }
+
+    #[DataProvider('windowsGivenAgain')]
+    public function testAnEntryTheRetiredKeySignsAfterTheRotationStaysRefusedWhateverWindowThatKeyIsGiven(?string $from, ?string $until): void
+    {
+        $laptop = new VirtualAuthenticator();
+        $this->enroll($this->repository($this->old, new TrustedKeys([new TrustedKey('application-1', $this->old->publicKey(), TrustedKey::time('2026-11-01T00:00:00Z'))])), $laptop);
+        $this->rotate();
+        (new AuditLog($this->auditStore, $this->old, TrustedKeys::single('application-1', $this->old->publicKey()), new MockClock('2026-11-09T12:02:00Z')))->append('acme', 'connection.revoked', 'grant-1', ['by' => 'worker']);
+        $this->clock->sleep(600);
+
+        $keys = new TrustedKeys([
+            new TrustedKey('application-2', $this->new->publicKey(), TrustedKey::time(self::ROTATED)),
+            new TrustedKey('application-1', $this->old->publicKey(), null === $from ? null : TrustedKey::time($from), null === $until ? null : TrustedKey::time($until)),
+        ]);
+        self::assertFalse($this->approves($this->repository($this->new, $keys), $laptop));
+        self::assertSame('it is signed with key "application-1", which entry 2 rotated away from', (new AuditLog($this->auditStore, $this->new, $keys, $this->clock))->verify()['entries'][2]['problem']);
+    }
+
+    public function testAStaleEntryRecordedBeforeTheRotationStopsPasskeysOnlyUntilTheOldKeysWindowCoversIt(): void
+    {
+        $laptop = new VirtualAuthenticator();
+        $this->enroll($this->repository($this->old, new TrustedKeys([new TrustedKey('application-1', $this->old->publicKey(), TrustedKey::time('2026-11-01T00:00:00Z'))])), $laptop);
+        // The switch: the old key's window closes and the new key signs, before the rotation is recorded.
+        $this->clock->modify(self::ROTATED);
+        $this->clock->sleep(60);
+        $phone = new VirtualAuthenticator();
+        $this->enroll($this->repository($this->new, $this->rotatedKeys()), $phone);
+        // A worker still on the old configuration signs an entry a minute later, after the old key's window closed.
+        (new AuditLog($this->auditStore, $this->old, TrustedKeys::single('application-1', $this->old->publicKey()), new MockClock('2026-11-09T12:02:00Z')))->append('acme', 'connection.revoked', 'grant-1', ['by' => 'worker']);
+        $this->clock->sleep(120);
+        (new AuditLog($this->auditStore, $this->new, $this->rotatedKeys(), $this->clock))->recordRotation('application-1');
+        $this->clock->sleep(600);
+
+        $after = $this->repository($this->new, $this->rotatedKeys());
+        self::assertFalse($this->approves($after, $laptop));
+        self::assertFalse($this->approves($after, $phone));
+
+        // The operator moves the old key's end to cover the worker's entry, which comes before the rotation entry.
+        $covering = new TrustedKeys([
+            new TrustedKey('application-2', $this->new->publicKey(), TrustedKey::time(self::ROTATED)),
+            new TrustedKey('application-1', $this->old->publicKey(), TrustedKey::time('2026-11-01T00:00:00Z'), TrustedKey::time('2026-11-09T12:02:00Z')),
+        ]);
+        $covered = $this->repository($this->new, $covering);
+        self::assertTrue($this->approves($covered, $laptop), 'Neither passkey was enrolled again.');
+        self::assertTrue($this->approves($covered, $phone));
+        self::assertTrue((new AuditLog($this->auditStore, $this->new, $covering, $this->clock))->verify()['intact']);
+    }
+
+    public function testAnEntrySignedWithAKeyAHostDoesNotListYetStopsPasskeysOnlyUntilItIsListed(): void
+    {
+        $opened = new TrustedKeys([new TrustedKey('application-1', $this->old->publicKey(), TrustedKey::time('2026-11-01T00:00:00Z'))]);
+        $laptop = new VirtualAuthenticator();
+        $this->enroll($this->repository($this->old, $opened), $laptop);
+        // Another host already signs with the new key, which this host's configuration does not list yet.
+        $this->clock->modify(self::ROTATED);
+        $this->clock->sleep(60);
+        (new AuditLog($this->auditStore, $this->new, $this->rotatedKeys(), $this->clock))->append('acme', 'connection.revoked', 'grant-1', ['by' => 'editor']);
+
+        self::assertFalse($this->approves($this->repository($this->old, $opened), $laptop), 'An entry this host cannot check could be the revocation.');
+        self::assertTrue($this->approves($this->repository($this->new, $this->rotatedKeys()), $laptop), 'Once the host lists the new key, the passkey approves without being enrolled again.');
+    }
+
     /** @return iterable<string, array{string}> the time each rewritten entry claims: the one it had, or one inside the old key's window */
     public static function rewrittenRevocations(): iterable
     {
