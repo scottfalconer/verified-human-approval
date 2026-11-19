@@ -1,6 +1,6 @@
 {
   "name": "verified-human-approval/core",
-  "description": "Immutable, caller-bound approval and atomic local action execution for PHP.",
+  "description": "The framework-neutral engine of Verified Human Approval: it freezes an action's exact proposal, checks current permissions again and executes the approved proposal once in one database transaction, with signed receipts and a signed audit log.",
   "keywords": ["approval", "human-in-the-loop", "ai-agents", "audit-log", "receipts", "ed25519"],
   "type": "library",
   "license": "MIT",
