@@ -167,5 +167,6 @@ The tests cover real WebAuthn signatures, Symfony and MCP integration, concurren
 - [Security model](docs/security-model.md)
 - [Reporting a vulnerability](SECURITY.md)
 - [Verify a receipt](docs/evidence.md)
+- [Contributing](CONTRIBUTING.md)
 
 MIT licensed: the packages, the demo, the examples and the test applications. See [LICENSE](LICENSE).
