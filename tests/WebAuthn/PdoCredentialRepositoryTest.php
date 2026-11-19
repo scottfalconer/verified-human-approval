@@ -22,4 +22,17 @@ final class PdoCredentialRepositoryTest extends TestCase
         $this->expectExceptionMessage('This reference repository supports SQLite only');
         new PdoCredentialRepository($mysql);
     }
+
+    /** A duplicate passkey must fail loudly: an insert that failed quietly would be anchored as an enrollment. */
+    public function testAConnectionThatDoesNotThrowOnErrorsIsRefusedAndLeftAsItWas(): void
+    {
+        $silent = new \PDO('sqlite::memory:', options: [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_SILENT]);
+        try {
+            new PdoCredentialRepository($silent);
+            self::fail('A connection that does not throw on errors was accepted.');
+        } catch (\InvalidArgumentException $error) {
+            self::assertStringContainsString('PDO::ERRMODE_EXCEPTION', $error->getMessage());
+        }
+        self::assertSame(\PDO::ERRMODE_SILENT, $silent->getAttribute(\PDO::ATTR_ERRMODE));
+    }
 }

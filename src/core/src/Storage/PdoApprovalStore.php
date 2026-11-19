@@ -21,14 +21,20 @@ final class PdoApprovalStore implements ApprovalStore, ApprovalHistory
 
     private bool $active = false;
 
+    /**
+     * Works on the application's connection as it is, and changes none of its settings. One that does not throw on
+     * errors (PDO::ERRMODE_EXCEPTION, PHP's default) is refused: a write that failed quietly could be taken for one
+     * that happened. How long an approval waits for another writer is the connection's busy timeout
+     * (PDO::ATTR_TIMEOUT, 60 seconds unless set).
+     */
     public function __construct(private readonly \PDO $pdo)
     {
         if ('sqlite' !== $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME)) {
             throw new \InvalidArgumentException('This reference adapter supports SQLite only; supply another transactional adapter for other databases.');
         }
-        $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
-        $pdo->exec('PRAGMA foreign_keys = ON');
-        $pdo->exec('PRAGMA busy_timeout = 10000');
+        if (\PDO::ERRMODE_EXCEPTION !== $pdo->getAttribute(\PDO::ATTR_ERRMODE)) {
+            throw new \InvalidArgumentException('This adapter needs a connection that throws on errors: set PDO::ATTR_ERRMODE to PDO::ERRMODE_EXCEPTION.');
+        }
     }
 
     public function initialize(): void
