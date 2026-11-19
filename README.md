@@ -1,23 +1,18 @@
 # Verified Human Approval
 
-**Cryptographic evidence of human approval, bound to the exact action.**
+[![Tests](https://github.com/scottfalconer/verified-human-approval/actions/workflows/tests.yml/badge.svg)](https://github.com/scottfalconer/verified-human-approval/actions/workflows/tests.yml)
 
-Let an AI agent request an action in your Symfony application. When your application's rule requires approval, it freezes the proposal and asks the person to review it on your site. The person approves with a passkey. The application checks their current permissions, applies that stored proposal once, and signs a receipt as the action commits.
+**A Symfony bundle that requires a human's passkey before a high-risk MCP tool runs.**
 
-The demo is a council alerts site. An agent can request publication of an evacuation alert, but an editor must review the exact public page and approve it before it goes live. The same rule applies to the site's own **Issue alert** button.
+Allowing an AI agent to use an application is not the same as a person approving a specific change. With this bundle, an agent requests an action through an ordinary MCP tool. When your application's rule requires approval, the application freezes the exact proposal and asks the person to review it on your site. The person approves with a passkey. The application checks their current permissions, applies that stored proposal once, and signs a receipt as the action commits: cryptographic evidence of human approval, bound to the exact action.
+
+![The demo's review page. Left: an agent's request to issue the public alert "Evacuation order: Riverside Road area", the statement the editor approves, and the buttons "Approve with your passkey" and "Cancel request". Right: the frozen preview of the public alerts page that goes live on approval, marked "Frozen preview, revision 1".](docs/images/review-page.png)
+
+The demo is a council alerts site. An agent can request publication of an evacuation alert, but an editor must review the exact public page, as above, and approve it before it goes live. The same rule applies to the site's own **Issue alert** button.
+
+Built for the [Symfony AI & MCP Hackathon](https://symfony.com/hackathon/projects/verified-human-approval).
 
 **[Run the demo](demo/README.md)** · **[Integrate into Symfony](src/symfony-bundle/docs/index.md)** · **[Test your integration](src/symfony-bundle/docs/testing.md)** · **[Verify a receipt](docs/evidence.md)**
-
-## Current scope
-
-This is a development preview. The packages are not on Packagist yet; the integration guide shows how to install them from this repository. [Versions and releases](docs/releasing.md) says what a version promises, and [the changelog](CHANGELOG.md) what is in the first one.
-
-- PHP 8.3+ and Symfony 7.4 or 8. Symfony 8 requires PHP 8.4+.
-- Storage: the PDO store supports **SQLite**; the Doctrine package supports **SQLite, PostgreSQL, MySQL 8.0.17+ and MariaDB** on your DBAL connection, with your entities in the same transaction. Either way, approval records, credentials, permission checks and the business change must use the same connection and transaction.
-- Your application supplies its accounts, current permissions, trusted passkey enrollment and protected action. The bundle supplies the approval flow and review pages.
-- Configure `receipt_signer` to sign receipts when actions commit. The demo and integration example include this configuration.
-- Passkeys use WebAuthn. The device can use Touch ID, Face ID, a PIN or another supported local method. The server receives a signature, not biometric data, and does not claim which local method was used.
-- The demo's account screens, administrator audit page and maintained-package OAuth integration are reference application code. The bundle uses the host's authentication and current permissions; it does not provide an OAuth issuer. See the [host contract](src/symfony-bundle/docs/authentication.md).
 
 ## Try it locally
 
@@ -95,6 +90,17 @@ The verifier uses public keys trusted separately from the downloaded record. Cha
 The person keeps their own copy. Once the action runs, the review page offers **Download your receipt**: the exact request, their passkey's signature on it and what ran, signed by the site as it ran. The agent's result carries the same signed receipt, and the site publishes the keys that check it at `/approval/receipt-keys.json`, including any key it [rotated](docs/evidence.md#rotate-the-signing-key) away from. If the site's record of that request were changed or deleted later, the person's copy would show it.
 
 This checks the **historical approval and execution record**. It does not monitor later edits to the live content, prove what the person understood, or independently witness the database change. Follow the [receipt walkthrough](docs/evidence.md) to verify a real demo receipt and then see an edited copy fail.
+
+## Current scope
+
+This is a development preview. The packages are not on Packagist yet; the integration guide shows how to install them from this repository. [Versions and releases](docs/releasing.md) says what a version promises, and [the changelog](CHANGELOG.md) what is in the first one.
+
+- PHP 8.3+ and Symfony 7.4 or 8. Symfony 8 requires PHP 8.4+.
+- Storage: the PDO store supports **SQLite**; the Doctrine package supports **SQLite, PostgreSQL, MySQL 8.0.17+ and MariaDB** on your DBAL connection, with your entities in the same transaction. Either way, approval records, credentials, permission checks and the business change must use the same connection and transaction.
+- Your application supplies its accounts, current permissions, trusted passkey enrollment and protected action. The bundle supplies the approval flow and review pages.
+- Configure `receipt_signer` to sign receipts when actions commit. The demo and integration example include this configuration.
+- Passkeys use WebAuthn. The device can use Touch ID, Face ID, a PIN or another supported local method. The server receives a signature, not biometric data, and does not claim which local method was used.
+- The demo's account screens, administrator audit page and maintained-package OAuth integration are reference application code. The bundle uses the host's authentication and current permissions; it does not provide an OAuth issuer. See the [host contract](src/symfony-bundle/docs/authentication.md).
 
 ## Add it to your Symfony application
 
