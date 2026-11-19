@@ -40,7 +40,8 @@ final readonly class Ceremony
             }
 
             return new self($id, $requestId, $nonce, $challenge, $expiresAt, CanonicalJson::map(CanonicalJson::decode($options)), $consumed);
-        } catch (\Exception $error) {
+        } catch (\Exception|\ValueError $error) {
+            // createFromFormat() refuses an expiry with a NUL byte in it with a ValueError.
             throw new ApprovalException('corrupt_ceremony', 'The stored passkey ceremony cannot be read back. Start a fresh review.', $error);
         }
     }
