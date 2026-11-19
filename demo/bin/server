@@ -55,10 +55,12 @@ own_processes() { ps -axww -o pid= -o command= | while read -r pid command; do c
 # Who holds PORT. Returns 0 for this demo's own server and 3 for nothing. Otherwise it says what does, and
 # returns 2 for this checkout's server when it is not this demo's job, or 1 for any other program.
 holder() {
+  # Whether anything answers comes first: a server that starts listening a moment later is then listed by lsof too,
+  # rather than answering only after lsof has looked.
+  nc -z localhost "$PORT" >/dev/null 2>&1 || return 3
   pids=$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null) || pids=
   if [ -z "$pids" ]; then
     # lsof lists only this account's processes; a listener it cannot see still answers.
-    nc -z localhost "$PORT" >/dev/null 2>&1 || return 3
     echo "Port $PORT is in use by a program this account cannot inspect."
     return 1
   fi

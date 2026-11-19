@@ -53,6 +53,8 @@ final class DemoScriptsTest extends TestCase
                   printf '\t\t"%s";\n' "$@"
                   printf '\t);\n};\n'
                 } > "$world/jobs/$label"
+                # A job in world/failing keeps failing: its program exits as soon as it starts, and launchd keeps the job.
+                ! grep -qx "$label" "$world/failing" || exit 0
                 # The program starts once env has applied its settings, and php -S forks the workers they ask for.
                 workers=0
                 if [ "$1" = /usr/bin/env ]; then
@@ -65,10 +67,11 @@ final class DemoScriptsTest extends TestCase
                     esac
                   done
                 fi
+                # A server listens a moment after it starts: lsof and nc find it from the second look at its port on.
                 port=-
                 previous=
                 for argument; do
-                  [ "$previous" != -S ] || port=${argument#localhost:}
+                  [ "$previous" != -S ] || port=starting:${argument#localhost:}
                   previous=$argument
                 done
                 echo "$pid $port $label $*" >> "$world/processes"
@@ -98,6 +101,8 @@ final class DemoScriptsTest extends TestCase
             while read -r pid port job command; do
               if [ "$port" = "$wanted" ]; then echo "$pid"; found=0; fi
             done < "$world/processes"
+            sed 's/^\([0-9]*\) starting:/\1 /' "$world/processes" > "$world/processes.next"
+            mv "$world/processes.next" "$world/processes"
             exit $found
             SH,
         'ps' => <<<'SH'
@@ -125,10 +130,13 @@ final class DemoScriptsTest extends TestCase
             # nc -z localhost <port>: whether anything listens on the port, whether lsof can see it or not.
             world=$(cd "$(dirname "$0")/../world" && pwd)
             for argument; do wanted=$argument; done
+            listening=1
             while read -r pid port job command; do
-              [ "$port" != "$wanted" ] || exit 0
+              [ "$port" != "$wanted" ] || listening=0
             done < "$world/processes"
-            grep -qx "$wanted" "$world/hidden"
+            sed 's/^\([0-9]*\) starting:/\1 /' "$world/processes" > "$world/processes.next"
+            mv "$world/processes.next" "$world/processes"
+            [ $listening -eq 0 ] || grep -qx "$wanted" "$world/hidden"
             SH,
         'kill' => <<<'SH'
             #!/bin/sh
@@ -155,6 +163,10 @@ final class DemoScriptsTest extends TestCase
             #!/bin/sh
             echo 'This stand-in only names the program a tunnel job runs.' >&2
             exit 1
+            SH,
+        // What the scripts wait for happens at their next look, so waiting takes no time.
+        'sleep' => <<<'SH'
+            #!/bin/sh
             SH,
     ];
 
@@ -293,6 +305,16 @@ final class DemoScriptsTest extends TestCase
         self::assertSame(0, $status, $output);
         self::assertSame('launchctl remove dev.verified-human-approval.demo.8090', $this->calls()[0]);
         self::assertCount(1, $this->launched());
+    }
+
+    public function testServerRemovesItsJobWhenTheServerNeverListens(): void
+    {
+        $checkout = $this->checkout('http://localhost:8090');
+        file_put_contents($this->world().'/failing', "dev.verified-human-approval.demo.8090\n");
+        self::assertSame([1, "It did not start; see $checkout/var/demo-server-8090.log\n"], $this->server($checkout, 'start'));
+        self::assertCount(1, $this->launched());
+        self::assertSame('launchctl remove dev.verified-human-approval.demo.8090', \array_slice($this->calls(), -1)[0]);
+        self::assertFileDoesNotExist($this->world().'/jobs/dev.verified-human-approval.demo.8090', 'Left in launchd, the job would keep trying to start.');
     }
 
     public function testServerRefusesToServeADemoOnAPortItDoesNotAnswerOn(): void
@@ -505,9 +527,11 @@ final class DemoScriptsTest extends TestCase
      * line per process: its ID, the port it listens on or "-", the label of the job it is the main process of or
      * "-", and its command line. The IDs are higher than any system hands out, so a signal sent to one by mistake
      * reaches nothing. Removing a job stops its main process only: the workers it forked are left behind, as they
-     * can be. A port in world/hidden has a listener lsof cannot see, such as another account's. A tunnel that starts
-     * writes world/tunnel-address to its log, and the processes in world/meanwhile start with it. What the scripts
-     * change (a job submitted or removed, a process killed, a console command, a setup) is recorded in calls.log.
+     * can be. A server listens a moment after it starts: the first look at its port, with lsof or nc, finds nothing,
+     * and the next ones find it. A job named in world/failing starts no process at all. A port in world/hidden has a
+     * listener lsof cannot see, such as another account's. A tunnel that starts writes world/tunnel-address to its
+     * log, and the processes in world/meanwhile start with it. Waiting takes no time. What the scripts change (a job
+     * submitted or removed, a process killed, a console command, a setup) is recorded in calls.log.
      *
      * @return string the directory of the stand-ins, to put first in PATH
      */
@@ -517,7 +541,7 @@ final class DemoScriptsTest extends TestCase
         if (!is_dir($computer)) {
             $filesystem = new Filesystem();
             $filesystem->mkdir($computer.'/world/jobs');
-            foreach (['processes', 'hidden', 'tunnel-address', 'meanwhile'] as $file) {
+            foreach (['processes', 'failing', 'hidden', 'tunnel-address', 'meanwhile'] as $file) {
                 $filesystem->dumpFile($computer.'/world/'.$file, '');
             }
             $filesystem->dumpFile($computer.'/world/last-pid', "4999999\n");
