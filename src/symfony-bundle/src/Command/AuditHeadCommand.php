@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Bundle\Command;
 
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -16,7 +18,10 @@ use VerifiedHumanApproval\Core\Audit\AuditLog;
  * that the newest entries were cut off, nor stop someone holding a signing key from rewriting the chain with
  * backdated entries; a kept checkpoint shows both. With --check, it compares a kept checkpoint with the chain
  * now: the same hash at that sequence, in a chain that verifies, means nothing up to it changed.
+ *
+ * Key ids and problems come from the stored log, so they are printed as text, never read as formatting.
  */
+#[AsCommand(name: self::NAME, description: 'Print the signed audit log\'s newest entry (sequence and hash) to keep outside the application, or check a kept one.')]
 final class AuditHeadCommand extends Command
 {
     public const NAME = 'verified-human-approval:audit-head';
@@ -26,13 +31,12 @@ final class AuditHeadCommand extends Command
 
     public function __construct(private readonly ?AuditLog $audit = null)
     {
-        parent::__construct(self::NAME);
+        parent::__construct();
     }
 
     protected function configure(): void
     {
-        $this->setDescription('Print the signed audit log\'s newest entry (sequence and hash) to keep outside the application, or check a kept one.')
-            ->addOption('json', null, InputOption::VALUE_NONE, 'Print the head as one JSON line, for a script to store.')
+        $this->addOption('json', null, InputOption::VALUE_NONE, 'Print the head as one JSON line, for a script to store.')
             ->addOption('check', null, InputOption::VALUE_REQUIRED, 'A kept checkpoint, SEQUENCE:HASH as this command printed it, to compare with the chain now.');
     }
 
@@ -54,7 +58,7 @@ final class AuditHeadCommand extends Command
             $output->writeln('The audit log is empty: there is no entry to keep yet.');
         } else {
             $output->writeln([
-                \sprintf('Newest entry: %d, hash %s, signed with key "%s"%s.', $head['seq'], $head['hash'], $head['keyId'], null === $head['at'] ? '' : ' at '.$head['at']),
+                \sprintf('Newest entry: %d, hash %s, signed with key "%s"%s.', $head['seq'], $head['hash'], OutputFormatter::escape($head['keyId']), null === $head['at'] ? '' : ' at '.OutputFormatter::escape($head['at'])),
                 $head['intact']
                     ? \sprintf('All %d entries verify in an unbroken chain. Keep this checkpoint where the application cannot write, and check it later with --check:', $head['seq'])
                     : '<error>The chain does not verify, so this is no checkpoint to keep.</error>',
@@ -66,10 +70,10 @@ final class AuditHeadCommand extends Command
             // The usual reason after a key change: the rotation away from the old key is not recorded yet.
             $unvouched = $this->audit->unvouchedKeys();
             foreach ($unvouched as $keyId) {
-                $output->writeln(\sprintf('<error>Key "%s" has closed, and nothing signed with a key in use vouches for its entries yet, so passkeys enrolled under it cannot approve. Record the rotation away from it: %s %s</error>', $keyId, RecordKeyRotationCommand::NAME, $keyId));
+                $output->writeln(\sprintf('<error>Key "%1$s" has closed, and nothing signed with a key in use vouches for its entries yet, so passkeys enrolled under it cannot approve. Record the rotation away from it: %2$s %1$s</error>', OutputFormatter::escape($keyId), RecordKeyRotationCommand::NAME));
             }
             foreach (array_diff($this->audit->unrecordedRotations(), $unvouched) as $keyId) {
-                $output->writeln(\sprintf('<comment>Key "%s" has closed, and the log does not record the rotation away from it. Record it: %s %s</comment>', $keyId, RecordKeyRotationCommand::NAME, $keyId));
+                $output->writeln(\sprintf('<comment>Key "%1$s" has closed, and the log does not record the rotation away from it. Record it: %2$s %1$s</comment>', OutputFormatter::escape($keyId), RecordKeyRotationCommand::NAME));
             }
         }
 
@@ -81,7 +85,7 @@ final class AuditHeadCommand extends Command
     {
         $failing = array_values(array_filter($audit->verify()['entries'], static fn (array $item): bool => !$item['valid']));
         foreach (\array_slice($failing, 0, self::LISTED) as $item) {
-            $output->writeln(\sprintf('<error>Entry %d: %s.</error>', $item['seq'], $item['problem']));
+            $output->writeln(\sprintf('<error>Entry %d: %s.</error>', $item['seq'], OutputFormatter::escape($item['problem'] ?? 'it does not verify')));
         }
         if (\count($failing) > self::LISTED) {
             $output->writeln(\sprintf('<error>And %d more.</error>', \count($failing) - self::LISTED));
@@ -99,7 +103,7 @@ final class AuditHeadCommand extends Command
         $seq = (int) $seq;
         $problem = $audit->checkpoint($seq, $hash);
         if (null !== $problem) {
-            $output->writeln('<error>'.$problem.'</error>');
+            $output->writeln('<error>'.OutputFormatter::escape($problem).'</error>');
             $this->failures($audit, $output);
 
             return Command::FAILURE;

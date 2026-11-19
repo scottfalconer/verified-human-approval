@@ -128,6 +128,13 @@ final class KeyRotationTest extends TestCase
         $refused = $this->console('verified-human-approval:record-key-rotation', ['from' => 'demo-application-1']);
         self::assertSame(Command::FAILURE, $refused->getStatusCode());
         self::assertStringContainsString('A rotation moves to a new key', $refused->getDisplay());
+        // A key id as the operator typed it is printed as text, not read as the console's formatting.
+        $typed = $this->console('verified-human-approval:record-key-rotation', ['from' => '<fg=green>no-such-key</>']);
+        self::assertSame(Command::FAILURE, $typed->getStatusCode());
+        self::assertStringContainsString('The key "<fg=green>no-such-key</>" is not one of the trusted keys.', $typed->getDisplay());
+        foreach (['verified-human-approval:record-key-rotation', 'verified-human-approval:audit-head'] as $name) {
+            self::assertNotSame('', (new Application($this->kernel()))->find($name)->getDescription(), $name.' describes itself in the command list.');
+        }
 
         // An operator switches the signer and retires the old key, then records the move with the bundle's command.
         $settings = $this->settings();

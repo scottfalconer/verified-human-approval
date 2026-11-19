@@ -59,11 +59,6 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\tagged_it
  */
 final class VerifiedHumanApprovalBundle extends AbstractBundle
 {
-    public function getPath(): string
-    {
-        return \dirname(__DIR__);
-    }
-
     public function configure(DefinitionConfigurator $definition): void
     {
         $root = $definition->rootNode();
@@ -307,10 +302,8 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
 
         // The signed audit log's console commands: print its head to keep as a checkpoint, and record a key rotation.
         $audit = null === $config['audit_log'] ? service(AuditLog::class)->nullOnInvalid() : service($config['audit_log']);
-        $services->set('verified_human_approval.audit_head_command', AuditHeadCommand::class)->args([$audit])
-            ->tag('console.command', ['command' => AuditHeadCommand::NAME, 'description' => 'Print the signed audit log\'s newest entry (sequence and hash) to keep outside the application, or check a kept one.']);
-        $services->set('verified_human_approval.record_key_rotation_command', RecordKeyRotationCommand::class)->args([$audit])
-            ->tag('console.command', ['command' => RecordKeyRotationCommand::NAME, 'description' => 'Record in the signed audit log that the signing key moved from an old key to the current receipt signer.']);
+        $services->set('verified_human_approval.audit_head_command', AuditHeadCommand::class)->args([$audit])->tag('console.command');
+        $services->set('verified_human_approval.record_key_rotation_command', RecordKeyRotationCommand::class)->args([$audit])->tag('console.command');
         // "Approved with a passkey" on your own pages: a Twig badge, and the public page it links to when enabled.
         $services->set('verified_human_approval.public_verification', PublicVerification::class)->args([
             service($store),
@@ -408,7 +401,7 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
 
         $services->set('verified_human_approval.doctrine.install_command', InstallStorageCommand::class)
             ->args([service($connection)])
-            ->tag('console.command', ['command' => 'verified-human-approval:install']);
+            ->tag('console.command');
 
         if (class_exists(GenerateSchemaEventArgs::class)) {
             // doctrine:migrations:diff and doctrine:schema:update create the tables instead of proposing to drop them.
