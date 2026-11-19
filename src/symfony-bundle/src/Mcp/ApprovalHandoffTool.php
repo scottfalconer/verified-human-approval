@@ -61,7 +61,7 @@ final readonly class ApprovalHandoffTool
     #[McpTool(
         name: self::NAME,
         title: 'Phone approval code',
-        description: 'Show a one-time QR code that opens this pending approval on the same person’s phone. It only opens the review page; approving still needs their passkey.',
+        description: 'Used by the approval card: a one-time QR code it shows, which opens this pending approval on the same person’s phone. It only opens the review page; approving still needs their passkey.',
         annotations: new ToolAnnotations(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false),
         // The literal form of the SDK's UiToolMeta: this tool belongs to the card, and only the card may call it.
         meta: ['ui' => ['resourceUri' => ApprovalCard::URI, 'visibility' => ['app']]],
@@ -88,7 +88,7 @@ final readonly class ApprovalHandoffTool
             $link = $this->handoff->issue($actor, $state);
             $data = ['requestId' => $request_id, 'url' => $link['url'], 'expiresAt' => $link['expiresAt'], 'expiresIn' => $link['expiresIn'], 'modules' => ApprovalHandoff::modules($link['url'])];
 
-            return new CallToolResult([new TextContent('Scan this code with your phone to approve there. It works once and expires in two minutes.')], structuredContent: $data);
+            return new CallToolResult([new TextContent('A one-time code for the approval card to show the person, who scans it with their phone to approve there. It works once and expires in two minutes.')], structuredContent: $data);
         } catch (ApprovalException $error) {
             // A damaged record gets no code, and the card is told why in a form it can read.
             if ('record_integrity_error' === $error->reason) {

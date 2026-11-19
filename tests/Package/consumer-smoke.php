@@ -70,7 +70,7 @@ $check('consumer.test' === ($options['rp']['id'] ?? null) && is_string($options[
 
 if ('mcp' === $variant) {
     $check(str_starts_with($from(ApprovalCard::class), $vendor.'/verified-human-approval/mcp/'), 'mcp loads from the consumer’s own vendor directory');
-    $resource = ApprovalCard::resource();
+    $resource = ApprovalCard::resource('https://consumer.test', 'approval_status');
     $check(ApprovalCard::URI === $resource->uri && str_contains((string) $resource->text, 'ui/initialize'), 'the MCP card resource loads from the installed package');
 } else {
     $check(!InstalledVersions::isInstalled('verified-human-approval/mcp'), 'mcp is not pulled in when it is not asked for');

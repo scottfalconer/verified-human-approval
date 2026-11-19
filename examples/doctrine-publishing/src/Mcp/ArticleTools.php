@@ -187,6 +187,8 @@ final readonly class ArticleTools
      */
     private function ask(RequestContext $context, string $tool, string $action, array $input, ?string $requestKey): CallToolResult|InputRequiredResult
     {
+        // A model that fills in every argument may send an empty key: that is no key.
+        $requestKey = '' === $requestKey ? null : $requestKey;
         try {
             $actor = $this->actors->current();
             // Asking needs the write scope; a retry can return a stored result, so reading results needs its own.

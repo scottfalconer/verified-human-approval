@@ -55,6 +55,8 @@ final readonly class DemoTools
         #[Schema(description: 'The alert’s id, as read_alert reports it.')] string $alert_id,
         #[Schema(description: ApprovalFlow::REQUEST_KEY_DESCRIPTION)] ?string $request_key = null,
     ): CallToolResult|InputRequiredResult {
+        // A model that fills in every argument may send an empty key: that is no key.
+        $request_key = '' === $request_key ? null : $request_key;
         try {
             $actor = $this->actors->current();
             // A retried request may return an existing result, so the connection needs the read scope too.

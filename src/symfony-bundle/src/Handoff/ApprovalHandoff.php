@@ -8,6 +8,7 @@ use chillerlan\QRCode\Common\EccLevel;
 use chillerlan\QRCode\QRCode;
 use chillerlan\QRCode\QROptions;
 use Psr\Cache\CacheItemPoolInterface;
+use Psr\Clock\ClockInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Session\SessionInterface;
 use Symfony\Component\Lock\LockFactory;
@@ -30,6 +31,8 @@ final readonly class ApprovalHandoff
         private CacheItemPoolInterface $cache,
         private UrlGeneratorInterface $urls,
         private string $publicOrigin,
+        // The application's clock: what a code's two minutes and a phone session's ten are measured by.
+        private ClockInterface $clock,
         // Makes redemption single use even when two devices fetch the link at the same moment.
         private ?LockFactory $locks = null,
     ) {
@@ -45,7 +48,7 @@ final readonly class ApprovalHandoff
     public function issue(Actor $person, ApprovalState $state): array
     {
         $token = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
-        $expires = time() + self::LINK_SECONDS;
+        $expires = $this->now() + self::LINK_SECONDS;
         $item = $this->cache->getItem(self::key($token));
         $item->set(['request' => $state->request->id, 'userId' => $person->userId, 'tenantId' => $person->tenantId, 'expires' => $expires]);
         $item->expiresAfter(self::LINK_SECONDS);
@@ -76,13 +79,14 @@ final readonly class ApprovalHandoff
         $item = $this->cache->getItem(self::key($token));
         $data = $item->isHit() ? $item->get() : null;
 
-        return \is_array($data) && ($data['expires'] ?? 0) >= time();
+        return \is_array($data) && ($data['expires'] ?? 0) >= $this->now();
     }
 
     /** Redeems a link once and scopes this browser session to its request. Returns that request's ID. */
     public function redeem(string $token, SessionInterface $session): ?string
     {
-        if (!preg_match('/^[A-Za-z0-9_-]{43}$/D', $token)) {
+        // Only a code that exists takes a lock, so codes tried at random leave no lock behind.
+        if (!preg_match('/^[A-Za-z0-9_-]{43}$/D', $token) || !$this->cache->hasItem(self::key($token))) {
             return null;
         }
         $lock = $this->locks?->createLock(self::key($token), 10);
@@ -99,11 +103,11 @@ final readonly class ApprovalHandoff
         } finally {
             $lock?->release();
         }
-        if (!\is_array($data) || ($data['expires'] ?? 0) < time()) {
+        if (!\is_array($data) || ($data['expires'] ?? 0) < $this->now()) {
             return null;
         }
         $session->migrate(true);
-        $session->set('verified_human_approval.handoff.'.$data['request'], ['userId' => $data['userId'], 'tenantId' => $data['tenantId'], 'expires' => time() + self::SESSION_SECONDS]);
+        $session->set('verified_human_approval.handoff.'.$data['request'], ['userId' => $data['userId'], 'tenantId' => $data['tenantId'], 'expires' => $this->now() + self::SESSION_SECONDS]);
 
         return $data['request'];
     }
@@ -116,11 +120,16 @@ final readonly class ApprovalHandoff
             return null;
         }
         $data = $request->getSession()->get('verified_human_approval.handoff.'.$requestId);
-        if (!\is_array($data) || ($data['expires'] ?? 0) < time()) {
+        if (!\is_array($data) || ($data['expires'] ?? 0) < $this->now()) {
             return null;
         }
 
         return new Actor((string) $data['userId'], (string) $data['tenantId']);
+    }
+
+    private function now(): int
+    {
+        return $this->clock->now()->getTimestamp();
     }
 
     private static function key(string $token): string

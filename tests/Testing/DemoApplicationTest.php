@@ -262,10 +262,16 @@ final class DemoApplicationTest extends TestCase
 
         $later = $this->agent('editor')->callTool('publish_alert', $arguments);
 
+        self::assertFalse($later->isError, 'The result fits the tool’s declared output schema.');
         self::assertSame($first, $later->structuredContent['requestId']);
         self::assertSame('completed', $later->structuredContent['status'], 'The key names the earlier request, so its outcome comes back.');
         self::assertNull($this->database->liveAlert(), 'Nothing was issued.');
         self::assertSame(1, $this->mutationCount());
+        // The agent and the card are told that this is the earlier request's outcome, and that nothing ran now.
+        $completedAt = $later->structuredContent['approval']['completedAt'];
+        self::assertMatchesRegularExpression('/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/D', $completedAt);
+        self::assertSame('This request key belongs to an earlier request, completed at '.$completedAt.'. This is the recorded outcome of that request: nothing ran now. To ask again, call without this request key.', $later->structuredContent['message']);
+        self::assertTrue($later->structuredContent['approval']['earlier']);
     }
 
     public function testAttemptsPastTheLimitAreRefusedAndTheRequestStaysPending(): void

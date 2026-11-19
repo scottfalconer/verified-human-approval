@@ -72,6 +72,7 @@ final class SymfonyApprovalTest extends TestCase
         }
         self::assertEqualsCanonicalizing(['approval_handoff', 'approval_status', 'publish_alert', 'read_alert'], array_keys($tools));
         self::assertSame(['app'], json_decode(json_encode($tools['approval_handoff'], \JSON_THROW_ON_ERROR), true)['_meta']['ui']['visibility'], 'Only the card can ask for a phone code.');
+        self::assertStringStartsWith('Used by the approval card:', (string) $tools['approval_handoff']->description, 'A host that shows every tool to the model says whose tool it is.');
         self::assertArrayNotHasKey('actor', $tools['publish_alert']->inputSchema['properties']);
         self::assertArrayNotHasKey('user_id', $tools['publish_alert']->inputSchema['properties']);
         self::assertSame(ApprovalFlow::REQUEST_KEY_DESCRIPTION, $tools['publish_alert']->inputSchema['properties']['request_key']['description'] ?? null, 'The request key is described so that an agent leaves it out.');
@@ -111,6 +112,8 @@ final class SymfonyApprovalTest extends TestCase
         $retry = $client->callTool('publish_alert', ['alert_id' => 'riverside-evacuation', 'request_key' => 'same-request']);
         self::assertSame($id, $retry->structuredContent['requestId']);
         self::assertSame('completed', $retry->structuredContent['status']);
+        self::assertTrue($retry->structuredContent['approval']['earlier'], 'A retry after it ran gets the recorded outcome, marked as earlier.');
+        self::assertStringContainsString('nothing ran now', $retry->structuredContent['message']);
         self::assertSame(1, $this->mutationCount());
 
         // The completed page offers the person their receipt to keep.
@@ -255,6 +258,9 @@ final class SymfonyApprovalTest extends TestCase
         self::assertContains($result['status'], ['denied', 'invalidated']);
         self::assertSame('delegation_denied', $result['reason']);
         self::assertSame(0, $this->mutationCount());
+        // The account may still do this; its agent connection may not. The page blames neither more than the record does.
+        $stopped = $browser->request('GET', self::ORIGIN.'/approval/'.$id)->filter('.approval-sheet .notice')->text();
+        self::assertStringStartsWith('Blocked: nothing changed. This request is no longer allowed. The agent connection that made this request is not allowed to do this.', $stopped);
     }
 
     public function testAReadOnlyPersonsMcpCredentialCannotRequestPublication(): void
@@ -287,6 +293,9 @@ final class SymfonyApprovalTest extends TestCase
             $browser->request('GET', self::ORIGIN.'/approval/'.$id);
             self::assertSame(404, $browser->getResponse()->getStatusCode());
             self::assertStringNotContainsString('Use the Hill Street route', (string) $browser->getResponse()->getContent());
+            $browser->request('GET', self::ORIGIN.'/approval/'.$id.'/status', server: ['HTTP_ACCEPT' => 'application/json']);
+            self::assertSame(404, $browser->getResponse()->getStatusCode(), 'The JSON status of a request that is not theirs is not found either.');
+            self::assertSame('not_found', json_decode((string) $browser->getResponse()->getContent(), true)['reason'] ?? null);
         }
         self::assertSame(0, $this->mutationCount());
     }
@@ -691,6 +700,8 @@ final class SymfonyApprovalTest extends TestCase
         $issued = $this->mcp('manager')->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
         self::assertSame('completed', $issued->structuredContent['status'], 'The emergency manager issues directly.');
         self::assertFalse($issued->structuredContent['approval']['approvedWithPasskey']);
+        self::assertFalse($issued->structuredContent['approval']['earlier'], 'It ran for this call.');
+        self::assertArrayNotHasKey('message', $issued->structuredContent);
         $sheet = $this->browser('manager')->request('GET', self::ORIGIN.'/approval/'.$issued->structuredContent['requestId'])->filter('.approval-sheet')->text();
         self::assertStringNotContainsString('Approved with your passkey', $sheet);
         self::assertStringContainsString('Completed without a passkey', $sheet);
@@ -778,6 +789,11 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame($pending->structuredContent['review_url'], $view['reviewUrl']);
         self::assertSame('approval_status', $view['statusTool']);
         self::assertStringContainsString('I approve issuing the public alert', $view['statement']);
+        // The card is written for the review pages' origin and the site's tools: it opens and calls nothing else.
+        self::assertSame(1, preg_match('#<script type="application/json" id="card-application">(.*?)</script>#', $card['text'], $written));
+        $application = json_decode($written[1], true, 512, \JSON_THROW_ON_ERROR);
+        self::assertStringStartsWith(rtrim($application['origin'], '/').'/approval/', $view['reviewUrl']);
+        self::assertSame([$view['statusTool'], $view['handoffTool']], [$application['statusTool'], $application['handoffTool']]);
         $status = $client->callTool('approval_status', ['request_id' => $view['requestId']]);
         self::assertSame('pending', $status->structuredContent['approval']['status']);
         self::assertSame(0, $this->mutationCount());
@@ -848,6 +864,16 @@ final class SymfonyApprovalTest extends TestCase
             self::assertSame('completed', $after['structuredContent']['approval']['status']);
         }
         self::assertSame(1, $this->mutationCount());
+    }
+
+    public function testAnEmptyRequestKeyIsNoKey(): void
+    {
+        $client = $this->mcp();
+        $first = $client->callTool('publish_alert', ['alert_id' => 'riverside-evacuation', 'request_key' => '']);
+        self::assertFalse($first->isError, json_encode($first->structuredContent));
+        self::assertSame('pending', $first->structuredContent['status']);
+        self::assertSame($first->structuredContent['requestId'], $client->callTool('publish_alert', ['alert_id' => 'riverside-evacuation', 'request_key' => ''])->structuredContent['requestId'], 'Asked again, it is the same request, as without a key.');
+        self::assertSame(1, $this->pendingRequests());
     }
 
     public function testAClientTheApplicationHasNotListedGetsTheCardAndLinkOnly(): void

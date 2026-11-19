@@ -26,9 +26,10 @@ const ENGLISH = {
     unconfirmedConfirm: 'The connection dropped before the site answered, so your confirmation may not have been saved. Reload this page and try again.',
     requestCancelled: 'Request cancelled. Nothing was executed.',
     cancelUnconfirmed: 'The connection dropped before the site answered, so we can’t confirm whether the request was cancelled. Reload this page to see where it stands.',
-    returnApp: 'Claude already shows the result. This tab can be closed.',
-    returnHandoff: 'Done. Claude on your computer already shows the result.',
-    returnTab: 'Switch back to your Claude tab: it already shows the result.',
+    // The page cannot see the card, so it says where the result is, not that it is already there.
+    returnApp: 'Return to Claude to see the result. You can close this tab.',
+    returnHandoff: 'Done. Return to your AI assistant on your computer to see the result.',
+    returnTab: 'Switch back to your Claude tab to see the result.',
 };
 
 function messages(element) {
@@ -219,8 +220,9 @@ for (const time of document.querySelectorAll('time[data-local-time]')) {
     }
 }
 
-// After approval, return the person to where the request came from. The card in Claude adds
-// #return=claude-desktop, claude-mobile or claude-web to the review link; without it, the page just says so.
+// After approval, return the person to where the request came from. The approval card adds #return=claude-desktop,
+// claude-mobile or claude-web to the review link when its host names itself Claude, and #return=agent in any other
+// host; with that, or with nothing, the page keeps its own line.
 const back = new URLSearchParams(location.hash.slice(1)).get('return');
 const returnPanel = document.querySelector('[data-return]');
 if (returnPanel && back) {
@@ -234,10 +236,9 @@ if (returnPanel && back) {
     } else if (back === 'handoff') {
         if (hint) hint.textContent = text.returnHandoff;
     } else if (back === 'claude-web') {
+        // A tab the card opened can usually close itself; where it cannot, the line says where to go.
         returnPanel.hidden = false; tab.hidden = false;
-        tab.addEventListener('click', () => {
-            window.close();
-            setTimeout(() => { if (hint) hint.textContent = text.returnTab; }, 300);
-        });
+        if (hint) hint.textContent = text.returnTab;
+        tab.addEventListener('click', () => window.close());
     }
 }

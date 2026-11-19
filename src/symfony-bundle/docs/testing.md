@@ -30,7 +30,7 @@ Keep the test's state independent:
 
 - Use a new database or schema per test, including accounts, delegation grants, credential anchors, approval rows and the business entity. All approval-related writes still share one connection inside that test.
 - Use a test-only cache and session directory. For parallel runs, partition the database, cache and sessions by worker. A rebooted kernel must reconnect to that test's same database so the browser and MCP client see the same request.
-- Reset the approval limiter's backing cache between tests, or use a unique cache namespace per test. A fresh kernel does not reset a persistent limiter's budget. Keep the limiter enabled; set a deliberately small budget only in tests of rate limiting.
+- Reset the approval limiters' backing cache (`cache.rate_limiter`) between tests, or use a unique cache namespace per test. A fresh kernel does not reset a persistent limiter's budget, and the agents' budget (`agent_requests_per_minute`) counts every call to a protected tool. Keep the limiters enabled; set a deliberately small budget only in tests of rate limiting.
 - Configure the test host as trusted and use the same origin for the browser, bearer-token destination, `public_origin`, WebAuthn configuration and `VirtualAuthenticator`. Do not change the origin to bypass a rejected signature.
 
 The helper runs without a listening web server. It does not contact the hostname in these example URLs.

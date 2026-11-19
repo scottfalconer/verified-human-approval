@@ -39,6 +39,7 @@
   <button id="open" type="button" hidden>Review and approve</button><button id="phone-show" type="button" class="secondary" hidden>Approve on your phone</button>
   <figure id="phone-code" hidden><div id="qr"></div><figcaption>Scan with your phone’s camera, then approve with your passkey (Face ID or fingerprint). The code works once and expires in two minutes.</figcaption></figure>
   <p id="status" role="status" aria-live="polite">Waiting for the request…</p>
+<script type="application/json" id="card-application">{}</script>
 <script>
   // MCP Apps (io.modelcontextprotocol/ui, 2026-01-26): JSON-RPC 2.0 with the host over postMessage.
   // The passkey ceremony never runs in this card. The button opens the application's own review
@@ -53,13 +54,16 @@
     completedDirect: 'Done without a passkey: the site’s rule did not require one. The site recorded the change.',
     cancelled: 'Cancelled on the site. Nothing changed.',
     expired: 'This request expired. Nothing changed.',
-    invalidated: 'The content changed after this request, so it can no longer be approved. Nothing changed.',
-    denied: 'This account can no longer do this. Nothing changed.',
+    // In the review page's words: the reason the site recorded is shown there, and the card does not guess at it.
+    invalidated: 'This request can no longer be approved: something it depends on changed after it was made. Nothing changed.',
+    denied: 'This request is no longer allowed. Nothing changed.',
     rejected: 'The site refused this request. Nothing changed.',
     integrity_error: 'The stored approval record is inconsistent, so this card cannot confirm what happened. Ask the site administrator to check the signed evidence before trying again.',
     // The host stopped the tool call: the site may have received it, so this card cannot know the outcome.
     interrupted: 'This request was stopped before the site’s answer arrived, so this card can’t tell whether anything changed. Check the site before trying again.',
   };
+  // The statuses with a line above, other than pending and completed: a status from anywhere else is shown as it is.
+  const STOPPED = ['cancelled', 'expired', 'invalidated', 'denied', 'rejected', 'integrity_error'];
   // The card's own lines. None of them says what the site recorded.
   const NOTE = {
     waiting: 'Waiting for the request…',
@@ -70,13 +74,27 @@
     link: 'Use the review link in the reply.',
     unopened: 'The page did not open. Use the review link in the reply.',
     maybeOpened: 'If the page did not open, use the review link in the reply.',
+    elsewhere: 'This result names a page on another site, so this card does not show it.',
   };
   const POLL_LIMIT_MS = 15 * 60 * 1000;
   const REQUEST_TIMEOUT_MS = 15000;
   const SETTLE_MS = 300;
   const UNANSWERED = new Error('The host did not answer.');
-  let nextId = 1, view = null, timer = null, since = 0, host = {}, capabilities = {}, codeTimer = null, ended = false, generation = 0, polling = false, shown = false, hint = null;
+  let nextId = 1, view = null, timer = null, since = 0, host = {}, hostInfo = {}, capabilities = {}, codeTimer = null, ended = false, generation = 0, polling = false, shown = false, hint = null, echo = false;
   const waiting = new Map();
+  // The arguments of the server tools this card called for the current view. A host may also announce the card's
+  // own calls, as the specification's diagram draws: a tool-input with those arguments, then that call's tool-result.
+  // The card leaves both alone, since the call's reply brings its result.
+  const own = new Set();
+  function callTool(name, args) {
+    own.add(JSON.stringify(args));
+    return request('tools/call', { name, arguments: args });
+  }
+  // The request a tool result names, if it names one.
+  function named(result) {
+    const data = result && result.structuredContent;
+    return (data && data.approval && data.approval.requestId) || (data && data.requestId) || null;
+  }
 
   // Every request has a deadline except the first, which passes 0: a host that answers late still starts the card.
   function request(method, params, bound = true, limit = REQUEST_TIMEOUT_MS) {
@@ -107,6 +125,9 @@
   }
   function notify(method, params) { parent.postMessage({ jsonrpc: '2.0', method, params }, '*'); }
   function resize() { notify('ui/notifications/size-changed', { height: document.documentElement.scrollHeight }); }
+  // The host sizes the frame from these reports, so the card also reports what it did not draw itself: a change of
+  // the host's fonts, or of the frame's width, that wraps its lines differently.
+  if (typeof ResizeObserver === 'function') new ResizeObserver(() => resize()).observe(document.body);
   // The given colours painted one over the other, as one sRGB pixel. A canvas has the browser parse and blend them,
   // whatever their CSS notation, and a colour it cannot take paints nothing.
   let pixel = null;
@@ -155,23 +176,43 @@
     const paired = hostVariables.has('--color-text-primary') && hostVariables.has('--color-background-primary');
     if (!(paired && legible())) for (const name of hostVariables.keys()) if (name.startsWith('--color-')) root.style.removeProperty(name);
   }
+  function secure(url) { return url.protocol === 'https:' || (url.protocol === 'http:' && url.hostname === 'localhost'); }
+  // The application this card belongs to, as its server wrote it in (ApprovalCard::html()). The card opens pages on
+  // that origin only and calls only those tools, whatever a result names; written nothing, it opens and calls nothing.
+  const APPLICATION = (() => {
+    try {
+      const written = JSON.parse($('card-application').textContent), origin = new URL(written.origin);
+      const tool = (name) => typeof name === 'string' && name !== '' ? name : null;
+      return { origin: secure(origin) ? origin.origin : null, statusTool: tool(written.statusTool), handoffTool: tool(written.handoffTool) };
+    } catch { return { origin: null, statusTool: null, handoffTool: null }; }
+  })();
   function reviewUrl(value) {
     try {
       const url = new URL(value);
-      return url.protocol === 'https:' || (url.protocol === 'http:' && url.hostname === 'localhost') ? url : null;
+      return secure(url) && url.origin === APPLICATION.origin ? url : null;
     } catch { return null; }
   }
-  // Reads the card's fixed view; older results without it still name the request and its link.
+  // The review link a result names, wherever it points. Older results without the card's view name it at the top.
+  function link(result) {
+    const data = (result && result.structuredContent) || {};
+    return (data.approval && data.approval.reviewUrl) || data.reviewUrl || data.review_url || null;
+  }
+  // Whether a link would send the person to a page that is not on this application's origin.
+  function elsewhere(value) { return value !== null && !reviewUrl(value); }
+  // Reads the card's fixed view, or the request an older result names. A result that links to another site is not
+  // shown at all. It can leave out a tool the site has, and cannot name one the site does not.
   function read(result) {
     const data = (result && result.structuredContent) || {};
     const card = data.approval || {};
     const found = {
       requestId: card.requestId || data.requestId, status: card.status || data.status, reason: card.reason ?? data.reason ?? null,
       approvedWithPasskey: typeof card.approvedWithPasskey === 'boolean' ? card.approvedWithPasskey : null,
-      reviewUrl: card.reviewUrl || data.reviewUrl || data.review_url, statusTool: card.statusTool || null, statement: card.statement || null,
-      handoffTool: card.handoffTool || null,
+      completedAt: typeof card.completedAt === 'string' ? card.completedAt : null, earlier: card.earlier === true,
+      reviewUrl: link(result), statement: card.statement || null,
+      statusTool: APPLICATION.statusTool && card.statusTool === APPLICATION.statusTool ? APPLICATION.statusTool : null,
+      handoffTool: APPLICATION.handoffTool && card.handoffTool === APPLICATION.handoffTool ? APPLICATION.handoffTool : null,
     };
-    return found.requestId && found.status ? found : null;
+    return found.requestId && found.status && !elsewhere(found.reviewUrl) ? found : null;
   }
   function render() {
     if (!view) {
@@ -182,20 +223,35 @@
     }
     const url = reviewUrl(view.reviewUrl);
     const pending = view.status === 'pending';
-    site.textContent = pending ? 'Approval needed on ' + (url ? url.host : 'the site') : (url ? url.host : 'Approval');
+    site.textContent = pending ? 'Approval needed on ' + (url ? url.host : 'the site')
+      : view.earlier ? 'Earlier request on ' + (url ? url.host : 'the site') : (url ? url.host : 'Approval');
     if (view.statement) { statement.textContent = '“' + view.statement + '”'; statement.hidden = false; }
     open.hidden = !(pending && url && capabilities.openLinks);
     // A phone needs the site on HTTPS, and a host that is already a phone doesn't need a code.
-    phoneShow.hidden = !(pending && url && url.protocol === 'https:' && view.handoffTool && capabilities.serverTools && returnTarget() !== 'claude-mobile');
+    phoneShow.hidden = !(pending && url && url.protocol === 'https:' && view.handoffTool && capabilities.serverTools && platform() !== 'mobile');
     if (!pending) hideCode();
     document.body.dataset.status = view.status;
-    // Only the site's record of a passkey proof makes a completed request one a person approved.
-    status.textContent = view.status === 'completed'
-      ? (view.approvedWithPasskey === true ? TEXT.completed : view.approvedWithPasskey === false ? TEXT.completedDirect : 'Completed. The site recorded the change.')
+    status.textContent = view.status === 'completed' ? completedLine()
       : pending ? hint || (watching() ? TEXT.pending : NOTE.unwatched) + (open.hidden ? ' ' + NOTE.link : '')
-      : TEXT[view.status] || 'Status: ' + view.status + '.';
+      : STOPPED.includes(view.status) ? TEXT[view.status] : 'Status: ' + view.status + '.';
     if (!pending) stopPolling();
     resize();
+  }
+  // Only the site's record of a passkey proof makes a completed request one a person approved. A request key can
+  // name a request that finished before this tool call; then nothing ran now, and the card says when it did.
+  function completedLine() {
+    if (view.earlier) {
+      const at = localTime(view.completedAt);
+      return 'Completed earlier' + (at ? ', on ' + at : '') + '. Nothing ran now.';
+    }
+    return view.approvedWithPasskey === true ? TEXT.completed : view.approvedWithPasskey === false ? TEXT.completedDirect : 'Completed. The site recorded the change.';
+  }
+  // A time the site recorded, in this device's time zone, or null when it cannot be read.
+  function localTime(value) {
+    try {
+      const time = new Date(value);
+      return typeof value === 'string' && !Number.isNaN(time.getTime()) ? time.toLocaleString('en', { dateStyle: 'medium', timeStyle: 'short' }) : null;
+    } catch { return null; }
   }
   // A line about the person's last step. It stays, through status checks that find the request still
   // pending, until they take another step or the site records an outcome.
@@ -220,13 +276,13 @@
     if (polling || !watching()) return;
     if (document.hidden) { schedulePoll(); return; }
     polling = true;
-    const result = await request('tools/call', { name: view.statusTool, arguments: { request_id: view.requestId } }).catch(() => null);
+    const result = await callTool(view.statusTool, { request_id: view.requestId }).catch(() => null);
     if (!current(run)) return;
     polling = false;
     const next = result && (!result.isError || result.structuredContent?.status === 'integrity_error') ? read(result) : null;
     if (next && next.requestId === view.requestId) {
       if (next.status !== 'pending') retire();
-      view = { ...view, status: next.status, reason: next.reason, approvedWithPasskey: next.approvedWithPasskey };
+      view = { ...view, status: next.status, reason: next.reason, approvedWithPasskey: next.approvedWithPasskey, completedAt: next.completedAt };
       render();
     } else {
       status.textContent = 'This card can’t confirm the current status. Check the site before trying again.';
@@ -236,19 +292,28 @@
   }
   // Coming back into view is when the person has most likely just approved, so the card checks at once, also after it stopped.
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { stopPolling(); poll(); } });
-  // Tells the review page where the person came from, so it can offer the way back after approval.
+  // The host's platform as it says, or a guess: Claude's desktop app is built on Electron.
+  function platform() { return host.platform || (/Electron\//.test(navigator.userAgent) ? 'desktop' : 'web'); }
+  // Tells the review page where the person came from, so it can offer the way back after approval. Only a host that
+  // names itself Claude in its answer to ui/initialize is sent back by Claude's own links; any other gets the page's
+  // own line, which names the agent as the site calls it.
   function returnTarget() {
-    const platform = host.platform || (/Electron\//.test(navigator.userAgent) ? 'desktop' : 'web');
-    return platform === 'desktop' || platform === 'mobile' ? 'claude-' + platform : 'claude-web';
+    const claude = [hostInfo.name, host.userAgent].some((name) => typeof name === 'string' && /claude/i.test(name));
+    const where = platform();
+    return !claude ? 'agent' : where === 'desktop' || where === 'mobile' ? 'claude-' + where : 'claude-web';
   }
   function show(result) {
     if (ended) return;
     shown = true;
+    own.clear();
     retire();
     view = read(result);
     since = Date.now();
     render();
-    if (!view && result?.structuredContent?.status === 'integrity_error') { document.body.dataset.status = 'integrity_error'; status.textContent = TEXT.integrity_error; resize(); }
+    // An error result can name no request: a refusal is still shown as one, and a damaged record as unconfirmed.
+    const failure = view ? null : result?.structuredContent?.status;
+    if (failure === 'rejected' || failure === 'integrity_error') { document.body.dataset.status = failure; status.textContent = TEXT[failure]; resize(); }
+    else if (!view && elsewhere(link(result))) { status.textContent = NOTE.elsewhere; resize(); }
     schedulePoll();
   }
   // The host ends this card: the tool call was cancelled, or the view is being torn down.
@@ -271,8 +336,16 @@
       'error' in message ? reply.reject(message.error) : reply.resolve(message.result);
       return;
     }
-    if (message.method === 'ui/notifications/tool-input' && !ended) { retire(); view = null; render(); status.textContent = NOTE.waiting; }
-    if (message.method === 'ui/notifications/tool-result') show(message.params);
+    if (message.method === 'ui/notifications/tool-input' && !ended) {
+      // One of the card's own calls, announced: the tool-result after it is that call's too.
+      if (own.has(JSON.stringify((message.params && message.params.arguments) || null))) { echo = true; return; }
+      own.clear(); retire(); view = null; render(); status.textContent = NOTE.waiting;
+    }
+    if (message.method === 'ui/notifications/tool-result') {
+      const repeated = echo && [null, view && view.requestId].includes(named(message.params));
+      echo = false;
+      if (!repeated) show(message.params);
+    }
     if (message.method === 'ui/notifications/host-context-changed') applyTheme(message.params);
     if (message.method === 'ui/notifications/tool-cancelled') {
       const reason = message.params && typeof message.params.reason === 'string' ? ' ' + message.params.reason : '';
@@ -339,7 +412,7 @@
     if (!current(run) || phoneShow.disabled || !view.handoffTool || !capabilities.serverTools) return;
     phoneShow.disabled = true;
     restartPolling();
-    const result = await request('tools/call', { name: view.handoffTool, arguments: { request_id: view.requestId } }).catch(() => null);
+    const result = await callTool(view.handoffTool, { request_id: view.requestId }).catch(() => null);
     if (!current(run)) return;
     if (result?.structuredContent?.status === 'integrity_error') {
       retire();
@@ -365,11 +438,13 @@
   });
   // Only the hint has a deadline. It replaces the first line, never a result the host has delivered.
   const slow = setTimeout(() => { if (ended || shown) return; status.textContent = NOTE.stalled; resize(); }, REQUEST_TIMEOUT_MS);
-  request('ui/initialize', { protocolVersion: '2026-01-26', appInfo: { name: 'verified-human-approval-card', version: '0.1.0' }, appCapabilities: {} }, false, 0)
+  // The card is drawn inline only, so it declares no other display mode the host could switch it to.
+  request('ui/initialize', { protocolVersion: '2026-01-26', appInfo: { name: 'verified-human-approval-card', version: '0.1.0' }, appCapabilities: { availableDisplayModes: ['inline'] } }, false, 0)
     .then((result) => {
       clearTimeout(slow);
       if (ended) return;
       capabilities = result?.hostCapabilities || {};
+      hostInfo = result?.hostInfo || {};
       applyTheme(result?.hostContext);
       settle();
       notify('ui/notifications/initialized', {});

@@ -96,6 +96,7 @@ verified_human_approval:
     receipt_signer: VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner
     relying_party_id: '%env(APP_RP_ID)%'
     attempts_per_minute: 30
+    agent_requests_per_minute: 30
 ```
 
 On Doctrine, replace `store` with `persistence: { driver: doctrine, connection: default }`, as [Storage on Doctrine](#storage-on-doctrine) describes; `store` and `persistence` are exclusive.
@@ -194,7 +195,7 @@ The matcher covers only the bundle's own routes: review, handoff, the person's r
 
 ## 4. Register the MCP tools and card
 
-The worked example defines `App\Mcp\PublishDocumentTool`. Register it with the bundle's status tool and optional card/phone handoff:
+The worked example defines `App\Mcp\PublishDocumentTool`. Register it with the bundle's status tool, its card and the card's phone code:
 
 ```yaml
 # config/packages/mcp.yaml
@@ -220,13 +221,34 @@ mcp:
 
 The MCP Flex recipe may already define a server named `default` on `/mcp`. Update that server in place, or replace its definition with `application` above; do not leave two servers claiming the same path. Keep your other existing tools in the registry.
 
+`ApprovalHandoffTool` is the card's "Approve on your phone" code, and it goes with the bundle's `phone_handoff` key, on by default: while the key is on, list the tool, since the card is told to call it. To turn the phone code off, set the key and leave the tool out:
+
+```yaml
+# config/packages/verified_human_approval.yaml
+verified_human_approval:
+    phone_handoff: false
+```
+
+The card then offers no code, the tool is not defined, and a code link answers 410. A server that still lists the tool does not build.
+
+`ApprovalCardApp` serves the card written for `public_origin` and these tools: it opens review pages on that origin only, and calls no other tool, whatever a result names.
+
 Set `allowed_hosts` to your application's host. Keep the MCP route import (`resource: '.', type: mcp`) supplied by your MCP integration. The session lock prevents the card's polling and a tool call from overwriting each other's session state. The request-state key must be at least 32 bytes and separate from the receipt key. Its TTL should exceed your approval lifetime; this example uses a 600-second approval lifetime.
 
 The [tool example](first-action.md#6-expose-the-action-through-mcp) checks the validated token's `approval.read` scope **before** calling `ApprovalFlow::respond()`. This matters because a retry may return a stored result without executing the action again. The tool also declares `ApprovalFlow::OUTPUT_SCHEMA`, uses `ApprovalCard::TOOL_META` and returns structured errors.
 
 A pending response is a normal tool outcome. It contains a `requestId`, `review_url`, status and instructions. The agent must not say the action is completed while it is pending. Call `approval_status` to read the outcome. Status reads never perform the business mutation. A client that generates a unique id for each new request can send it as `request_key` and resend it to retry. An agent should leave it out, as the [tool example](first-action.md#6-expose-the-action-through-mcp) explains.
 
-URL-mode elicitation is optional and off by default. Enable it only for clients you have tested. The card and review link do not depend on it. See [MCP presentation](https://github.com/scottfalconer/verified-human-approval/blob/main/src/mcp/README.md) for client and protocol details.
+URL-mode elicitation is optional and off by default; the card and the review link do not depend on it. To send it, list the clients that get it by the name they send in `clientInfo`, or give `'*'` for every client that declares URL mode:
+
+```yaml
+# config/packages/verified_human_approval.yaml
+verified_human_approval:
+    url_elicitation:
+        clients: ['*']          # or only the clients you have tested, such as [claude-code]
+```
+
+Listing clients turns the prompt on; `enabled: false` turns it off and keeps the list. `'*'` leaves the decision to the capability each client declares, as the specification advises. A list of names is for clients that declare URL mode and then drop the prompt; it changes the server's behaviour by `clientInfo`, which the specification advises against, and decides nothing about security. The prompt is sent only on MCP 2026-07-28 or later, and its retry carries signed request state, so the MCP server needs the `request_state.key` shown above: without it, a call the prompt is for fails before anything is made. See [MCP presentation](https://github.com/scottfalconer/verified-human-approval/blob/main/src/mcp/README.md) for client and protocol details.
 
 ### Scope challenges over HTTP
 
@@ -263,7 +285,7 @@ Before relying on it:
 - **It is opt-in, and it is for OAuth.** With fixed personal tokens there is no authorization server for a client to ask. Leave the subscriber out and keep the refusal in the tool, where the model can read it; the [publishing example](https://github.com/scottfalconer/verified-human-approval/blob/main/examples/doctrine-publishing/README.md) does.
 - **A tool the policy does not name needs no scope** beyond the policy's `$default` list. Add every new tool to the map. The checks inside your tools are what holds if one is forgotten.
 - **Your authenticator must have run.** Require a role for the MCP path in `access_control`, and set the validated token as the `AccessToken::class` request attribute, as [section 3](#3-connect-existing-authentication) asks.
-- **It covers every HTTP MCP server the application serves.** It recognises the MCP bundle's controller, not a path.
+- **It covers every HTTP MCP server the application serves.** It recognises the MCP bundle's controller, not a path. A container with the subscriber and no such controller does not build: it would challenge nothing there.
 - **Keep the scope checks in your tools.** Stdio has no HTTP status to answer with. Ownership and permission refusals are not scope problems either: they stay tool results, because a broader token would not change them.
 - **If you build the transport yourself, add the SDK's `AuthorizationMiddleware` instead.** The subscriber applies the same policy and writes the same header.
 
@@ -282,6 +304,10 @@ Give every action a clear `display.title`: what will change. Add `display.conseq
 ## Your layout and language
 
 The review pages can sit in your own layout and use your own wording without loosening the policy that protects them.
+
+### The stylesheet
+
+The base template always links the bundle's `approval.css`, and its rules are not scoped to the review sheet yet: besides its own classes, it styles bare elements such as `button`, `a`, `table`, `label`, `input` and `:root`. Inside your own layout they restyle your header and footer too. To keep them off your layout, replace `base.html.twig` instead of extending it, with the `title` and `body` blocks the pages fill and its `approval.js` script, and style the pages with your own stylesheet.
 
 ### The content security policy
 
@@ -340,7 +366,9 @@ Keep placeholders such as `%agent%` as they are. The message `en` is the pages' 
 
 `approval.js` takes its wording from the page: the review template renders the translated messages as JSON in `data-messages` on the passkey panel and on the return panel. Any message missing there stays in the script's own English. A page of your own that uses the script, such as passkey enrollment, can hand over its wording the same way, with the keys of `ENGLISH` in `approval.js`.
 
-Only a request an agent made mentions the agent. Set `agent_name` (default `Claude`) to the name your people know it by, as in "You can close this tab and return to Claude". The approval card in Claude adds `#return=` to the review link it opens: with `claude-desktop` or `claude-mobile`, the finished page also offers a button that opens the `claude://` app link; with `claude-web`, one that closes the tab.
+Two parts are English only for now: the approval card, whose wording is in its own script, and the `message` of a refusal from the review pages' JSON routes, which `approval.js` shows as the site sent it. Each refusal also carries its `reason` code.
+
+Only a request an agent made mentions the agent. Set `agent_name` (default `your AI assistant`) to the name your people know it by, as in "You can close this tab and return to Claude". When the card's host names itself Claude in its answer to `ui/initialize`, the approval card adds `#return=` to the review link it opens: with `claude-desktop` or `claude-mobile`, the finished page also offers a button that opens the `claude://` app link; with `claude-web`, one that closes the tab. In any other host the card adds `#return=agent`, and the page keeps that line.
 
 ## After an action runs
 
@@ -400,8 +428,8 @@ Install the [testing package](testing.md) as a development dependency. It suppli
 
 Keep the application database and signing keys persistent across deploys. Restore and back up them deliberately; generating a replacement key on every boot breaks trust in earlier records. Protect your signing key separately from database write access. To replace the key on purpose, [rotate it](https://github.com/scottfalconer/verified-human-approval/blob/main/docs/evidence.md#rotate-the-signing-key): the old public key stays trusted for what it signed, as long as it is listed under `receipt_keys.retired`. A key replaced without being listed there leaves every request it completed reading as an integrity error. Keep a checkpoint of the audit log's head outside the application on a schedule, with `verified-human-approval:audit-head`.
 
-The browser rate limiter defaults to 30 attempts per person per minute. Override the `verified_human_approval` framework limiter or point `rate_limiter` to your own `RateLimiterFactoryInterface` service. The phone handoff uses `cache.app` and a lock; multiple web servers need a shared cache and a shared lock store configured through `lock_factory`. Its default file lock is local to one host.
+The browser rate limiter defaults to 30 attempts per person per minute. Override the `verified_human_approval` framework limiter or point `rate_limiter` to your own `RateLimiterFactoryInterface` service. Agents have a budget of their own, as the MCP specification asks a server to rate limit tool calls: `agent_requests_per_minute`, 30 by default, counts each person's calls to protected tools across all their agent connections, through the framework limiter `verified_human_approval_agent_requests`. A call past it is refused before anything is prepared, with `status: rejected` and the reason `rate_limited`; reading an outcome, with `approval_status` or a URL prompt's retry, is free. `ApprovalFlow` spends it through the `VerifiedHumanApproval\Mcp\ProposalBudget` service: to count another way, define your own service under that name, or decorate it. The phone codes are kept in the cache pool `verified_human_approval.handoff_cache`, on `cache.app` unless you give it an adapter under `framework.cache.pools`, and a lock makes each one single-use. Multiple web servers need both shared: the pool on a shared adapter, and a shared lock store through `lock_factory`. The default file lock is local to one host.
 
-The phone link is single-use and lasts two minutes. Opening it shows a Continue button; Continue redeems it and creates a session for that request only. It grants no general login and cannot cancel a request. App-only tool visibility is a client convention; the server still checks ownership and read permission.
+The phone link is single-use and lasts two minutes. Opening it shows a Continue button; Continue redeems it and creates a session for that request only, for ten minutes. It grants no general login, cannot cancel a request or download the receipt, and its approval attempts count against a budget of their own, so they never use up the signed-in person's. App-only tool visibility is a client convention; the server still checks ownership and read permission. A site that does not want a code to open a review elsewhere sets `phone_handoff: false`, as [section 4](#4-register-the-mcp-tools-and-card) shows.
 
 Verify the [worked example's acceptance checks](first-action.md#8-check-the-integration) with your actual account and storage adapters. The repository's Symfony suite can be run from its root with `composer test -- --testsuite symfony`. Protocol tests do not replace checks with the browsers, authenticators and MCP clients you plan to support.

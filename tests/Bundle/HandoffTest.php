@@ -10,11 +10,26 @@ use Mcp\Exception\RequestException;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use PHPUnit\Framework\TestCase;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
+use Symfony\Component\Cache\Adapter\ArrayAdapter;
+use Symfony\Component\Clock\MockClock;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Session\Session;
+use Symfony\Component\HttpFoundation\Session\Storage\MockArraySessionStorage;
+use Symfony\Component\Lock\LockFactory;
+use Symfony\Component\Lock\Store\FlockStore;
+use Symfony\Component\Lock\Store\InMemoryStore;
+use Symfony\Component\Routing\Generator\UrlGenerator;
+use Symfony\Component\Routing\RequestContext;
+use Symfony\Component\Routing\Route;
+use Symfony\Component\Routing\RouteCollection;
+use VerifiedHumanApproval\Bundle\Handoff\ApprovalHandoff;
+use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Demo\DemoDatabase;
 use VerifiedHumanApproval\Demo\DemoKernel;
 use VerifiedHumanApproval\Demo\DemoSetup;
 use VerifiedHumanApproval\Testing\VirtualAuthenticator;
+use VerifiedHumanApproval\Tests\Support\CoreFixture;
 
 /** "Approve on your phone": a one-time code that opens one approval, and nothing else, on another device. */
 final class HandoffTest extends TestCase
@@ -44,7 +59,7 @@ final class HandoffTest extends TestCase
         $id = $agent->callTool('publish_alert', ['alert_id' => 'riverside-evacuation'])->structuredContent['requestId'];
         $other = $agent->callTool('publish_alert', ['alert_id' => 'riverside-evacuation', 'request_key' => 'second'])->structuredContent['requestId'];
         self::assertNotSame($id, $other);
-        $authenticator = $this->enrollOnComputer('editor');
+        [, $authenticator] = $this->enrollOnComputer('editor');
 
         $code = $agent->callTool('approval_handoff', ['request_id' => $id]);
         self::assertFalse($code->isError, json_encode($code->content));
@@ -123,6 +138,114 @@ final class HandoffTest extends TestCase
         self::assertStringContainsString('Too many phone codes', $agent->callTool('approval_handoff', ['request_id' => $id])->content[0]->text);
     }
 
+    public function testAPhoneSessionHasABudgetOfItsOwnAndLeavesTheSignedInPersonTheirs(): void
+    {
+        $settings = json_decode((string) file_get_contents($this->runtime.'/settings.json'), true);
+        $settings['approval_attempts_per_minute'] = 2;
+        file_put_contents($this->runtime.'/settings.json', json_encode($settings));
+        $agent = $this->mcp('editor');
+        $id = $agent->callTool('publish_alert', ['alert_id' => 'riverside-evacuation'])->structuredContent['requestId'];
+        [$owner] = $this->enrollOnComputer('editor');
+
+        // Whoever holds the agent's token opens a phone code itself, signed in to nothing, and spends that session's budget.
+        $holder = $this->browser();
+        $holder->submit($holder->request('GET', $agent->callTool('approval_handoff', ['request_id' => $id])->structuredContent['url'])->selectButton('Continue')->form());
+        $csrf = (string) $holder->request('GET', self::ORIGIN.'/approval/'.$id)->filter('[data-passkey-panel]')->attr('data-csrf');
+        $answers = [];
+        for ($attempt = 0; $attempt < 3; ++$attempt) {
+            $this->post($holder, '/approval/'.$id.'/options', $csrf, []);
+            $answers[] = $holder->getResponse()->getStatusCode();
+        }
+        self::assertSame([200, 200, 429], $answers);
+
+        // The person, in their own signed-in browser, still has theirs.
+        $ownerCsrf = (string) $owner->request('GET', self::ORIGIN.'/approval/'.$id)->filter('[data-passkey-panel]')->attr('data-csrf');
+        $this->post($owner, '/approval/'.$id.'/options', $ownerCsrf, []);
+        self::assertSame(200, $owner->getResponse()->getStatusCode(), (string) $owner->getResponse()->getContent());
+    }
+
+    public function testTheOwnerWhoOpensTheirCodeWhereTheyAreSignedInKeepsCancelAndTheReceipt(): void
+    {
+        $agent = $this->mcp('editor');
+        $id = $agent->callTool('publish_alert', ['alert_id' => 'riverside-evacuation'])->structuredContent['requestId'];
+        [$browser, $authenticator] = $this->enrollOnComputer('editor');
+
+        $continue = $browser->request('GET', $agent->callTool('approval_handoff', ['request_id' => $id])->structuredContent['url']);
+        $browser->submit($continue->selectButton('Continue')->form());
+        $review = $browser->request('GET', self::ORIGIN.'/approval/'.$id);
+        self::assertCount(1, $review->filter('[data-cancel]'), 'Signed in as the same person, the browser keeps Cancel.');
+
+        $csrf = (string) $review->filter('[data-passkey-panel]')->attr('data-csrf');
+        $ceremony = $this->post($browser, '/approval/'.$id.'/options', $csrf, []);
+        self::assertSame('completed', $this->post($browser, '/approval/'.$id.'/complete', $csrf, ['ceremony_id' => $ceremony['ceremony_id'], 'credential' => $authenticator->assertion($ceremony['publicKey'])])['status']);
+        $receipt = $browser->request('GET', self::ORIGIN.'/approval/'.$id)->filter('.approval-sheet .receipt');
+        self::assertSame('Download your receipt', $receipt->filter('a')->text(), 'The receipt is offered where it downloads.');
+        $browser->request('GET', self::ORIGIN.'/approval/'.$id.'/evidence');
+        self::assertSame(200, $browser->getResponse()->getStatusCode());
+    }
+
+    public function testCodesAreKeptInACachePoolOfTheirOwn(): void
+    {
+        $agent = $this->mcp('editor');
+        $id = $agent->callTool('publish_alert', ['alert_id' => 'riverside-evacuation'])->structuredContent['requestId'];
+        $code = $agent->callTool('approval_handoff', ['request_id' => $id])->structuredContent['url'];
+
+        // A deploy that clears the application's cache leaves a code someone is about to scan working.
+        $phone = $this->browser();
+        $phone->getKernel()->boot();
+        $phone->getKernel()->getContainer()->get('cache.app')->clear();
+        $crawler = $phone->request('GET', $code);
+        self::assertSame(200, $phone->getResponse()->getStatusCode());
+        $phone->submit($crawler->selectButton('Continue')->form());
+        self::assertStringEndsWith('/approval/'.$id.'#return=handoff', (string) $phone->getResponse()->headers->get('Location'));
+    }
+
+    public function testACodeLastsTwoMinutesAndThePhoneSessionItOpensTen(): void
+    {
+        $fixture = new CoreFixture();
+        $state = $fixture->service->request($fixture->actor, 'article.publish', ['id' => 1]);
+        $routes = new RouteCollection();
+        $routes->add('verified_human_approval_handoff', new Route('/approval/handoff/{token}'));
+        $clock = new MockClock('2026-11-08T10:00:00Z');
+        $handoff = new ApprovalHandoff(new ArrayAdapter(), new UrlGenerator($routes, new RequestContext()), 'https://app.example', $clock, new LockFactory(new InMemoryStore()));
+        $alice = new Actor('alice', 'tenant-a');
+
+        $code = $handoff->issue($alice, $state);
+        self::assertSame(['expiresAt' => $clock->now()->getTimestamp() + 120, 'expiresIn' => 120], array_intersect_key($code, ['expiresAt' => 0, 'expiresIn' => 0]));
+        $clock->sleep(120);
+        self::assertTrue($handoff->peek(basename($code['url'])), 'Good for two minutes.');
+        $clock->sleep(1);
+        self::assertFalse($handoff->peek(basename($code['url'])));
+        self::assertNull($handoff->redeem(basename($code['url']), new Session(new MockArraySessionStorage())), 'After two minutes the code opens nothing.');
+
+        $session = new Session(new MockArraySessionStorage());
+        self::assertSame($state->request->id, $handoff->redeem(basename($handoff->issue($alice, $state)['url']), $session));
+        $phone = Request::create('https://app.example/approval/'.$state->request->id);
+        $phone->setSession($session);
+        $clock->sleep(600);
+        self::assertEquals($alice, $handoff->personFor($phone, $state->request->id), 'The phone session lasts ten minutes.');
+        $clock->sleep(1);
+        self::assertNull($handoff->personFor($phone, $state->request->id), 'Then the phone reaches nothing.');
+    }
+
+    public function testACodeThatWasNeverIssuedTakesNoLock(): void
+    {
+        $fixture = new CoreFixture();
+        $state = $fixture->service->request($fixture->actor, 'article.publish', ['id' => 1]);
+        $routes = new RouteCollection();
+        $routes->add('verified_human_approval_handoff', new Route('/approval/handoff/{token}'));
+        $locks = $this->runtime.'/locks';
+        $handoff = new ApprovalHandoff(new ArrayAdapter(), new UrlGenerator($routes, new RequestContext()), 'https://app.example', new MockClock(), new LockFactory(new FlockStore($locks)));
+
+        for ($guess = 0; $guess < 20; ++$guess) {
+            self::assertNull($handoff->redeem(rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '='), new Session(new MockArraySessionStorage())));
+        }
+        self::assertSame([], glob($locks.'/*') ?: [], 'Guesses leave no lock files.');
+        $code = basename($handoff->issue(new Actor('alice', 'tenant-a'), $state)['url']);
+        self::assertSame($state->request->id, $handoff->redeem($code, new Session(new MockArraySessionStorage())));
+        self::assertNull($handoff->redeem($code, new Session(new MockArraySessionStorage())), 'A code still works once.');
+    }
+
     public function testNoCodeWithoutAPublicHttpsAddress(): void
     {
         $runtime = $this->runtime.'-local';
@@ -175,7 +298,8 @@ final class HandoffTest extends TestCase
         self::fail('No orientation of the drawn code could be read.');
     }
 
-    private function enrollOnComputer(string $user): VirtualAuthenticator
+    /** @return array{KernelBrowser, VirtualAuthenticator} the person's signed-in browser, and the passkey they registered there */
+    private function enrollOnComputer(string $user): array
     {
         $browser = $this->browser();
         $crawler = $browser->request('GET', self::ORIGIN.'/login');
@@ -188,7 +312,7 @@ final class HandoffTest extends TestCase
         $result = $this->post($browser, '/account/passkeys/complete', $csrf, ['ceremony_id' => $options['ceremony_id'], 'credential' => $authenticator->registration($options['publicKey'])]);
         self::assertSame('registered', $result['status'], json_encode($result));
 
-        return $authenticator;
+        return [$browser, $authenticator];
     }
 
     private function browser(): KernelBrowser

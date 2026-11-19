@@ -29,6 +29,8 @@ use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
 /**
  * The review page and its JSON actions. A stranger is sent to sign in; once someone is reviewing,
  * every refusal on a JSON route is a JSON answer the page's script can show.
+ *
+ * @internal the bundle's routes reach it by its service id; link to the routes
  */
 final readonly class ApprovalController
 {
@@ -45,7 +47,7 @@ final readonly class ApprovalController
         private ?EvidenceExporter $receipts = null,
         private ?ReceiptKey $receiptKey = null,
         // What the pages call the agent's app when they send the person back to it.
-        private string $agentName = 'Claude',
+        private string $agentName = 'your AI assistant',
     ) {
     }
 
@@ -69,7 +71,7 @@ final readonly class ApprovalController
             'csrf' => $this->csrf->getToken('verified_human_approval.'.$id)->getValue(),
             // Who asked: an agent's request should not look like the person's own.
             'requested_by' => $this->requesters?->describe($state->request->actor()),
-            'scoped' => null !== $this->handoff?->personFor($request, $id),
+            'scoped' => $this->phoneOnly($request, $id),
             // Whether this site signs receipts, so a completed request offers the person their copy.
             'receipts' => null !== $this->receipts,
             // Where a request made on this site came from, so the finished page can lead back there.
@@ -164,7 +166,7 @@ final readonly class ApprovalController
         if (($refused = $this->refuseWithoutToken($request, $id)) !== null) {
             return $refused;
         }
-        if (($limited = $this->limit($this->reviewer($request, $id))) !== null) {
+        if (($limited = $this->limit($request, $id)) !== null) {
             return $limited;
         }
 
@@ -182,7 +184,7 @@ final readonly class ApprovalController
         if (($refused = $this->refuseWithoutToken($request, $id)) !== null) {
             return $refused;
         }
-        if (($limited = $this->limit($this->reviewer($request, $id))) !== null) {
+        if (($limited = $this->limit($request, $id)) !== null) {
             return $limited;
         }
         $body = $this->body($request);
@@ -265,6 +267,25 @@ final readonly class ApprovalController
     }
 
     /**
+     * Whether this browser reviews only through a phone session, so the page offers neither Cancel nor the receipt.
+     * A browser also signed in as that same person keeps both: cancelling and the download check the signed-in person.
+     */
+    private function phoneOnly(Request $request, string $id): bool
+    {
+        $phone = $this->handoff?->personFor($request, $id);
+        if (null === $phone) {
+            return false;
+        }
+        try {
+            $signedIn = $this->actors->interactive();
+        } catch (AccessDeniedException) {
+            return true;
+        }
+
+        return $signedIn->userId !== $phone->userId || $signedIn->tenantId !== $phone->tenantId;
+    }
+
+    /**
      * Someone must be reviewing, or they are sent to sign in, and the page's CSRF token must match.
      * A stale token is a JSON refusal, not an HTML error page the script could not read.
      */
@@ -303,6 +324,7 @@ final readonly class ApprovalController
             return new JsonResponse($operation());
         } catch (ApprovalException $error) {
             $refusal = self::refused($error->reason, $error->getMessage());
+            $current = null;
             if (null !== $reviewer && null !== $id) {
                 // A record that fails its integrity check has no status to report. Naming that as the request's
                 // state makes the page reload, and the reloaded page says the outcome cannot be confirmed.
@@ -312,7 +334,9 @@ final readonly class ApprovalController
                 }
             }
 
-            return new JsonResponse($refusal, 409);
+            // A request this person cannot see is not found. Any other refusal, an action's own not_found for what it
+            // would change included, conflicts with where a request they can see stands.
+            return new JsonResponse($refusal, 'not_found' === $error->reason && null === $current ? 404 : 409);
         }
     }
 
@@ -342,10 +366,15 @@ final readonly class ApprovalController
         return ['status' => 'record_integrity_error' === $reason ? 'integrity_error' : 'rejected', 'reason' => $reason, 'message' => $message];
     }
 
-    private function limit(Actor $actor): ?JsonResponse
+    /**
+     * One budget per person covers all their requests, so changing the URL cannot reset it. Phone sessions have a
+     * budget of their own, so whoever holds a phone code cannot spend the one the signed-in person approves with.
+     */
+    private function limit(Request $request, string $id): ?JsonResponse
     {
-        // One account budget covers all proposal IDs, so changing the URL cannot reset it.
-        $limit = $this->limiter->create(hash('sha256', $actor->tenantId."\0".$actor->userId))->consume();
+        $phone = $this->handoff?->personFor($request, $id);
+        $person = $phone ?? $this->actors->interactive();
+        $limit = $this->limiter->create((null === $phone ? '' : 'phone|').hash('sha256', $person->tenantId."\0".$person->userId))->consume();
         if ($limit->isAccepted()) {
             return null;
         }

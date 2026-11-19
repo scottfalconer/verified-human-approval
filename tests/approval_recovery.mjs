@@ -140,3 +140,48 @@ for (const reject of [false, true]) {
         assert.equal(h.requests.some(request => request.url === '/complete'), false);
     });
 }
+
+// The finished page's way back, as approval.js sets it from the fragment the approval card added.
+function returnPage(hash) {
+    const hint = {textContent: 'You can close this tab and return to your AI assistant.'};
+    const app = {hidden: true}, tab = {hidden: true, handlers: {}, addEventListener(name, handler) { this.handlers[name] = handler; }};
+    const panel = {hidden: true, dataset: {messages: '{}'}, querySelector: selector => ({'[data-return-app]': app, '[data-return-tab]': tab})[selector] ?? null};
+    const context = vm.createContext({
+        URLSearchParams, location: {hash}, history: {}, window: {close() {}}, setTimeout,
+        document: {querySelectorAll: () => [], querySelector: selector => ({'[data-return]': panel, '[data-return-hint]': hint})[selector] ?? null},
+    });
+    vm.runInContext(script, context);
+    return {panel, app, tab, hint};
+}
+
+test('the way back opens Claude only for the card in Claude, and any other host keeps the page’s own line', () => {
+    for (const hash of ['#return=claude-desktop', '#return=claude-mobile']) {
+        const page = returnPage(hash);
+        assert.equal(page.panel.hidden, false, hash);
+        assert.equal(page.app.hidden, false, hash);
+        assert.match(page.hint.textContent, /Claude/);
+    }
+    const web = returnPage('#return=claude-web');
+    assert.equal(web.tab.hidden, false);
+    assert.equal(web.app.hidden, true);
+    assert.equal(web.hint.textContent, 'Switch back to your Claude tab to see the result.');
+    assert.equal(returnPage('#return=handoff').hint.textContent, 'Done. Return to your AI assistant on your computer to see the result.');
+    for (const hash of ['#return=agent', '', '#return=something-else']) {
+        const page = returnPage(hash);
+        assert.equal(page.panel.hidden, true, hash);
+        assert.equal(page.app.hidden, true, hash);
+        assert.equal(page.tab.hidden, true, hash);
+        assert.equal(page.hint.textContent, 'You can close this tab and return to your AI assistant.', hash);
+    }
+});
+
+test('the refusal the enrollment guide shows is shown as the site’s refusal, and an unmarked one as unconfirmed', async () => {
+    const guide = readFileSync(new URL('../src/symfony-bundle/docs/enrollment.md', import.meta.url), 'utf8');
+    const refusal = JSON.parse(guide.match(/`(\{"status":"rejected"[^`]*\})`/)[1]);
+    const refused = host([options(), json(400, refusal)], 'registration');
+    await refused.approve.handlers.click();
+    assert.equal(refused.message.textContent, refusal.message);
+    const unmarked = host([options(), json(400, {message: refusal.message})], 'registration');
+    await unmarked.approve.handlers.click();
+    assert.match(unmarked.message.textContent, /can’t confirm whether your passkey was registered/);
+});
