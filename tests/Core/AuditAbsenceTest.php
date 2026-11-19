@@ -9,6 +9,7 @@ use PHPUnit\Framework\TestCase;
 use Symfony\Component\Clock\MockClock;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\Evidence\TrustedKey;
 use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 use VerifiedHumanApproval\Tests\Support\InMemoryAuditStore;
 
@@ -64,6 +65,19 @@ final class AuditAbsenceTest extends TestCase
     {
         $trace($this->store);
         self::assertSame([], $this->log->unrecorded('passkey.revoked', ['phone' => 4]));
+    }
+
+    public function testAnEntrySignedWithAKeyTheLogDoesNotListRulesNothingOutUntilItIsListed(): void
+    {
+        // Another host already signs with the next key, which this host's configuration does not list yet.
+        $next = new SodiumEvidenceSigner('app-key-2', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
+        (new AuditLog($this->store, $next, TrustedKeys::single($next->keyId(), $next->publicKey()), new MockClock('2026-11-08 13:00:00')))
+            ->append('acme', 'connection.revoked', 'grant-3', ['userId' => 'bob']);
+        self::assertSame([], $this->log->unrecorded('passkey.revoked', ['laptop' => 1]), 'An entry it cannot check could be the revocation.');
+
+        $listed = new TrustedKeys([...$this->log->trustedKeys()->all(), new TrustedKey($next->keyId(), $next->publicKey())]);
+        $updated = new AuditLog($this->store, $next, $listed, new MockClock('2026-11-08 13:00:00'));
+        self::assertSame(['laptop'], $updated->unrecorded('passkey.revoked', ['laptop' => 1]));
     }
 
     public function testAnEntryRemovedSinceOrMissingRulesNothingOut(): void
