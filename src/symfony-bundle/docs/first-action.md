@@ -70,7 +70,9 @@ final class Database
 }
 ```
 
-Do not create another PDO in the action or credential repository. Do not wrap `ApprovalService` calls in a transaction: `PdoApprovalStore` begins the outer transaction itself, with `PDO::beginTransaction()`, and refuses to begin inside another one. Its first statement is a write that changes nothing, which takes SQLite's write reservation before anything is read, as `BEGIN IMMEDIATE` would, and holds it until the transaction ends.
+The package's PDO stores and credential repository use this connection as it is and change none of its settings. They refuse one that does not throw on errors, and an approval waits for another writer for as long as the busy timeout set here allows: ten seconds.
+
+Do not create another PDO in the action or credential repository. Do not wrap `ApprovalService` calls in a transaction: `PdoApprovalStore` begins the outer transaction itself, with `PDO::beginTransaction()`, and refuses to begin inside another one. Its first statement is a write that changes nothing, which takes SQLite's write reservation before anything is read, as `BEGIN IMMEDIATE` would, and holds it until the transaction ends. Your action must not end that transaction either: once code on the connection commits or rolls it back, the store refuses every later write, so the approval records no outcome and the request stays pending, even when the action's own commit has already made its change.
 
 This example uses the SQLite PDO store. On Doctrine (SQLite, PostgreSQL, MySQL or MariaDB), use your DoctrineBundle connection instead of this PDO, let the bundle wire the storage with `persistence: { driver: doctrine }` as [Storage on Doctrine](index.md#storage-on-doctrine) describes, and lock what your authorizer and action read with `DbalTransaction::forShare()` and `forUpdate()`.
 
