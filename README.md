@@ -86,10 +86,10 @@ The [examples guide](examples/README.md) explains what each example runs, and th
 | The rule lets a role act directly | It runs, and the agent's result and the review page say it ran without a passkey |
 | A phone code is used twice, or after two minutes | Refused: each code works once, for two minutes, and the phone session it opens lasts ten minutes |
 | Someone with only the password tries to add a passkey | Refused: the first passkey takes a one-time link; another takes a fresh confirmation with an existing passkey, or a new link that an administrator confirms with their own passkey to issue |
-| A passkey row is added or changed directly in the database | It approves nothing: no signed enrollment record vouches for it |
+| A passkey row is added, or its public key replaced, directly in the database | It approves nothing: no signed enrollment record vouches for it |
 | A passkey is revoked just after it confirmed adding another | The confirmation ends with it: no new passkey or passkey link |
 | A passkey's revocation is deleted or rewritten in the database | It stays revoked, unless the log is cut back to before it, or rewritten from an earlier key rotation onward with the retired key. Only a checkpoint of the log's head, kept elsewhere, shows either |
-| A completed approval's stored record is edited, even by one character | Its owner's review page and the agent's tools say the outcome cannot be confirmed, and the audit page flags the record |
+| A completed approval's stored proposal or outcome is edited, even by one character | Its owner's review page and the agent's tools say the outcome cannot be confirmed, and the audit page flags the record |
 | An approval's proposal is rewritten in the database, with its digest recomputed to match | The audit page's checks fail: the receipt was signed at commit, and the passkey signed the original |
 | A record is edited and its receipt deleted to hide it | The audit page flags it, and no evidence is signed for that record |
 | The site's record changes after the person kept their receipt | Their copy no longer matches it, checked with only the site's published key |
