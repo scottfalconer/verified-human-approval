@@ -94,10 +94,146 @@ final class DemoScriptsTest extends TestCase
         self::assertSame(['server stop', 'setup --reset for https://tunnel-name.trycloudflare.com, registration 0', 'server start'], file($none.'/calls.log', \FILE_IGNORE_NEW_LINES));
     }
 
+    public function testServerServesTheAddressTheDemoWasSetUpFor(): void
+    {
+        $root = $this->serverTree('http://localhost:8090');
+        [$status, $output] = self::server($root, 'start');
+        self::assertSame(0, $status, $output);
+        self::assertStringContainsString('Serving http://localhost:8090', $output);
+        [$submit] = self::launched($root);
+        self::assertStringContainsString('-l dev.verified-human-approval.demo.8090 ', $submit);
+        self::assertStringContainsString(' -S localhost:8090 -t '.$root.'/demo/public ', $submit);
+        self::assertSame("Serving http://localhost:8090\n", self::server($root, 'status')[1]);
+
+        [$status, $output] = self::server($root, 'stop');
+        self::assertSame(0, $status, $output);
+        self::assertContains('launchctl remove dev.verified-human-approval.demo.8090', self::calls($root));
+        self::assertContains('pkill -f php -S localhost:8090 ', self::calls($root));
+        self::assertSame("Not running\n", self::server($root, 'status')[1]);
+
+        // An origin without a port is served on port 80, and stopping it leaves the servers on 8080 and 8081 alone.
+        $root = $this->serverTree('http://localhost');
+        self::assertSame(0, self::server($root, 'stop')[0]);
+        self::assertSame(['launchctl remove dev.verified-human-approval.demo.80', 'pkill -f php -S localhost:80 '], self::calls($root));
+    }
+
+    public function testServerRefusesToServeADemoOnAPortItDoesNotAnswerOn(): void
+    {
+        $root = $this->serverTree('http://localhost:8090');
+        foreach (['start', 'restart', 'stop', 'status'] as $command) {
+            [$status, $output] = self::server($root, $command, ['PORT' => '8080']);
+            self::assertSame(1, $status, $command.': '.$output);
+            self::assertStringContainsString('This demo was set up for http://localhost:8090, so it is served on port 8090.', $output, $command);
+            self::assertStringContainsString('VERIFIED_HUMAN_APPROVAL_ORIGIN=http://localhost:8080 php demo/bin/setup.php --reset', $output, $command);
+        }
+        self::assertFileDoesNotExist($root.'/calls.log', 'Nothing was started or stopped.');
+
+        // A demo nobody set up has no address to serve.
+        $root = $this->serverTree(null);
+        [$status, $output] = self::server($root, 'start');
+        self::assertSame(1, $status, $output);
+        self::assertStringContainsString('No demo is set up in '.$root.'/var/demo. Set one up first: php demo/bin/setup.php', $output);
+        self::assertFileDoesNotExist($root.'/calls.log');
+        self::assertSame("Not running\n", self::server($root, 'status')[1]);
+    }
+
+    public function testServerServesADemoBehindATunnelOnTheLocalPortTheTunnelForwardsTo(): void
+    {
+        $root = $this->serverTree('https://tunnel-name.trycloudflare.com', 'var/public-demo');
+        $runtime = ['VERIFIED_HUMAN_APPROVAL_RUNTIME' => $root.'/var/public-demo'];
+        [$status, $output] = self::server($root, 'start', $runtime + ['PORT' => '8081']);
+        self::assertSame(0, $status, $output);
+        self::assertStringContainsString('Serving http://localhost:8081 for https://tunnel-name.trycloudflare.com', $output);
+        [$submit] = self::launched($root);
+        self::assertStringContainsString('-l dev.verified-human-approval.demo.8081 ', $submit);
+        self::assertStringContainsString(' VERIFIED_HUMAN_APPROVAL_RUNTIME='.$root.'/var/public-demo ', $submit);
+        self::assertStringContainsString(' -S localhost:8081 -t ', $submit);
+        self::assertSame(0, self::server($root, 'stop', $runtime + ['PORT' => '8081'])[0]);
+
+        [$status, $output] = self::server($root, 'start', $runtime);
+        self::assertSame(0, $status, $output);
+        self::assertStringContainsString(' -S localhost:8080 -t ', self::launched($root)[1], 'Without PORT, the tunnel is taken to forward to port 8080.');
+    }
+
+    public function testPublicStatusAsksAboutThePublicDemosOwnServer(): void
+    {
+        // A local demo set up for port 8080, beside the public one, whose tunnel forwards to its server on port 8081.
+        $root = $this->serverTree('http://localhost:8080');
+        $filesystem = new Filesystem();
+        $filesystem->copy(\dirname(__DIR__, 2).'/demo/bin/public', $root.'/demo/bin/public');
+        $filesystem->chmod($root.'/demo/bin/public', 0755);
+        $filesystem->dumpFile($root.'/var/public-demo/settings.json', json_encode(['origin' => 'https://tunnel-name.trycloudflare.com'], \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES));
+        $filesystem->dumpFile($root.'/var/public-tunnel.log', "Your quick Tunnel has been created! Visit it at:\nhttps://tunnel-name.trycloudflare.com\n");
+        $filesystem->dumpFile($root.'/listening', "8081\n");
+
+        [$status, $output] = self::script([$root.'/demo/bin/public', 'status'], ['PATH' => $root.'/stand-ins:'.\dirname(\PHP_BINARY).':/usr/bin:/bin', 'PORT' => null, 'VERIFIED_HUMAN_APPROVAL_RUNTIME' => null]);
+        self::assertSame(0, $status, $output);
+        self::assertSame("Tunnel: https://tunnel-name.trycloudflare.com\nServing http://localhost:8081 for https://tunnel-name.trycloudflare.com\n", $output);
+    }
+
     /** @return array{int, string} */
     private static function publicStart(string $root, string ...$arguments): array
     {
         return self::script([$root.'/demo/bin/public', 'start', ...$arguments], ['PATH' => $root.'/stand-ins:'.\dirname(\PHP_BINARY).':/usr/bin:/bin']);
+    }
+
+    /**
+     * Runs the copy of demo/bin/server in $root, with no PORT and no runtime named unless $environment names them.
+     *
+     * @param array<string, string> $environment
+     *
+     * @return array{int, string}
+     */
+    private static function server(string $root, string $command, array $environment = []): array
+    {
+        return self::script([$root.'/demo/bin/server', $command], $environment + [
+            'PATH' => $root.'/stand-ins:'.\dirname(\PHP_BINARY).':/usr/bin:/bin', 'PHP_BIN' => \PHP_BINARY,
+            'PORT' => null, 'VERIFIED_HUMAN_APPROVAL_RUNTIME' => null,
+        ]);
+    }
+
+    /**
+     * A copy of demo/bin/server in a tree of its own, beside stand-ins for launchd, lsof, pkill and the console that
+     * only record what they are asked to do. A job the stand-in launchd is given listens on the port its php -S names,
+     * until it is removed or killed, so the script sees the server it started. The runtime at $runtime, set up for
+     * $setUpFor, holds only its settings.
+     *
+     * @return string the tree's root
+     */
+    private function serverTree(?string $setUpFor, string $runtime = 'var/demo'): string
+    {
+        $root = $this->directory.'/'.bin2hex(random_bytes(4));
+        $filesystem = new Filesystem();
+        $filesystem->copy(\dirname(__DIR__, 2).'/demo/bin/server', $root.'/demo/bin/server');
+        $filesystem->dumpFile($root.'/demo/bin/console', "<?php\nfile_put_contents('$root/calls.log', 'console '.implode(' ', array_slice(\$argv, 1)).\"\\n\", \\FILE_APPEND);\n");
+        $filesystem->dumpFile($root.'/stand-ins/launchctl', <<<SH
+            #!/bin/sh
+            echo "launchctl \$*" >> '$root/calls.log'
+            case "\$1" in
+              submit) for argument; do case "\$argument" in localhost:*) echo "\${argument#localhost:}" > '$root/listening' ;; esac; done ;;
+              remove) rm -f '$root/listening' ;;
+            esac
+            SH);
+        $filesystem->dumpFile($root.'/stand-ins/lsof', "#!/bin/sh\n[ -f '$root/listening' ] && [ \"\$2\" = \"-iTCP:\$(cat '$root/listening')\" ]\n");
+        $filesystem->dumpFile($root.'/stand-ins/pkill', "#!/bin/sh\necho \"pkill \$*\" >> '$root/calls.log'\nrm -f '$root/listening'\n");
+        $filesystem->chmod([$root.'/demo/bin/server', $root.'/stand-ins/launchctl', $root.'/stand-ins/lsof', $root.'/stand-ins/pkill'], 0755);
+        if (null !== $setUpFor) {
+            $filesystem->dumpFile($root.'/'.$runtime.'/settings.json', json_encode(['origin' => $setUpFor], \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES));
+        }
+
+        return $root;
+    }
+
+    /** @return list<string> what the scripts in $root asked the stand-ins to do, in order */
+    private static function calls(string $root): array
+    {
+        return is_file($root.'/calls.log') ? file($root.'/calls.log', \FILE_IGNORE_NEW_LINES) : [];
+    }
+
+    /** @return list<string> the jobs the stand-in launchd was given, in order */
+    private static function launched(string $root): array
+    {
+        return array_values(array_filter(self::calls($root), static fn (string $call): bool => str_starts_with($call, 'launchctl submit ')));
     }
 
     /**

@@ -216,6 +216,50 @@ final class StoredApprovalAuditTest extends TestCase
         yield 'one character of the proposal' => [self::update("proposal = replace(proposal, 'Evacuat', 'Evacuat0')"), false];
     }
 
+    /**
+     * The site's Issue alert button and its alert rule form send no request key, so asking again with the same content
+     * reuses the proposal still waiting. When its stored record was edited, they say what the review page says, that
+     * its outcome cannot be confirmed, and never that the request was refused.
+     *
+     * @param \Closure(\PDO, string): void $change
+     */
+    #[DataProvider('waitingChanges')]
+    public function testAskingAgainOnTheSiteWhileTheWaitingRequestIsDamagedSaysItsOutcomeCannotBeConfirmed(\Closure $change, bool $namesRequest): void
+    {
+        $editor = $this->signedIn('editor');
+        $issue = $editor->request('GET', self::ORIGIN.'/')->selectButton('Issue alert')->form();
+        $manager = $this->signedIn('manager');
+        $rule = $manager->request('GET', self::ORIGIN.'/admin/approval-policy')->selectButton('Propose this change')->form();
+        $rule['approval_policy[staff]']->select('direct');
+        foreach (['Issue alert' => [$editor, $issue], 'the alert rule form' => [$manager, $rule]] as $surface => [$browser, $form]) {
+            $browser->submit($form);
+            self::assertSame(1, preg_match('#^/approval/(apr_[a-f0-9]{32})\?#', (string) $browser->getResponse()->headers->get('Location'), $match), $surface);
+            $change($this->database->pdo, $match[1]);
+
+            $page = $browser->submit($form);
+            self::assertSame(409, $browser->getResponse()->getStatusCode(), $surface);
+            self::assertCount(1, $page->filter('[data-status="integrity_error"]'), $surface);
+            self::assertStringContainsString('We cannot confirm this approval’s outcome', $page->text(), $surface);
+            $named = $namesRequest ? 'Request '.$match[1].' · ' : '';
+            self::assertSame($named.'Reason code: record_integrity_error', $page->filter('[data-status="integrity_error"] p.small')->text(), $surface.': the page names the request only when the error carries it.');
+        }
+        self::assertSame(0, (int) $this->database->alert('riverside-evacuation')['mutation_count']);
+        self::assertSame(1, (int) $this->database->policy('alert.publish')['version']);
+    }
+
+    /**
+     * The error names the request only when a part other than the proposal does not read back. A record that reads
+     * back but whose parts disagree, such as a proof beside a waiting request, fails a check that names none.
+     *
+     * @return iterable<string, array{\Closure(\PDO, string): void, bool}> each edit to a waiting request, and whether the error it causes names the request
+     */
+    public static function waitingChanges(): iterable
+    {
+        yield 'one character of the proposal' => [self::update("proposal = substr(proposal, 1, 20) || 'X' || substr(proposal, 22)"), false];
+        yield 'the proof, to text that is not JSON' => [self::update("proof = 'approved'"), true];
+        yield 'a proof, added while it waits' => [self::update("proof = '{}'"), false];
+    }
+
     /** @return \Closure(\PDO, string): void an edit to the stored request's own row */
     private static function update(string $set): \Closure
     {

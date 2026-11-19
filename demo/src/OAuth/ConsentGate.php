@@ -14,8 +14,8 @@ use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 /**
  * The consent step of every authorization, in place of omouren/mcp-oauth-bundle's ConsentListener: that page shows
  * what its link says, and its Allow is a session flag the next authorization request passes, whatever it asks.
- * This one asks the person about the request league/oauth2-server has just validated, and approves only that
- * request, when it comes back after their Allow.
+ * This one asks the person about the request league/oauth2-server has just validated, and answers only that
+ * request, when it comes back after their Allow or Don't allow.
  */
 final readonly class ConsentGate
 {
@@ -39,8 +39,11 @@ final readonly class ConsentGate
             $request->query->getString('resource'), $event->getState(), $event->getCodeChallenge(), $event->getCodeChallengeMethod(),
         );
         $session = $request->getSession();
-        if ($this->consents->take($session, $binding)) {
-            $event->resolveAuthorization(AuthorizationRequestResolveEvent::AUTHORIZATION_APPROVED);
+        $allowed = $this->consents->take($session, $binding);
+        if (null !== $allowed) {
+            // league/oauth2-server answers a refusal itself: it sends the person back to this redirect URI with
+            // access_denied and the request's state (RFC 6749 §4.1.2.1), and the provider adds its issuer (RFC 9207).
+            $event->resolveAuthorization($allowed ? AuthorizationRequestResolveEvent::AUTHORIZATION_APPROVED : AuthorizationRequestResolveEvent::AUTHORIZATION_DENIED);
 
             return;
         }
