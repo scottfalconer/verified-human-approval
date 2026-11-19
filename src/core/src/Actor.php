@@ -35,9 +35,20 @@ final readonly class Actor
         return hash('sha256', CanonicalJson::encode($this->toArray()));
     }
 
-    /** @param array<string, mixed> $data */
+    /**
+     * The actor as toArray() wrote it, all three keys present.
+     *
+     * @param array<string, mixed> $data
+     *
+     * @throws \UnexpectedValueException when the data is not an actor's
+     */
     public static function fromArray(array $data): self
     {
+        if (!\is_string($data['userId'] ?? null) || !\is_string($data['tenantId'] ?? null)
+            || !\array_key_exists('delegationId', $data) || (null !== $data['delegationId'] && !\is_string($data['delegationId']))) {
+            throw new \UnexpectedValueException('An actor needs a user id and a tenant id, as strings, and a delegation id that is a string or null.');
+        }
+
         return new self($data['userId'], $data['tenantId'], $data['delegationId']);
     }
 }
