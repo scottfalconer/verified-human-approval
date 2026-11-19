@@ -72,6 +72,7 @@ final class SymfonyApprovalTest extends TestCase
         }
         self::assertEqualsCanonicalizing(['approval_handoff', 'approval_status', 'publish_alert', 'read_alert'], array_keys($tools));
         self::assertSame(['app'], json_decode(json_encode($tools['approval_handoff'], \JSON_THROW_ON_ERROR), true)['_meta']['ui']['visibility'], 'Only the card can ask for a phone code.');
+        self::assertStringStartsWith('Used by the approval card:', (string) $tools['approval_handoff']->description, 'A host that shows every tool to the model says whose tool it is.');
         self::assertArrayNotHasKey('actor', $tools['publish_alert']->inputSchema['properties']);
         self::assertArrayNotHasKey('user_id', $tools['publish_alert']->inputSchema['properties']);
         self::assertSame(ApprovalFlow::REQUEST_KEY_DESCRIPTION, $tools['publish_alert']->inputSchema['properties']['request_key']['description'] ?? null, 'The request key is described so that an agent leaves it out.');
