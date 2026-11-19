@@ -83,14 +83,18 @@ final class AuditAbsenceTest extends TestCase
 
     public function testAnEntryTheLogRefusesRulesOutNothingBeforeIt(): void
     {
-        // A host that still signs with this key after its window closed: the signature verifies, the log refuses it.
-        $late = new AuditLog($this->store, $this->signer, $this->log->trustedKeys(), new MockClock('2026-11-08 13:00:00'));
-        $late->append('acme', 'connection.revoked', 'grant-3', ['userId' => 'bob']);
+        // A host that still signs with a retired key after its window closed: the signature verifies, the log refuses it.
+        $retired = new SodiumEvidenceSigner('app-key-0', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
+        (new AuditLog($this->store, $retired, TrustedKeys::single($retired->keyId(), $retired->publicKey()), new MockClock('2026-11-08 12:00:00')))
+            ->append('acme', 'connection.revoked', 'grant-3', ['userId' => 'bob']);
         $this->log->append('acme', 'passkey.enrolled', 'tablet', ['userId' => 'alice']);
-        $closed = new AuditLog($this->store, $this->signer, new TrustedKeys([new TrustedKey('app-key', $this->signer->publicKey(), null, TrustedKey::time('2026-11-08T12:30:00Z'))]), new MockClock('2026-11-08 12:00:00'));
+        $keys = fn (?string $until): TrustedKeys => new TrustedKeys([new TrustedKey('app-key', $this->signer->publicKey()), new TrustedKey('app-key-0', $retired->publicKey(), null, null === $until ? null : TrustedKey::time($until))]);
+        $since = ['laptop' => 1, 'phone' => 4, 'tablet' => 7];
 
-        self::assertSame(['tablet'], $closed->unrecorded('passkey.revoked', ['laptop' => 1, 'phone' => 4, 'tablet' => 7]), 'It could be what is left of a revocation rewritten with that key.');
-        self::assertSame(['laptop', 'phone', 'tablet'], $this->log->unrecorded('passkey.revoked', ['laptop' => 1, 'phone' => 4, 'tablet' => 7]), 'Keys without a window refuse nothing.');
+        $closed = new AuditLog($this->store, $this->signer, $keys('2026-11-08T11:00:00Z'), new MockClock('2026-11-08 12:00:00'));
+        self::assertSame(['tablet'], $closed->unrecorded('passkey.revoked', $since), 'It could be what is left of a revocation rewritten with that key.');
+        $open = new AuditLog($this->store, $this->signer, $keys(null), new MockClock('2026-11-08 12:00:00'));
+        self::assertSame(['laptop', 'phone', 'tablet'], $open->unrecorded('passkey.revoked', $since), 'Listed without a window, the key refuses nothing.');
     }
 
     public function testDamageBeforeTheSubjectCountsAgainstWhatAClosedKeySignedSince(): void

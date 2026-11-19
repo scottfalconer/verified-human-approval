@@ -16,18 +16,20 @@ use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
  * connections revoked, enrollment links issued, alerts taken down, and the application's signing key
  * changing. Each entry is canonical JSON that names the hash of the entry before it, signed with the
  * application's evidence key, which is kept outside the database. Editing, reordering or deleting an entry
- * breaks a signature or the chain. Only two edits can pass unnoticed: the newest entries cut off, and, by
- * someone holding a retired key's private half, the chain rewritten with that key as far back as the rotation
- * away from it. A checkpoint of the head (head()) kept where the application cannot write exposes both.
+ * breaks a signature or the chain. Only two such edits can pass unnoticed: the newest entries cut off, and, by
+ * someone holding a retired key's private half, the newest entries replaced with entries signed with that key,
+ * reaching back to the rotation away from it once that is recorded. A checkpoint of the head (head()) kept
+ * where the application cannot write exposes both.
  *
  * Entries are checked against the application's TrustedKeys. A row names its key; a key the set does not
  * list verifies nothing, and an entry whose time ("at") falls outside its key's window is refused. Once the
  * chain records a rotation away from a key (recordRotation()), an entry after it signed with that key is
- * refused too, whatever time it claims. And once a key's window has closed, what it signed counts only while
- * a later entry signed with a key in use vouches for it, through entries the log accepts, and while nothing
- * before it could hide where trust moved: no entry was edited, removed or put out of order, and no rotation
- * entry, nor any other entry that key signed, is one the log refuses. The new key vouches for the old key's
- * entries as they stood when it first signed, so record the rotation as soon as the new key signs.
+ * refused too, whatever time it claims. A key with an end, as a key being retired has, is held to more: what
+ * it signed counts only while nothing before it could hide where trust moved, so no entry was edited, removed
+ * or put out of order, and no rotation entry, nor any other entry that key signed, is one the log refuses. Once
+ * its window has closed, a later entry signed with a key in use must also vouch for it, through entries the log
+ * accepts: the new key vouches for the old key's entries as they stood when it first signed, so record the
+ * rotation as soon as the new key signs.
  *
  * This class builds, signs and checks entries; an AuditStore keeps the rows. One chain spans every tenant. The
  * store's lookup only finds entries: that one is absent, such as a revocation (unrecorded()) or the rotation away
@@ -139,8 +141,8 @@ final readonly class AuditLog
     /**
      * The newest entry of a type for a subject that the trusted keys vouch for, or null. Its own hash, signature
      * and key must verify. If its key has an end, as a key being retired has, verify() must accept it too, which
-     * reads the rotations from the whole chain and, once that key's window has closed, wants a later entry signed
-     * with a key in use to vouch for it, with nothing before it damaged (see the class description). So once the
+     * reads the rotations from the whole chain, wants nothing before it damaged and, once that key's window has
+     * closed, a later entry signed with a key in use to vouch for it (see the class description). So once the
      * rotation is recorded, someone holding a stolen copy of the old key cannot make an entry of their own count,
      * whether they damage the rotation entry, sign it again or hide it from the lookup, short of rewriting the
      * chain as far back as the rotation.
@@ -248,7 +250,7 @@ final readonly class AuditLog
     /**
      * Every entry, oldest first, each checked on its own and against the one before it. Each names the key
      * its row says signed it and its hash; the entry itself is there once its signature verifies. An entry
-     * signed with a key whose window has closed is refused after damage (see the class description), and
+     * signed with a key that has an end is refused after damage (see the class description), and
      * "unvouched" marks one that no later entry signed with a key in use vouches for, through entries the log
      * accepts, so find() does not count it (see unvouchedKeys()).
      *
@@ -395,7 +397,9 @@ final readonly class AuditLog
                 };
                 $ruled = null === $entry ? null : match (true) {
                     isset($rotatedAway[$row['key_id']]) => \sprintf('it is signed with key "%s", which entry %d rotated away from', $row['key_id'], $rotatedAway[$row['key_id']]),
-                    !$inUse && ($damaged || isset($refused[$row['key_id']])) => \sprintf('it is signed with key "%s", whose window has closed, and an entry before it does not verify', $row['key_id']),
+                    !$this->open($row['key_id'], $now) && ($damaged || isset($refused[$row['key_id']])) => \sprintf($inUse
+                        ? 'it is signed with key "%s", which is being retired, and an entry before it does not verify'
+                        : 'it is signed with key "%s", whose window has closed, and an entry before it does not verify', $row['key_id']),
                     default => null,
                 };
                 $problem = $checked ?? $link ?? $ruled;

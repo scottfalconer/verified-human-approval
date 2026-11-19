@@ -365,6 +365,33 @@ final class AuditKeyRotationTest extends TestCase
         self::assertTrue($log->verify()['intact']);
     }
 
+    public function testWhileTheOldKeysWindowIsStillOpenDamagingTheRotationLetsNothingItSignsCount(): void
+    {
+        $this->before()->append('tenant-a', 'passkey.enrolled', 'cred-1', ['userId' => 'alice']);
+        // A rollout: the rotation is recorded while the old key's window stays open an hour longer.
+        $overlap = new TrustedKeys([
+            new TrustedKey('application-2', $this->new->publicKey(), TrustedKey::time(self::ROTATED)),
+            new TrustedKey('application-1', $this->old->publicKey(), TrustedKey::time(self::OPENED), TrustedKey::time('2026-11-09T13:00:00Z')),
+        ]);
+        $this->clock->modify('2026-11-09T12:30:00Z');
+        $log = new AuditLog($this->store, $this->new, $overlap, $this->clock);
+        $log->recordRotation('application-1');
+
+        // Someone holding the old private key and the database breaks the rotation entry's signature, then enrolls
+        // their own passkey with the old key, inside its window.
+        $this->pdo->exec("UPDATE verified_human_approval_audit SET signature = (CASE substr(signature, 1, 1) WHEN 'A' THEN 'B' ELSE 'A' END) || substr(signature, 2) WHERE type = 'signing_key.rotated'");
+        $thief = new AuditLog($this->store, $this->old, TrustedKeys::single('application-1', $this->old->publicKey()), new MockClock('2026-11-09T12:40:00Z'));
+        $thief->append('tenant-a', 'passkey.enrolled', 'cred-thief', ['userId' => 'alice']);
+
+        self::assertNull($log->find('passkey.enrolled', 'cred-thief'));
+        self::assertNotNull($log->find('passkey.enrolled', 'cred-1'), 'What the old key signed before the damage still counts.');
+        self::assertSame([
+            1 => null,
+            2 => 'its signature or hash does not verify',
+            3 => 'it is signed with key "application-1", which is being retired, and an entry before it does not verify',
+        ], array_column($log->verify()['entries'], 'problem', 'seq'));
+    }
+
     public function testARotationHiddenFromTheStoresLookupStillEndsTheOldKeysEntries(): void
     {
         $this->before()->append('tenant-a', 'passkey.enrolled', 'cred-1', ['userId' => 'alice']);
@@ -492,8 +519,10 @@ final class AuditKeyRotationTest extends TestCase
         $before->append(AuditLog::ALL_TENANTS, AuditLog::KEY_ROTATED, 'application-1', ['from' => 'application-1', 'to' => 'application-2', 'publicKey' => $this->new->publicKey()]);
         $before->append('tenant-a', 'passkey.enrolled', 'cred-1', ['userId' => 'alice']);
 
+        // A host that is retiring the old key counts nothing it signed after the entry: it could be a genuine rotation
+        // signed again.
         $report = (new AuditLog($this->store, $this->old, $this->rotatedKeys(), $this->clock))->verify();
-        self::assertSame(['it records a key rotation that its own signature does not match', null], array_column($report['entries'], 'problem'));
+        self::assertSame(['it records a key rotation that its own signature does not match', 'it is signed with key "application-1", which is being retired, and an entry before it does not verify'], array_column($report['entries'], 'problem'));
         self::assertNotNull($this->before()->find('passkey.enrolled', 'cred-1'), 'No trust moved.');
     }
 

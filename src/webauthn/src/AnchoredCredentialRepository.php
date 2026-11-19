@@ -18,9 +18,9 @@ use VerifiedHumanApproval\Core\Audit\AuditLog;
  * since its enrollment is one the log refuses, because its signature, key, window or link fails or it comes
  * after the rotation away from its key. So no edit to a revocation's row, no deletion of it and no rewrite of
  * it, even one signed with a retired key, restores the passkey. Two edits are the exception: the newest entries
- * cut off, and, by someone holding a retired key's private half, the log rewritten with that key as far back as
- * the rotation away from it. Only a checkpoint of the log's head kept where the application cannot write
- * (AuditLog::checkpoint()) shows that a revocation among them is gone.
+ * cut off, and, by someone holding a retired key's private half, the newest entries replaced with entries signed
+ * with that key, reaching back to the rotation away from it once that is recorded. Only a checkpoint of the log's
+ * head kept where the application cannot write (AuditLog::checkpoint()) shows that a revocation among them is gone.
  *
  * An entry the log refuses stops every passkey enrolled before it until its owner enrolls again, even one that a
  * host or worker wrote while still signing with a retired key: from the chain alone, it could be a rewritten
