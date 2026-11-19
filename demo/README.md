@@ -44,7 +44,7 @@ VERIFIED_HUMAN_APPROVAL_ORIGIN=http://localhost:8090 php demo/bin/setup.php --re
 PHP_CLI_SERVER_WORKERS=4 php -S localhost:8090 -t demo/public demo/public/index.php
 ```
 
-`--reset` replaces a demo you already set up, with its accounts and passkeys. Setup prints the server command for the address it was given. It reads the address each time it runs, so set `VERIFIED_HUMAN_APPROVAL_ORIGIN` again for a later `--reset`; without it, setup uses `http://localhost:8080`. In step 3, export `VERIFIED_HUMAN_APPROVAL_MCP_URL=http://localhost:8090/mcp` instead, and use port 8090 wherever this guide links to the site.
+`--reset` replaces a demo you already set up, with its accounts and passkeys. Setup prints the server command for the address it was given. It reads the address each time it runs, so set `VERIFIED_HUMAN_APPROVAL_ORIGIN` again for a later `--reset`; without it, setup uses `http://localhost:8080`. In step 3, export `VERIFIED_HUMAN_APPROVAL_MCP_URL=http://localhost:8090/mcp` instead, and use port 8090 wherever this guide links to the site. On macOS, `demo/bin/server start` serves it on port 8090 too: it reads the address from the demo's settings.
 
 ### 2. Add the editor's passkey
 
@@ -127,11 +127,13 @@ To take down the alert while keeping accounts, passkeys, connections, and past r
 php demo/bin/console demo:all-clear
 ```
 
-This operator command records the take-down in the security log. Use a new request key, such as `second-demo-request`, for the next publication.
+This operator command records the take-down in the audit log. Use a new request key, such as `second-demo-request`, for the next publication.
 
-To start with a completely fresh local demo, stop the server, run `php demo/bin/setup.php --reset`, save the new credentials, and restart the server. Reset removes the previous local demo data and keys; enroll a passkey and set the new token again.
+To start with a completely fresh local demo, stop the server, run `php demo/bin/setup.php --reset`, save the new credentials, and restart the server. If you set the demo up for another port, put the same `VERIFIED_HUMAN_APPROVAL_ORIGIN` in front of `--reset`, or setup goes back to `http://localhost:8080`. Reset removes the previous local demo data and keys; enroll a passkey and set the new token again.
 
-On macOS, `demo/bin/server start` runs an initialized demo under launchd so it survives terminal restarts. Use this instead of the foreground server. It also accepts `stop`, `restart`, and `status`. For local debug mode, add `APP_DEBUG=1` before the foreground PHP server command. Keep debug mode off for the public demo.
+On macOS, `demo/bin/server start` runs an initialized demo under launchd instead of in a terminal, at the address it was set up for, so it survives terminal restarts. Stop the foreground server first. `start` refuses while another program holds the port, and says how to free it or use another one. `demo/bin/server status` says whether this checkout's server or another program holds the port, and `demo/bin/server stop` stops only the server this script started under launchd, never one that another folder or project started. It also accepts `restart`.
+
+For debug mode, which shows stack traces, put `APP_DEBUG=1` in front of the foreground server command. Use it only for a demo on this computer.
 
 ## Use an agent client
 
@@ -152,11 +154,13 @@ Phones and claude.ai need a reachable HTTPS address. On macOS with `cloudflared`
 demo/bin/public start
 ```
 
-This starts a second demo and a Cloudflare quick tunnel under launchd. It prints the address and MCP connector URL. Its credentials and passkey links are in `var/public-demo-setup.txt`; keep that file private. Passkeys belong to a hostname, so a tunnel that comes back with a new one needs a fresh demo: `start` then says what it would replace and asks first. `demo/bin/public start --yes` answers yes, for use without a terminal.
+This starts a second demo and a Cloudflare quick tunnel under launchd. It prints the address and MCP connector URL. The second demo's credentials and passkey links are in `var/public-demo-setup.txt`; keep that file private. Its server uses port 8081 on this computer, which nothing else may use while it runs: `start` refuses while anything else holds that port, so the tunnel publishes nothing but this demo. Passkeys belong to a hostname, so a tunnel that comes back with a new one needs a fresh demo: `start` then says what it would replace and asks first. `demo/bin/public start --yes` answers yes, for use without a terminal.
 
 1. Open the public address, sign in as its `editor`, and enroll a passkey through that editor's link. Use a passkey available on the phone if you want to approve there.
-2. Add the printed HTTPS MCP URL as a custom connector in claude.ai, and sign in as the public demo's editor. The demo's consent page should say the client was published by claude.ai and returns to claude.ai; then choose **Allow**. claude.ai identifies itself with a client ID metadata document; the public demo does not let clients register themselves. The demo accepts ChatGPT's document too, but [no run with ChatGPT is recorded](../docs/verification.md#what-is-not-proven).
+2. In claude.ai, add the printed MCP URL as a custom connector, and sign in as the public demo's editor. The consent page should say the client was published by claude.ai and returns to claude.ai; choose **Allow**.
 3. Request the alert. Use **Review and approve**, or **Approve on your phone** when the client displays the card. Scan the QR code, review the alert, and approve with the enrolled passkey.
+
+The consent page can name claude.ai because claude.ai identifies itself with a client ID metadata document on its own host; clients cannot register themselves on the public demo. The demo accepts ChatGPT's document too, but [no run with ChatGPT is recorded](../docs/verification.md#what-is-not-proven).
 
 The phone code works once for two minutes. It opens only that review, without granting a general login, and still requires the person's passkey.
 
@@ -167,7 +171,7 @@ The phone code works once for two minutes. It opens only that review, without gr
 | Path | Purpose |
 | --- | --- |
 | [`src/DemoKernel.php`](src/DemoKernel.php) | Bundle configuration, firewalls, routes, service wiring, and the scopes each tool needs, which a token lacking one is told with HTTP 403 |
-| [`src/Mcp/DemoTools.php`](src/Mcp/DemoTools.php) | Read and publish tools. Reading checks the connection's `alert.read` scope; publishing checks `approval.read`, because a retry can return a result, and the authorizer checks `alert.publish` |
+| [`src/Mcp/DemoTools.php`](src/Mcp/DemoTools.php) | The read and publish tools. Reading needs the connection's `alert.read` scope. Publishing needs `approval.read`, since a retry can return an earlier result, and the authorizer also checks `alert.publish` |
 | [`src/Action/PublishAlert.php`](src/Action/PublishAlert.php) | Frozen proposal, version, preconditions, and postconditions |
 | [`src/Action/AlertPublisher.php`](src/Action/AlertPublisher.php) | The guarded database mutation |
 | [`src/Action/DemoPolicyProvider.php`](src/Action/DemoPolicyProvider.php) | The administrator's rules |
