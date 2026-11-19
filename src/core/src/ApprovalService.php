@@ -50,7 +50,11 @@ final class ApprovalService
         if (!preg_match('/^[A-Za-z0-9_-]{1,32}$/D', $locale)) {
             throw new ApprovalException('invalid_locale', 'Invalid approval locale.');
         }
-        $inputJson = CanonicalJson::encode((object) $input);
+        try {
+            $inputJson = CanonicalJson::encode((object) $input);
+        } catch (\InvalidArgumentException|\JsonException $error) {
+            throw new ApprovalException('invalid_input', 'The action input cannot be approved as it is. '.$error->getMessage(), $error);
+        }
         if (\strlen($inputJson) > 262144) {
             throw new ApprovalException('input_too_large', 'The action input exceeds 256 KiB.');
         }
@@ -138,7 +142,12 @@ final class ApprovalService
     /** @param array<string, mixed> $assertion the browser's WebAuthn response */
     public function complete(Actor $reviewer, string $ceremonyId, array $assertion): ApprovalState
     {
-        if (\strlen(CanonicalJson::encode((object) $assertion)) > 65536) {
+        try {
+            $size = \strlen(CanonicalJson::encode((object) $assertion));
+        } catch (\InvalidArgumentException|\JsonException $error) {
+            throw new ApprovalException('invalid_approval', 'The passkey response could not be read.', $error);
+        }
+        if ($size > 65536) {
             throw new ApprovalException('assertion_too_large', 'The passkey response exceeds the allowed size.');
         }
         $executionStarted = false;

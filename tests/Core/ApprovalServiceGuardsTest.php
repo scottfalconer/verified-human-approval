@@ -49,6 +49,24 @@ final class ApprovalServiceGuardsTest extends TestCase
         self::assertSame(0, $this->requests());
     }
 
+    public function testInputThatIsNotJsonDataIsRefusedAsInvalidInput(): void
+    {
+        foreach (['a decimal' => ['id' => 1, 'ratio' => 0.5], 'text that is not UTF-8' => ['id' => "\xff"], 'a key starting with NUL' => ["\0id" => 1]] as $case => $input) {
+            $this->assertRefused('invalid_input', fn () => $this->fixture->service->request($this->fixture->actor, 'article.publish', $input), $case);
+        }
+        self::assertSame(0, $this->requests());
+    }
+
+    public function testAPasskeyResponseThatIsNotJsonDataIsRefusedAsUnreadable(): void
+    {
+        $pending = $this->fixture->service->request($this->fixture->actor, 'article.publish', ['id' => 1]);
+        $ceremony = $this->fixture->service->begin($this->fixture->reviewer, $pending->request->id);
+
+        $this->assertRefused('invalid_approval', fn () => $this->fixture->service->complete($this->fixture->reviewer, $ceremony->id, $this->fixture->proof($ceremony) + ['clientExtensionResults' => (object) ['ratio' => 0.5]]));
+        self::assertSame(0, $this->fixture->verifier->verifyCalls);
+        self::assertSame('completed', $this->fixture->service->complete($this->fixture->reviewer, $ceremony->id, $this->fixture->proof($ceremony))->status, 'The ceremony was not used up.');
+    }
+
     public function testAProposalOver256KiBIsRefusedAndNothingIsStored(): void
     {
         $this->fixture->action->extraEffect = ['attachment' => str_repeat('x', 262144)];
