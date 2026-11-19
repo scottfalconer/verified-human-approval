@@ -313,6 +313,10 @@ final class DemoScriptsTest extends TestCase
         self::assertStringContainsString('No demo is set up in '.$checkout.'/var/demo. Set one up first: php demo/bin/setup.php', $output);
         self::assertSame([], $this->calls());
         self::assertSame([3, "Not running\n"], $this->server($checkout, 'status'));
+
+        // The port goes into the patterns that find this checkout's processes, so it must be a number.
+        self::assertSame([2, "PORT must be a port number, not \"80*\".\n"], $this->server($checkout, 'stop', ['PORT' => '80*']));
+        self::assertSame([], $this->calls());
     }
 
     public function testServerServesADemoBehindATunnelOnTheLocalPortTheTunnelForwardsTo(): void
