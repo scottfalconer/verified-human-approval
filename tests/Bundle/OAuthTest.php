@@ -446,6 +446,8 @@ final class OAuthTest extends TestCase
     public static function scopesTheClientCannotHave(): iterable
     {
         yield 'one beyond its own' => ['alert.read alert.publish'];
+        // League refuses a scope this server does not offer before the consent step runs.
+        yield 'one this server does not offer' => ['alert.read offline_access'];
     }
 
     #[DataProvider('scopesTheClientCannotHave')]
@@ -468,6 +470,19 @@ final class OAuthTest extends TestCase
         self::assertArrayNotHasKey('code', $refusal);
         $browser->request('GET', self::ORIGIN.'/oauth/consent');
         self::assertSame(410, $browser->getResponse()->getStatusCode(), 'Neither request was put to the person.');
+    }
+
+    public function testAClientNamedByItsMetadataDocumentLearnsOfAScopeThisServerDoesNotOffer(): void
+    {
+        $browser = $this->client();
+        $this->serveMetadataDocument($browser, ['client_id' => self::CLAUDE, 'client_name' => 'Claude', 'redirect_uris' => [self::CALLBACK]]);
+        $query = ['scope' => 'alert.read offline_access'] + self::authorizeQuery(self::CLAUDE, self::CALLBACK);
+        $this->signIn($browser, 'editor')->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query($query));
+        $location = (string) $browser->getResponse()->headers->get('Location');
+        self::assertStringStartsWith(self::CALLBACK.'?', $location, 'claude.ai’s own document gives this return address, so the error goes back to it.');
+        parse_str((string) parse_url($location, \PHP_URL_QUERY), $refusal);
+        self::assertSame('invalid_scope', $refusal['error'] ?? null);
+        self::assertSame($query['state'], $refusal['state'] ?? null);
     }
 
     public function testAConsentPageLeftOpenCannotApproveTheRequestThatReplacedIt(): void
