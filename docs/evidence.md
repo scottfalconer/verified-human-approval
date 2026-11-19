@@ -107,9 +107,23 @@ php src/webauthn/bin/verify-evidence.php \
   var/evidence-check/receipt-keys.json
 ```
 
-Expected result: exit code `1`, and a line that begins `Verification failed:` and says the record is not what the application signed. The original file still verifies. Changes to the proposal, assertion, nonce or execution result also invalidate the evidence. Changing a field directly in the stored execution record has the same effect: the site answers `record_integrity_error` the next time it reads that request, and the record no longer verifies against its receipt.
+Expected result: exit code `1`, and this line:
+
+```text
+Verification failed: The record is not what the application signed: its receipt does not match its execution record.
+```
+
+The original file still verifies. A field changed directly in the stored execution record fails the same way: the site answers `record_integrity_error` the next time it reads that request, and the record no longer verifies against its receipt.
 
 Deleting the original receipt does not reset this protection. The site answers `record_integrity_error` for a completed request whose receipt is gone, and the exporter, called directly, refuses it (`receipt_missing`). Neither creates a fresh signature over possibly altered data. A receipt the person already downloaded stays valid on its own.
+
+The command says only what did not match. It checks the receipt's signature before it compares the record with what the receipt signs, so it reports a changed record only under a receipt that the trusted key signed. A changed proposal or approval proof, which holds the assertion and the nonce, is named the same way, and several changed parts are named together, as in `its proposal, approval proof and execution record`. Its other answers:
+
+- The trusted key did not sign this receipt: the receipt itself was changed, its signature or what it signs, or it is checked against another site's keys under the same key id, such as those a demo publishes after `php demo/bin/setup.php --reset`.
+- The trusted keys do not list the receipt's key, or the receipt claims a time outside its key's window.
+- The receipt names another id of the key that signed it, which a key set can list twice.
+- The evidence's parts, though signed, do not describe one action, or its approval proof is missing or not bound to the proposal.
+- The evidence holds fields that nothing in it signs.
 
 ### 5. Optional: check the passkey signature too
 
