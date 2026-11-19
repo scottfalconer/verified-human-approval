@@ -117,6 +117,7 @@ This is a development preview. The packages are not on Packagist yet; the integr
 - Configure `receipt_signer` to sign receipts when actions commit. The demo and integration example include this configuration.
 - Passkeys use WebAuthn. The device can use Touch ID, Face ID, a PIN or another supported local method. The server receives a signature, not biometric data, and does not claim which local method was used.
 - The demo's account screens, administrator audit page and maintained-package OAuth integration are reference application code. The bundle uses the host's authentication and current permissions; it does not provide an OAuth issuer. See the [host contract](src/symfony-bundle/docs/authentication.md).
+- The root `composer.json` installs `symfony/mcp-bundle` 1.0.0-BETA1 under the alias `0.13.99`, because the demo's OAuth bundle, `omouren/mcp-oauth-bundle` 1.2, still requires `^0.13` ([Authentication ownership](demo/authentication.md) explains it). The alias applies only to this repository's root project: the bundle requires `symfony/mcp-bundle ^1.0`, and an application that installs it does not need the alias unless it also installs that OAuth bundle.
 
 ## Add it to your Symfony application
 
@@ -145,7 +146,18 @@ composer cs
 PHP_BIN=php python3 tests/http_smoke.py
 ```
 
-The tests cover real WebAuthn signatures, Symfony and MCP integration, concurrent completion, transaction rollback and receipt tampering. CI ([`tests.yml`](.github/workflows/tests.yml)) runs the suite on PHP 8.3, 8.4 and 8.5 with the locked dependencies, where any deprecation fails the run, and on the lowest allowed dependencies and on Symfony 8, where deprecations are reported without failing it. It runs the storage suites on PostgreSQL 14 and 17, MySQL 8.0 and 8.4 and MariaDB 11.4, and installs the packages into separate Composer projects, among them [Editorial Desk](tests/EditorialDesk/README.md), an independent Symfony application. Browser tests, physical devices and hosted clients are reported separately in [verification status](docs/verification.md).
+`composer test` runs the PHPUnit suite, which takes two to three minutes; the script turns off Composer's process timeout for it. `composer analyse` runs PHPStan at level 8 and `composer cs` checks the coding standard. `tests/http_smoke.py` starts the demo on a real HTTP server, drives it with the PHP MCP client and the scripted Symfony AI agent, and checks that nothing is published without approval.
+
+Expect PHPUnit to report skipped tests. Without the server variables below, the PostgreSQL and MySQL variants of the storage contract, schema, transaction, ORM and publishing-example tests skip. Two SQLite audit-log cases also skip, because on SQLite's rollback journal the host's read keeps the other writer from committing at all. `composer test -- --display-skipped` lists each one with its reason. CI runs the server variants with `--fail-on-skipped`, so there a skipped test fails the job. To run them yourself, give the tests a server account that can create and drop databases; each test creates its own throwaway database:
+
+```bash
+VERIFIED_HUMAN_APPROVAL_POSTGRES_URL='pdo-pgsql://postgres:postgres@127.0.0.1:5432/postgres' \
+  vendor/bin/phpunit --testsuite contract,doctrine,example --filter Postgres --fail-on-skipped
+VERIFIED_HUMAN_APPROVAL_MYSQL_URL='pdo-mysql://root:root@127.0.0.1:3306/mysql?charset=utf8mb4' \
+  vendor/bin/phpunit --testsuite contract,doctrine,example --filter Mysql --fail-on-skipped
+```
+
+The tests cover real WebAuthn signatures, Symfony and MCP integration, concurrent completion, transaction rollback and receipt tampering. CI ([`tests.yml`](.github/workflows/tests.yml)) runs the suite on PHP 8.3, 8.4 and 8.5 with the locked dependencies, where any deprecation fails the run, and on the lowest allowed dependencies and on Symfony 8, where deprecations are reported without failing it. It runs the server variants on PostgreSQL 14 and 17, MySQL 8.0 and 8.4 and MariaDB 11.4, and installs the packages into separate Composer projects, among them [Editorial Desk](tests/EditorialDesk/README.md), an independent Symfony application. Browser tests, physical devices and hosted clients are reported separately in [verification status](docs/verification.md).
 
 ## Further reading
 
@@ -156,4 +168,4 @@ The tests cover real WebAuthn signatures, Symfony and MCP integration, concurren
 - [Reporting a vulnerability](SECURITY.md)
 - [Verify a receipt](docs/evidence.md)
 
-MIT licensed. See [LICENSE](LICENSE).
+MIT licensed: the packages, the demo, the examples and the test applications. See [LICENSE](LICENSE).
