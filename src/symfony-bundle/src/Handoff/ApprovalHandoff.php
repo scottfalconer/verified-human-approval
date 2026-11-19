@@ -85,7 +85,8 @@ final readonly class ApprovalHandoff
     /** Redeems a link once and scopes this browser session to its request. Returns that request's ID. */
     public function redeem(string $token, SessionInterface $session): ?string
     {
-        if (!preg_match('/^[A-Za-z0-9_-]{43}$/D', $token)) {
+        // Only a code that exists takes a lock, so codes tried at random leave no lock behind.
+        if (!preg_match('/^[A-Za-z0-9_-]{43}$/D', $token) || !$this->cache->hasItem(self::key($token))) {
             return null;
         }
         $lock = $this->locks?->createLock(self::key($token), 10);

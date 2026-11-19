@@ -17,6 +17,7 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Session\Session;
 use Symfony\Component\HttpFoundation\Session\Storage\MockArraySessionStorage;
 use Symfony\Component\Lock\LockFactory;
+use Symfony\Component\Lock\Store\FlockStore;
 use Symfony\Component\Lock\Store\InMemoryStore;
 use Symfony\Component\Routing\Generator\UrlGenerator;
 use Symfony\Component\Routing\RequestContext;
@@ -189,6 +190,24 @@ final class HandoffTest extends TestCase
         self::assertEquals($alice, $handoff->personFor($phone, $state->request->id), 'The phone session lasts ten minutes.');
         $clock->sleep(1);
         self::assertNull($handoff->personFor($phone, $state->request->id), 'Then the phone reaches nothing.');
+    }
+
+    public function testACodeThatWasNeverIssuedTakesNoLock(): void
+    {
+        $fixture = new CoreFixture();
+        $state = $fixture->service->request($fixture->actor, 'article.publish', ['id' => 1]);
+        $routes = new RouteCollection();
+        $routes->add('verified_human_approval_handoff', new Route('/approval/handoff/{token}'));
+        $locks = $this->runtime.'/locks';
+        $handoff = new ApprovalHandoff(new ArrayAdapter(), new UrlGenerator($routes, new RequestContext()), 'https://app.example', new MockClock(), new LockFactory(new FlockStore($locks)));
+
+        for ($guess = 0; $guess < 20; ++$guess) {
+            self::assertNull($handoff->redeem(rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '='), new Session(new MockArraySessionStorage())));
+        }
+        self::assertSame([], glob($locks.'/*') ?: [], 'Guesses leave no lock files.');
+        $code = basename($handoff->issue(new Actor('alice', 'tenant-a'), $state)['url']);
+        self::assertSame($state->request->id, $handoff->redeem($code, new Session(new MockArraySessionStorage())));
+        self::assertNull($handoff->redeem($code, new Session(new MockArraySessionStorage())), 'A code still works once.');
     }
 
     public function testNoCodeWithoutAPublicHttpsAddress(): void
