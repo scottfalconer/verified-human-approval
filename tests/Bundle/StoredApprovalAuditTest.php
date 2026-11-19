@@ -44,21 +44,7 @@ final class StoredApprovalAuditTest extends TestCase
     #[DataProvider('projectionChanges')]
     public function testAnEditedOutcomeIsExplicitlyUntrustedButStillVisibleToTheAuditor(string $change): void
     {
-        $editor = $this->signedIn('editor');
-        $editor->request('GET', $this->accounts['editor']['passkey_link']);
-        self::assertSame(302, $editor->getResponse()->getStatusCode());
-        $csrf = (string) $editor->request('GET', self::ORIGIN.'/account/passkeys')->filter('[data-csrf]')->first()->attr('data-csrf');
-        $options = $this->post($editor, '/account/passkeys/options', $csrf, []);
-        $passkey = new VirtualAuthenticator(self::ORIGIN);
-        self::assertSame('registered', $this->post($editor, '/account/passkeys/complete', $csrf, ['ceremony_id' => $options['ceremony_id'], 'credential' => $passkey->registration($options['publicKey'])])['status']);
-
-        $agent = $this->mcp();
-        $arguments = ['alert_id' => 'riverside-evacuation', 'request_key' => 'integrity-ui'];
-        $id = $agent->callTool('publish_alert', $arguments)->structuredContent['requestId'];
-        $csrf = (string) $editor->request('GET', self::ORIGIN.'/approval/'.$id)->filter('[data-passkey-panel]')->attr('data-csrf');
-        $ceremony = $this->post($editor, '/approval/'.$id.'/options', $csrf, []);
-        $completed = $this->post($editor, '/approval/'.$id.'/complete', $csrf, ['ceremony_id' => $ceremony['ceremony_id'], 'credential' => $passkey->assertion($ceremony['publicKey'])]);
-        self::assertSame('completed', $completed['status']);
+        [$editor, $agent, $arguments, $id, $csrf, $completed] = $this->publishedWithApproval('integrity-ui');
         $receipt = $this->database->pdo->query('SELECT * FROM verified_human_approval_receipts')->fetchAll();
         if ('result' === $change) {
             $result = $completed['result'];
@@ -119,6 +105,177 @@ final class StoredApprovalAuditTest extends TestCase
         yield 'the completed outcome was changed to cancelled' => ['cancelled'];
     }
 
+    /**
+     * An edit that leaves the record unreadable, not merely inconsistent, is the same integrity error everywhere: the
+     * owner's page and routes, the agent's tools, a retry with the request key, and the auditor, who sees it flagged in
+     * its place.
+     *
+     * @param \Closure(\PDO, string): void $change
+     */
+    #[DataProvider('unreadableChanges')]
+    public function testARecordEditedPastReadingIsAnIntegrityErrorOnEverySurface(\Closure $change): void
+    {
+        [$editor, $agent, $arguments, $id, $csrf] = $this->publishedWithApproval('unreadable-record');
+        $receipt = $this->database->pdo->query('SELECT * FROM verified_human_approval_receipts')->fetchAll();
+        $change($this->database->pdo, $id);
+
+        $page = $editor->request('GET', self::ORIGIN.'/approval/'.$id);
+        self::assertSame(409, $editor->getResponse()->getStatusCode());
+        self::assertCount(1, $page->filter('[data-status="integrity_error"]'));
+        self::assertStringContainsString('We cannot confirm this approval’s outcome', $page->text());
+        foreach (['/status', '/evidence'] as $route) {
+            $editor->request('GET', self::ORIGIN.'/approval/'.$id.$route);
+            self::assertSame(409, $editor->getResponse()->getStatusCode(), $route);
+            $error = json_decode((string) $editor->getResponse()->getContent(), true, flags: \JSON_THROW_ON_ERROR);
+            self::assertSame(['integrity_error', 'record_integrity_error'], [$error['status'], $error['reason']], $route);
+        }
+        foreach (['options', 'cancel'] as $route) {
+            $error = $this->post($editor, '/approval/'.$id.'/'.$route, $csrf, []);
+            self::assertSame(409, $editor->getResponse()->getStatusCode(), $route);
+            self::assertSame(['integrity_error', 'record_integrity_error'], [$error['status'], $error['reason']], $route);
+        }
+        foreach (['approval_status' => ['request_id' => $id], 'approval_handoff' => ['request_id' => $id], 'publish_alert' => $arguments] as $tool => $input) {
+            $error = $agent->callTool($tool, $input);
+            self::assertTrue($error->isError, $tool);
+            self::assertSame(['integrity_error', 'record_integrity_error'], [$error->structuredContent['status'] ?? null, $error->structuredContent['reason'] ?? null], $tool);
+        }
+
+        $admin = $this->signedIn('manager');
+        $page = $admin->request('GET', self::ORIGIN.'/admin/audit');
+        self::assertSame(200, $admin->getResponse()->getStatusCode(), 'A damaged record does not take the audit page down.');
+        $row = $page->filter('table.audit')->first()->filter('tbody tr')->first()->text();
+        self::assertStringContainsString('This record cannot be read', $row);
+        self::assertStringContainsString('✗ Record integrity: The stored approval', $row);
+        self::assertStringContainsString($id, $row);
+        $admin->request('GET', self::ORIGIN.'/admin/audit/'.$id.'/evidence');
+        self::assertSame(409, $admin->getResponse()->getStatusCode());
+        $error = json_decode((string) $admin->getResponse()->getContent(), true, flags: \JSON_THROW_ON_ERROR);
+        self::assertSame(['integrity_error', 'record_integrity_error'], [$error['status'], $error['reason']]);
+        self::assertSame($receipt, $this->database->pdo->query('SELECT * FROM verified_human_approval_receipts')->fetchAll(), 'No route replaces the original receipt.');
+        self::assertSame(1, (int) $this->database->alert('riverside-evacuation')['mutation_count'], 'The alert that was published stays published, once.');
+    }
+
+    public static function unreadableChanges(): iterable
+    {
+        yield 'one character of the proposal' => [self::update("proposal = replace(proposal, 'Evacuat', 'Evacuat0')")];
+        yield 'the proposal, cut short' => [self::update('proposal = substr(proposal, 1, 40)')];
+        yield 'the result, to text that is not JSON' => [self::update("result = 'published'")];
+        yield 'the status, to one that does not exist' => [self::update("status = 'done'")];
+    }
+
+    /**
+     * Someone else who names a damaged record is told what they would be told of a request that does not exist, as long
+     * as its proposal still shows whose the record is: a colleague, and another organization's account, agent and
+     * administrator. A record whose proposal cannot be read shows no one, so whoever names it is told that its proposal
+     * fails its check, and nothing about the rest of it.
+     *
+     * @param \Closure(\PDO, string): void $change
+     */
+    #[DataProvider('damagedRecords')]
+    public function testSomeoneElseLearnsNothingOfADamagedRecordThatShowsWhoseItIs(\Closure $change, bool $proposalReadsBack): void
+    {
+        [, , , $id] = $this->publishedWithApproval('damaged-record');
+        $change($this->database->pdo, $id);
+        // The other organization's account administers it, so its administrator's evidence route is asked too.
+        $this->database->pdo->exec("UPDATE demo_users SET is_admin = 1 WHERE id = 'other'");
+
+        foreach (['reader', 'other'] as $user) {
+            $browser = $this->signedIn($user);
+            $agent = $this->mcp($user);
+            $told = static function (string $requestId) use ($browser, $agent): array {
+                $answers = [];
+                foreach (['review page' => '/approval/'.$requestId, 'status' => '/approval/'.$requestId.'/status', 'receipt' => '/approval/'.$requestId.'/evidence', 'audit evidence' => '/admin/audit/'.$requestId.'/evidence'] as $surface => $path) {
+                    $browser->request('GET', self::ORIGIN.$path);
+                    $response = $browser->getResponse();
+                    // An error page is compared by its status alone: the JSON answers are compared whole.
+                    $answers[$surface] = $response->getStatusCode().(str_contains((string) $response->headers->get('Content-Type'), 'json') ? ' '.$response->getContent() : '');
+                }
+                $status = $agent->callTool('approval_status', ['request_id' => $requestId]);
+                $answers['approval_status'] = json_encode($status->structuredContent ?? $status->content, \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_UNICODE);
+
+                return $answers;
+            };
+            $answers = $told($id);
+            if ($proposalReadsBack) {
+                self::assertSame($told('apr_'.str_repeat('0', 32)), $answers, $user);
+                continue;
+            }
+            self::assertSame('409', $answers['review page'], $user);
+            foreach ('other' === $user ? ['status', 'receipt', 'audit evidence', 'approval_status'] : ['status', 'receipt', 'approval_status'] as $surface) {
+                self::assertStringContainsString('"reason":"record_integrity_error","message":"The stored approval proposal fails its integrity check. Its outcome cannot be trusted."', $answers[$surface], $user.', '.$surface);
+            }
+        }
+    }
+
+    /** @return iterable<string, array{\Closure(\PDO, string): void, bool}> each edit, and whether the proposal still reads back after it */
+    public static function damagedRecords(): iterable
+    {
+        yield 'the result, to text that is not JSON' => [self::update("result = 'published'"), true];
+        yield 'the status, to one that does not exist' => [self::update("status = 'done'"), true];
+        yield 'the execution record, cut short' => [static fn (\PDO $pdo, string $id) => $pdo->prepare('UPDATE verified_human_approval_executions SET record = substr(record, 1, 40) WHERE request_id = ?')->execute([$id]), true];
+        yield 'one character of the proposal' => [self::update("proposal = replace(proposal, 'Evacuat', 'Evacuat0')"), false];
+    }
+
+    /** @return \Closure(\PDO, string): void an edit to the stored request's own row */
+    private static function update(string $set): \Closure
+    {
+        return static fn (\PDO $pdo, string $id) => $pdo->prepare('UPDATE verified_human_approval_requests SET '.$set.' WHERE id = ?')->execute([$id]);
+    }
+
+    /**
+     * An edit that still reads back, but leaves a part the audit page shows as something the application never writes,
+     * is flagged in the row instead of taking the page down.
+     *
+     * @param \Closure(\PDO, string): void $change
+     */
+    #[DataProvider('unshowableChanges')]
+    public function testTheAuditPageFlagsAStoredPartItCannotShow(\Closure $change, string $flagged): void
+    {
+        [, , , $id] = $this->publishedWithApproval('unshowable-part');
+        $change($this->database->pdo, $id);
+
+        $admin = $this->signedIn('manager');
+        $page = $admin->request('GET', self::ORIGIN.'/admin/audit');
+        self::assertSame(200, $admin->getResponse()->getStatusCode());
+        $row = $page->filter('table.audit')->first()->filter('tbody tr')->first()->text();
+        self::assertStringContainsString('integrity error', $row);
+        self::assertStringContainsString($flagged, $row);
+        self::assertStringContainsString($id, $row);
+    }
+
+    public static function unshowableChanges(): iterable
+    {
+        yield 'the proof, to an empty object' => [static fn (\PDO $pdo, string $id) => $pdo->prepare("UPDATE verified_human_approval_requests SET proof = '{}' WHERE id = ?")->execute([$id]), '✗ Passkey check'];
+        yield 'the time the action ran, to one that is not a time' => [static fn (\PDO $pdo, string $id) => $pdo->prepare("UPDATE verified_human_approval_executions SET record = replace(record, '\"recordedAt\":\"', '\"recordedAt\":\"not ') WHERE request_id = ?")->execute([$id]), '✗ Receipt check'];
+    }
+
+    /**
+     * The editor adds a passkey, the agent asks to publish the evacuation alert, and the editor approves it.
+     *
+     * @return array{KernelBrowser, Client, array<string, string>, string, string, array<string, mixed>} the editor, the agent, the tool's arguments, the request id, the review page's token and the completed result
+     */
+    private function publishedWithApproval(string $requestKey): array
+    {
+        $editor = $this->signedIn('editor');
+        $editor->request('GET', $this->accounts['editor']['passkey_link']);
+        self::assertSame(302, $editor->getResponse()->getStatusCode());
+        $csrf = (string) $editor->request('GET', self::ORIGIN.'/account/passkeys')->filter('[data-csrf]')->first()->attr('data-csrf');
+        $options = $this->post($editor, '/account/passkeys/options', $csrf, []);
+        $passkey = new VirtualAuthenticator(self::ORIGIN);
+        self::assertSame('registered', $this->post($editor, '/account/passkeys/complete', $csrf, ['ceremony_id' => $options['ceremony_id'], 'credential' => $passkey->registration($options['publicKey'])])['status']);
+
+        $agent = $this->mcp();
+        $arguments = ['alert_id' => 'riverside-evacuation', 'request_key' => $requestKey];
+        $id = $agent->callTool('publish_alert', $arguments)->structuredContent['requestId'];
+        $csrf = (string) $editor->request('GET', self::ORIGIN.'/approval/'.$id)->filter('[data-passkey-panel]')->attr('data-csrf');
+        $ceremony = $this->post($editor, '/approval/'.$id.'/options', $csrf, []);
+        $completed = $this->post($editor, '/approval/'.$id.'/complete', $csrf, ['ceremony_id' => $ceremony['ceremony_id'], 'credential' => $passkey->assertion($ceremony['publicKey'])]);
+        self::assertSame('completed', $completed['status']);
+        self::assertSame(1, (int) $this->database->alert('riverside-evacuation')['mutation_count']);
+
+        return [$editor, $agent, $arguments, $id, $csrf, $completed];
+    }
+
     private function signedIn(string $user): KernelBrowser
     {
         $browser = new KernelBrowser(new DemoKernel($this->runtime, 'test'), ['HTTP_HOST' => 'alerts.example', 'HTTPS' => 'on']);
@@ -136,11 +293,11 @@ final class StoredApprovalAuditTest extends TestCase
         return json_decode((string) $browser->getResponse()->getContent(), true, flags: \JSON_THROW_ON_ERROR);
     }
 
-    private function mcp(): Client
+    private function mcp(string $user = 'editor'): Client
     {
         $factory = new Psr17Factory();
         $client = Client::builder()->setClientInfo('integrity-test', '1.0')->setMaxRetries(0)->build();
-        $client->connect(new HttpTransport(endpoint: self::ORIGIN.'/mcp', headers: ['Authorization' => 'Bearer '.$this->accounts['editor']['personal_token']], httpClient: new SymfonyKernelHttpClient($this->runtime), requestFactory: $factory, streamFactory: $factory));
+        $client->connect(new HttpTransport(endpoint: self::ORIGIN.'/mcp', headers: ['Authorization' => 'Bearer '.$this->accounts[$user]['personal_token']], httpClient: new SymfonyKernelHttpClient($this->runtime), requestFactory: $factory, streamFactory: $factory));
 
         return $client;
     }

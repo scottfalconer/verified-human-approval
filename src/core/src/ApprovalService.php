@@ -58,7 +58,7 @@ final class ApprovalService
 
         $executed = false;
         $state = $this->store->transaction(function () use ($actor, $actionId, $input, $idempotencyKey, $locale, $fingerprint, &$executed): ApprovalState {
-            if (null !== $idempotencyKey && ($existing = $this->store->findByKey($actor, $idempotencyKey)) !== null) {
+            if (null !== $idempotencyKey && ($existing = $this->read($actor, fn (): ?array => $this->store->findByKey($actor, $idempotencyKey))) !== null) {
                 if (!hash_equals($existing['fingerprint'], $fingerprint)) {
                     throw new ApprovalException('idempotency_conflict', 'This request key already belongs to different arguments. Use a new key for a new action.');
                 }
@@ -69,7 +69,7 @@ final class ApprovalService
             }
             // A retry without a key (a client re-sending the call, or MCP re-entering the handler
             // after an elicitation) gets the same pending proposal instead of a second review URL.
-            if (null === $idempotencyKey && ($pending = $this->store->findPending($actor, $fingerprint)) !== null) {
+            if (null === $idempotencyKey && ($pending = $this->read($actor, fn (): ?ApprovalState => $this->store->findPending($actor, $fingerprint))) !== null) {
                 $this->assertOwnedRecord($actor, $pending);
                 $pending = $this->eligible($pending);
                 if ('pending' === $pending->status) {
@@ -350,10 +350,34 @@ final class ApprovalService
 
     private function owned(Actor $actor, string $requestId): ApprovalState
     {
-        $state = $this->store->get($requestId) ?? throw new ApprovalException('not_found', 'The approval request was not found.');
+        $state = $this->read($actor, fn (): ?ApprovalState => $this->store->get($requestId)) ?? throw new ApprovalException('not_found', 'The approval request was not found.');
         $this->assertOwnedRecord($actor, $state);
 
         return $state;
+    }
+
+    /**
+     * Runs one of the store's reads. While a record's proposal reads back it shows whose the record is, so a failure
+     * to read the rest is told to that person alone, and anyone else is told the record was not found. A record whose
+     * proposal does not read back shows no owner: whoever names its id is told that its proposal fails its check, and
+     * nothing about the rest.
+     *
+     * @template T
+     *
+     * @param \Closure(): T $read
+     *
+     * @return T
+     */
+    private function read(Actor $actor, \Closure $read): mixed
+    {
+        try {
+            return $read();
+        } catch (ApprovalException $error) {
+            if (null !== $error->request && !$error->request->actor()->samePerson($actor)) {
+                throw new ApprovalException('not_found', 'The approval request was not found.');
+            }
+            throw $error;
+        }
     }
 
     /**

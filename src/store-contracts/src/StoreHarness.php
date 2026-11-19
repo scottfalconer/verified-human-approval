@@ -30,7 +30,7 @@ use VerifiedHumanApproval\StoreContracts\Fixture\TestProofVerifier;
  */
 abstract class StoreHarness
 {
-    /** The ordinary writers' changes a test can make: what attempt() and the named methods below perform. */
+    /** The ordinary writers' changes a test can make with attempt(). editArticle() and revokeGrant() make the first two, and must succeed. */
     public const CHANGES = ['edit_article', 'revoke_grant', 'revoke_permission', 'revoke_credential', 'change_policy'];
 
     public readonly Faults $faults;
@@ -83,6 +83,15 @@ abstract class StoreHarness
     /** Replaces an article's title and body, as an editor would, from a connection of its own. */
     abstract public function writeArticle(int $id, string $title, string $body): void;
 
+    /**
+     * Rewrites one stored part of a request's record from a connection of its own, as someone with write access to
+     * the database could: its 'proposal', 'digest', 'status', 'result' or 'proof', its 'execution' record, or its
+     * receipt's 'signature'. $edit is given the text stored there and returns the text that replaces it.
+     *
+     * @param \Closure(string): string $edit
+     */
+    abstract public function editRecord(string $requestId, string $part, \Closure $edit): void;
+
     /** Makes the next insert of an execution record or a receipt fail inside the storage itself. */
     abstract public function failInserts(string $what): void;
 
@@ -111,21 +120,6 @@ abstract class StoreHarness
     public function revokeGrant(): void
     {
         $this->mustCommit('revoke_grant');
-    }
-
-    public function revokePermission(): void
-    {
-        $this->mustCommit('revoke_permission');
-    }
-
-    public function changePolicy(): void
-    {
-        $this->mustCommit('change_policy');
-    }
-
-    public function revokeCredential(): void
-    {
-        $this->mustCommit('revoke_credential');
     }
 
     public function actor(): Actor

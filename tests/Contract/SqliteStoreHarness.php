@@ -169,6 +169,24 @@ class SqliteStoreHarness extends StoreHarness
         self::open($this->location)->prepare('UPDATE test_articles SET title = ?, body = ?, revision = revision + 1 WHERE id = ?')->execute([$title, $body, $id]);
     }
 
+    public function editRecord(string $requestId, string $part, \Closure $edit): void
+    {
+        [$table, $column, $key] = match ($part) {
+            'proposal', 'digest', 'status', 'result', 'proof' => ['verified_human_approval_requests', $part, 'id'],
+            'execution' => ['verified_human_approval_executions', 'record', 'request_id'],
+            'signature' => ['verified_human_approval_receipts', 'signature', 'request_id'],
+            default => throw new \InvalidArgumentException('Unknown part: '.$part),
+        };
+        $writer = self::open($this->location);
+        $read = $writer->prepare('SELECT '.$column.' FROM '.$table.' WHERE '.$key.' = ?');
+        $read->execute([$requestId]);
+        $stored = $read->fetchColumn();
+        if (!\is_string($stored)) {
+            throw new \RuntimeException('Nothing is stored there.');
+        }
+        $writer->prepare('UPDATE '.$table.' SET '.$column.' = ? WHERE '.$key.' = ?')->execute([$edit($stored), $requestId]);
+    }
+
     public function failInserts(string $what): void
     {
         $table = match ($what) {

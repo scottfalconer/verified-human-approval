@@ -42,7 +42,7 @@ abstract class AuditStoreContract extends TestCase
         }
     }
 
-    public function testAChainWrittenBeforeTheStoreWasExtractedStillVerifiesAndExtends(): void
+    public function testAChainInTheFirstEntryFormatStillVerifiesAndExtends(): void
     {
         $fixture = json_decode((string) file_get_contents(__DIR__.'/../resources/audit-v1-chain.json'), true, 16, \JSON_THROW_ON_ERROR);
         // The fixture's synthetic key comes from a public seed, so this test can append with the same key.
