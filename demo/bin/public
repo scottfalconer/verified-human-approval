@@ -19,7 +19,9 @@ LOG="$ROOT/var/public-tunnel.log"
 SERVER="$ROOT/demo/bin/server"
 USAGE="Usage: $0 start [--yes] | stop | status | all-clear | reset"
 
-tunnel_url() { grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' "$LOG" 2>/dev/null | tail -1 || true; }
+# The tunnel's address, read only from the row after the one in which cloudflared says it created the tunnel: the log
+# names other addresses too, such as the quick tunnel service's when cloudflared cannot get a tunnel from it.
+tunnel_url() { sed -n '/quick Tunnel has been created/{n;p;}' "$LOG" 2>/dev/null | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' | tail -1 || true; }
 demo_origin() { php -r '$s = json_decode((string) @file_get_contents($argv[1]), true); echo is_array($s) ? ($s["origin"] ?? "") : "";' "$RUNTIME/settings.json"; }
 # The public demo's own server.
 server() { PORT=$PORT VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" "$SERVER" "$@"; }

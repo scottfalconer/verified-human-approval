@@ -84,7 +84,7 @@ final class DemoScriptsTest extends TestCase
                 echo "$pid" > "$world/last-pid"
                 case "$1" in
                   */cloudflared)
-                    cat "$world/tunnel-address" >> "$log"
+                    cat "$world/tunnel-output" >> "$log"
                     cat "$world/meanwhile" >> "$world/processes"
                     ;;
                 esac
@@ -567,6 +567,31 @@ final class DemoScriptsTest extends TestCase
         self::assertSame([$this->tunnelStart($checkout), 'launchctl remove '.self::TUNNEL], $this->calls(), 'Left in launchd, it would keep trying, and publish the port once it got through.');
     }
 
+    public function testPublicTakesNoAddressButTheOneCloudflaredGivesTheTunnel(): void
+    {
+        // Offline, cloudflared gets no tunnel, and the error it logs names the address of the service it asked for one.
+        $offline = "2026-11-19T09:00:00Z INF Requesting new quick Tunnel on trycloudflare.com...\nfailed to request quick Tunnel: Post \"https://api.trycloudflare.com/tunnel\": dial tcp: lookup api.trycloudflare.com: no such host\n";
+        $checkout = $this->checkout();
+        $log = $checkout.'/var/public-tunnel.log';
+        $this->tunnelOutput($offline);
+        $noTunnel = [1, "The tunnel did not start; see $log\nStopped this checkout's tunnel, so that it publishes nothing else.\n"];
+        self::assertSame($noTunnel, $this->publicDemo($checkout, 'start'));
+        self::assertSame([$this->tunnelStart($checkout), 'launchctl remove '.self::TUNNEL], $this->calls(), 'No demo was set up for the service’s address.');
+
+        // While launchd keeps trying, this checkout's tunnel has no address yet: start replaces it, and gives up the same way.
+        $this->startTunnel($checkout);
+        self::assertSame([3, "Tunnel: no address yet; see $log\nNot running\n"], $this->publicDemo($checkout, 'status'));
+        self::assertSame($noTunnel, $this->publicDemo($checkout, 'start'));
+        self::assertSame(['launchctl remove '.self::TUNNEL, $this->tunnelStart($checkout), 'launchctl remove '.self::TUNNEL], $this->calls());
+
+        // Once a later try gets a tunnel, the address cloudflared gives it is the public demo's.
+        $this->tunnelOutput($offline.self::quickTunnelCreated('https://tunnel-name.trycloudflare.com'));
+        [$status, $output] = $this->publicDemo($checkout, 'start');
+        self::assertSame(0, $status, $output);
+        self::assertStringEndsWith("Public demo: https://tunnel-name.trycloudflare.com\nclaude.ai connector URL: https://tunnel-name.trycloudflare.com/mcp\nThe public demo uses port 8081, which nothing else may use while it runs.\n", $output);
+        self::assertSame('https://tunnel-name.trycloudflare.com', self::settings($checkout.'/var/public-demo')['origin']);
+    }
+
     public function testPublicStartStopsItsTunnelWhenAnotherCheckoutsServerJobHoldsTheLabel(): void
     {
         // Another checkout's public demo server keeps failing: its job holds the label, and nothing listens on the port.
@@ -621,7 +646,7 @@ final class DemoScriptsTest extends TestCase
      * reaches nothing. Removing a job stops its main process only: the workers it forked are left behind, as they
      * can be. A server listens a moment after it starts: the first look at its port, with lsof or nc, finds nothing,
      * and the next ones find it. A job named in world/failing starts no process at all. A port in world/hidden has a
-     * listener lsof cannot see, such as another account's. A tunnel that starts writes world/tunnel-address to its
+     * listener lsof cannot see, such as another account's. A tunnel that starts writes world/tunnel-output to its
      * log, and the processes in world/meanwhile start with it. Waiting takes no time. What the scripts change (a job
      * submitted or removed, a process killed, a console command, a setup) is recorded in calls.log.
      *
@@ -633,7 +658,7 @@ final class DemoScriptsTest extends TestCase
         if (!is_dir($computer)) {
             $filesystem = new Filesystem();
             $filesystem->mkdir($computer.'/world/jobs');
-            foreach (['processes', 'failing', 'hidden', 'tunnel-address', 'meanwhile'] as $file) {
+            foreach (['processes', 'failing', 'hidden', 'tunnel-output', 'meanwhile'] as $file) {
                 $filesystem->dumpFile($computer.'/world/'.$file, '');
             }
             $filesystem->dumpFile($computer.'/world/last-pid', "4999999\n");
@@ -728,15 +753,34 @@ final class DemoScriptsTest extends TestCase
     private function tunnel(string $checkout, string $address): void
     {
         $this->tunnelAddress($address);
+        $this->startTunnel($checkout);
+    }
+
+    /** Starts $checkout's tunnel as demo/bin/public starts it, and forgets what was called. */
+    private function startTunnel(string $checkout): void
+    {
         $log = $checkout.'/var/public-tunnel.log';
         $this->launchd('submit', '-l', self::TUNNEL, '-o', $log, '-e', $log, '--', $this->computer().'/cloudflared', 'tunnel', '--no-autoupdate', '--url', 'http://localhost:8081');
         $this->forgetCalls();
     }
 
-    /** The address the next tunnel to start answers at, as a quick tunnel writes it to its log. */
+    /** The address the next tunnel to start answers at. */
     private function tunnelAddress(string $address): void
     {
-        file_put_contents($this->world().'/tunnel-address', "Your quick Tunnel has been created! Visit it at:\n$address\n");
+        $this->tunnelOutput(self::quickTunnelCreated($address));
+    }
+
+    /** What the next tunnel to start writes to its log. */
+    private function tunnelOutput(string $output): void
+    {
+        file_put_contents($this->world().'/tunnel-output', $output);
+    }
+
+    /** @return string what cloudflared logs once it has a quick tunnel at $address: a box, with the address on the row after the one that says so */
+    private static function quickTunnelCreated(string $address): string
+    {
+        return "2026-11-19T09:00:01Z INF |  Your quick Tunnel has been created! Visit it at (it may take some time to be reachable):  |\n"
+            ."2026-11-19T09:00:01Z INF |  $address  |\n";
     }
 
     private function launchd(string ...$arguments): void
