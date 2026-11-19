@@ -123,6 +123,12 @@ final class ApprovalEvidenceTest extends TestCase
             case 'signature':
                 $bundle['receipt']->signature = ChallengeBinding::encode(random_bytes(64));
                 break;
+            case 'added-field':
+                $bundle['approvedBy'] = 'the board';
+                break;
+            case 'added-receipt-field':
+                $bundle['receipt']->verifiedBy = 'an auditor';
+                break;
         }
         try {
             (new ReceiptVerifier())->verify($bundle, TrustedKeys::single($this->signer->keyId(), $this->signer->publicKey()));
@@ -139,7 +145,7 @@ final class ApprovalEvidenceTest extends TestCase
 
     public static function tamperingCases(): iterable
     {
-        foreach (['statement', 'effect', 'execution', 'assertion', 'nonce', 'key-id', 'signature'] as $case) {
+        foreach (['statement', 'effect', 'execution', 'assertion', 'nonce', 'key-id', 'signature', 'added-field', 'added-receipt-field'] as $case) {
             yield $case => [$case];
         }
     }

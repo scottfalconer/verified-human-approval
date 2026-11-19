@@ -42,6 +42,10 @@ final class ReceiptVerifier
             $digest = hash('sha256', $bundle['proposal']);
             $request = new ApprovalRequest($proposal['id'], $bundle['proposal'], $digest);
             $receipt = CanonicalJson::map($bundle['receipt']);
+            // The digests cover what the proposal, proof and execution record hold; nothing covers a field beside them.
+            if ([] !== array_diff(array_keys($bundle), ['format', 'proposal', 'proof', 'execution', 'receipt']) || [] !== array_diff(array_keys($receipt), ['manifest', 'keyId', 'signature'])) {
+                throw new \UnexpectedValueException('The evidence holds fields that nothing in it signs.');
+            }
             $proof = null === $bundle['proof'] ? null : CanonicalJson::map($bundle['proof']);
             $execution = CanonicalJson::map($bundle['execution']);
             // When it was signed is part of what was signed: it cannot be changed without breaking the signature.
