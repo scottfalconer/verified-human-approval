@@ -30,7 +30,7 @@ URL-mode elicitation is off by default and enabled per client by `clientInfo.nam
 | `earlier` | Whether this call's request key named an earlier request that had already finished. The result is that request's recorded outcome, nothing ran for this call, and the card says "Completed earlier, on …" instead of claiming a new approval. Never true while the request is pending, whichever call made it |
 | `handoffTool` | Optional. The app-only tool that returns a one-time phone code, if it is the one the card was written with, or `null` |
 
-The card never runs WebAuthn. The verifier rejects embedded and cross-origin ceremonies, and the card runs on the host's sandbox origin, so no assertion it could obtain would pass the application's exact-origin check.
+The card never runs WebAuthn. It runs on the host's sandbox origin, inside the host's page, and the verifier refuses a ceremony embedded in a page of another origin, so no assertion the card could obtain would pass the application's exact-origin check.
 
 ### What the card asks of the host
 
