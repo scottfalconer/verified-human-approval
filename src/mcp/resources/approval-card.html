@@ -168,6 +168,7 @@
     const found = {
       requestId: card.requestId || data.requestId, status: card.status || data.status, reason: card.reason ?? data.reason ?? null,
       approvedWithPasskey: typeof card.approvedWithPasskey === 'boolean' ? card.approvedWithPasskey : null,
+      completedAt: typeof card.completedAt === 'string' ? card.completedAt : null, earlier: card.earlier === true,
       reviewUrl: card.reviewUrl || data.reviewUrl || data.review_url, statusTool: card.statusTool || null, statement: card.statement || null,
       handoffTool: card.handoffTool || null,
     };
@@ -182,20 +183,35 @@
     }
     const url = reviewUrl(view.reviewUrl);
     const pending = view.status === 'pending';
-    site.textContent = pending ? 'Approval needed on ' + (url ? url.host : 'the site') : (url ? url.host : 'Approval');
+    site.textContent = pending ? 'Approval needed on ' + (url ? url.host : 'the site')
+      : view.earlier ? 'Earlier request on ' + (url ? url.host : 'the site') : (url ? url.host : 'Approval');
     if (view.statement) { statement.textContent = '“' + view.statement + '”'; statement.hidden = false; }
     open.hidden = !(pending && url && capabilities.openLinks);
     // A phone needs the site on HTTPS, and a host that is already a phone doesn't need a code.
     phoneShow.hidden = !(pending && url && url.protocol === 'https:' && view.handoffTool && capabilities.serverTools && returnTarget() !== 'claude-mobile');
     if (!pending) hideCode();
     document.body.dataset.status = view.status;
-    // Only the site's record of a passkey proof makes a completed request one a person approved.
-    status.textContent = view.status === 'completed'
-      ? (view.approvedWithPasskey === true ? TEXT.completed : view.approvedWithPasskey === false ? TEXT.completedDirect : 'Completed. The site recorded the change.')
+    status.textContent = view.status === 'completed' ? completedLine()
       : pending ? hint || (watching() ? TEXT.pending : NOTE.unwatched) + (open.hidden ? ' ' + NOTE.link : '')
       : TEXT[view.status] || 'Status: ' + view.status + '.';
     if (!pending) stopPolling();
     resize();
+  }
+  // Only the site's record of a passkey proof makes a completed request one a person approved. A request key can
+  // name a request that finished before this tool call; then nothing ran now, and the card says when it did.
+  function completedLine() {
+    if (view.earlier) {
+      const at = localTime(view.completedAt);
+      return 'Completed earlier' + (at ? ', on ' + at : '') + '. Nothing ran now.';
+    }
+    return view.approvedWithPasskey === true ? TEXT.completed : view.approvedWithPasskey === false ? TEXT.completedDirect : 'Completed. The site recorded the change.';
+  }
+  // A time the site recorded, in this device's time zone, or null when it cannot be read.
+  function localTime(value) {
+    try {
+      const time = new Date(value);
+      return typeof value === 'string' && !Number.isNaN(time.getTime()) ? time.toLocaleString('en', { dateStyle: 'medium', timeStyle: 'short' }) : null;
+    } catch { return null; }
   }
   // A line about the person's last step. It stays, through status checks that find the request still
   // pending, until they take another step or the site records an outcome.
@@ -226,7 +242,7 @@
     const next = result && (!result.isError || result.structuredContent?.status === 'integrity_error') ? read(result) : null;
     if (next && next.requestId === view.requestId) {
       if (next.status !== 'pending') retire();
-      view = { ...view, status: next.status, reason: next.reason, approvedWithPasskey: next.approvedWithPasskey };
+      view = { ...view, status: next.status, reason: next.reason, approvedWithPasskey: next.approvedWithPasskey, completedAt: next.completedAt };
       render();
     } else {
       status.textContent = 'This card can’t confirm the current status. Check the site before trying again.';

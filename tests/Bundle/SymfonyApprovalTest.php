@@ -111,6 +111,8 @@ final class SymfonyApprovalTest extends TestCase
         $retry = $client->callTool('publish_alert', ['alert_id' => 'riverside-evacuation', 'request_key' => 'same-request']);
         self::assertSame($id, $retry->structuredContent['requestId']);
         self::assertSame('completed', $retry->structuredContent['status']);
+        self::assertTrue($retry->structuredContent['approval']['earlier'], 'A retry after it ran gets the recorded outcome, marked as earlier.');
+        self::assertStringContainsString('nothing ran now', $retry->structuredContent['message']);
         self::assertSame(1, $this->mutationCount());
 
         // The completed page offers the person their receipt to keep.
@@ -691,6 +693,8 @@ final class SymfonyApprovalTest extends TestCase
         $issued = $this->mcp('manager')->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
         self::assertSame('completed', $issued->structuredContent['status'], 'The emergency manager issues directly.');
         self::assertFalse($issued->structuredContent['approval']['approvedWithPasskey']);
+        self::assertFalse($issued->structuredContent['approval']['earlier'], 'It ran for this call.');
+        self::assertArrayNotHasKey('message', $issued->structuredContent);
         $sheet = $this->browser('manager')->request('GET', self::ORIGIN.'/approval/'.$issued->structuredContent['requestId'])->filter('.approval-sheet')->text();
         self::assertStringNotContainsString('Approved with your passkey', $sheet);
         self::assertStringContainsString('Completed without a passkey', $sheet);

@@ -36,8 +36,12 @@ final readonly class ApprovalPresenter implements ResultPresenter
         return rtrim($this->publicOrigin, '/').$this->urls->generate('verified_human_approval_review', ['id' => $state->request->id]);
     }
 
-    /** @return array<string, mixed> */
-    public function data(ApprovalState $state, ?string $message = null): array
+    /**
+     * @param bool $earlier whether a tool call's request key named this earlier request, so nothing ran for that call
+     *
+     * @return array<string, mixed>
+     */
+    public function data(ApprovalState $state, ?string $message = null, bool $earlier = false): array
     {
         $data = $state->toArray();
         if ('pending' === $state->status) {
@@ -58,14 +62,14 @@ final readonly class ApprovalPresenter implements ResultPresenter
         // The MCP App card reads these fixed names; it shows only what the application recorded.
         // It offers the phone only when a phone could reach the site: a public HTTPS address.
         $phone = str_starts_with($this->publicOrigin, 'https://') ? ApprovalHandoffTool::NAME : null;
-        $data['approval'] = ApprovalCard::view($state, $this->reviewUrl($state), $this->statusTool(), $phone);
+        $data['approval'] = ApprovalCard::view($state, $this->reviewUrl($state), $this->statusTool(), $phone, $earlier);
 
         return $data;
     }
 
-    public function toolResult(ApprovalState $state, ?string $message = null): CallToolResult
+    public function toolResult(ApprovalState $state, ?string $message = null, bool $earlier = false): CallToolResult
     {
-        $data = $this->data($state, $message);
+        $data = $this->data($state, $message, $earlier);
 
         return new CallToolResult(
             [new TextContent(json_encode($data, \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES))],

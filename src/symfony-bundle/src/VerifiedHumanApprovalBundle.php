@@ -265,6 +265,7 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             ->args([$config['url_elicitation']['enabled'], $config['url_elicitation']['clients']]);
         $services->set('verified_human_approval.flow', ApprovalFlow::class)->args([
             service('verified_human_approval.approval_service'), service('verified_human_approval.presenter'), service('verified_human_approval.url_prompt'),
+            service('verified_human_approval.clock'),
         ]);
         $services->alias(ApprovalFlow::class, 'verified_human_approval.flow');
 

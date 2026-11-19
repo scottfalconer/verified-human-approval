@@ -44,9 +44,11 @@ final class ApprovalCard
     /**
      * The fields the card reads, under fixed names whatever the platform's own result calls them.
      *
-     * @return array{requestId: string, status: string, reason: ?string, approvedWithPasskey: bool, reviewUrl: string, statusTool: string, statement: string, handoffTool: ?string}
+     * @param bool $earlier whether this tool call's request key named an earlier request, so nothing ran for this call
+     *
+     * @return array{requestId: string, status: string, reason: ?string, approvedWithPasskey: bool, completedAt: ?string, earlier: bool, reviewUrl: string, statusTool: string, statement: string, handoffTool: ?string}
      */
-    public static function view(ApprovalState $state, string $reviewUrl, string $statusTool, ?string $handoffTool = null): array
+    public static function view(ApprovalState $state, string $reviewUrl, string $statusTool, ?string $handoffTool = null, bool $earlier = false): array
     {
         return [
             'requestId' => $state->request->id,
@@ -54,10 +56,21 @@ final class ApprovalCard
             'reason' => $state->reason,
             // A person approved it with a passkey only if the application recorded that proof.
             'approvedWithPasskey' => null !== $state->proof,
+            'completedAt' => self::completedAt($state),
+            'earlier' => $earlier,
             'reviewUrl' => $reviewUrl,
             'statusTool' => $statusTool,
             'statement' => $state->request->statement(),
             'handoffTool' => $handoffTool,
         ];
+    }
+
+    /** When the action ran, as recorded with it: RFC 3339 in UTC, to the second. Null until it ran. */
+    public static function completedAt(ApprovalState $state): ?string
+    {
+        $recorded = 'completed' === $state->status ? ($state->execution['recordedAt'] ?? null) : null;
+        $time = \is_string($recorded) ? \DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:s.u\Z', $recorded, new \DateTimeZone('UTC')) : false;
+
+        return false === $time ? null : $time->format('Y-m-d\TH:i:s\Z');
     }
 }

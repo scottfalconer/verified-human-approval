@@ -7,9 +7,9 @@ import vm from 'node:vm';
 const card = new URL('../src/mcp/resources/approval-card.html', import.meta.url);
 const script = readFileSync(card, 'utf8').match(/<script>([\s\S]*?)<\/script>/)[1];
 const flush = async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); };
-const approval = (status = 'pending', requestId = 'r1') => ({ content: [], structuredContent: { approval: {
+const approval = (status = 'pending', requestId = 'r1', extra = {}) => ({ content: [], structuredContent: { approval: {
   requestId, status, approvedWithPasskey: status === 'completed', reviewUrl: `https://alerts.example/approval/${requestId}`,
-  statusTool: 'approval_status', handoffTool: 'approval_handoff', statement: 'I approve this exact public alert.',
+  statusTool: 'approval_status', handoffTool: 'approval_handoff', statement: 'I approve this exact public alert.', ...extra,
 } } });
 const phoneReply = (requestId = 'r1') => ({ content: [], structuredContent: {
   requestId, modules: Array(21).fill('0'.repeat(21)), expiresIn: 120,
@@ -244,6 +244,26 @@ test('a phone code that cannot be made points at a way the person still has', as
     assert.match(h.status(), /^The phone code could not be made\./);
     assert.match(h.status(), advice);
   }
+});
+
+test('a request key that named a finished request shows its earlier outcome, not a new approval', async () => {
+  const h = host(); await h.initialize();
+  h.show(approval('completed', 'r1', { earlier: true, completedAt: '2026-11-08T10:01:00Z' }));
+  const when = new Date('2026-11-08T10:01:00Z').toLocaleString('en', { dateStyle: 'medium', timeStyle: 'short' });
+  assert.equal(h.status(), `Completed earlier, on ${when}. Nothing ran now.`);
+  assert.equal(h.element('site').textContent, 'Earlier request on alerts.example');
+  assert.equal(h.shade(), 'completed');
+  // A stopped one says what it always says, under the same heading, and neither is checked again.
+  const stopped = host(); await stopped.initialize();
+  stopped.show(approval('cancelled', 'r2', { earlier: true, completedAt: null }));
+  assert.equal(stopped.status(), 'Cancelled on the site. Nothing changed.');
+  assert.equal(stopped.element('site').textContent, 'Earlier request on alerts.example');
+  await h.advance(60000); await stopped.advance(60000);
+  assert.equal(h.calls('approval_status') + stopped.calls('approval_status'), 0);
+  // A completion this call made reads as it always has.
+  const fresh = host(); await fresh.initialize(); fresh.show(approval('completed', 'r3', { earlier: false, completedAt: '2026-11-08T10:01:00Z' }));
+  assert.equal(fresh.status(), 'Approved with a passkey. The site recorded the change.');
+  assert.equal(fresh.element('site').textContent, 'alerts.example');
 });
 
 test('a new request does not inherit the colour of the one before it', async () => {

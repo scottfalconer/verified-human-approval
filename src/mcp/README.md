@@ -26,6 +26,8 @@ URL-mode elicitation is off by default and enabled per client by `clientInfo.nam
 | `statusTool` | The read-only tool the card polls, called with `request_id` |
 | `statement` | The exact statement the person will approve |
 | `approvedWithPasskey` | Whether this completed action used passkey approval. Direct execution does not claim that it did. |
+| `completedAt` | When the action ran, RFC 3339 in UTC, or `null` until it has |
+| `earlier` | Whether this call's request key named an earlier request that had already finished. The result is that request's recorded outcome, nothing ran for this call, and the card says "Completed earlier, on …" instead of claiming a new approval |
 | `handoffTool` | Optional. An app-only tool that returns a one-time phone code, or `null` |
 
 The card never runs WebAuthn. The verifier rejects embedded and cross-origin ceremonies, and the card runs on the host's sandbox origin, so no assertion it could obtain would pass the application's exact-origin check.
@@ -79,6 +81,8 @@ A protected tool may take an optional request key and pass it to `ApprovalServic
 ```
 
 A request key suits a client that generates a unique id for each new request and resends it to retry. A language model is not such a client. Asked for "your own id for this request", Claude models built a key from the arguments and the date in every run we tried, and often built the same key again in a later conversation. A key used before returns that earlier request and its outcome: after an operator took the demo's alert down, a repeated key answered `completed` and nothing was issued. With this description the same models left the argument out. That is safe: a repeated call without a key returns the same pending request, and a new request once the earlier one has finished.
+
+When a key does name a request that was made before the call and has finished, `ApprovalFlow::respond()` says so. The result's `message` tells the model that this is the earlier request's recorded outcome, when it completed, that nothing ran now and how to ask again, and the card's view carries `earlier: true`. A client that retries after a timeout reads the same, and it is as true for it. `ApprovalFlow` takes the approval service's PSR-20 clock to tell an earlier request from one this call made.
 
 ## Error results
 

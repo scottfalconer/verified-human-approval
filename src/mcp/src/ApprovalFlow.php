@@ -8,6 +8,7 @@ use Mcp\Schema\Content\TextContent;
 use Mcp\Schema\Result\CallToolResult;
 use Mcp\Schema\Result\InputRequiredResult;
 use Mcp\Server\RequestContext;
+use Psr\Clock\ClockInterface;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalService;
@@ -16,10 +17,14 @@ use VerifiedHumanApproval\Core\ApprovalState;
 /**
  * How a protected tool presents its approval.
  *
- * Every client gets the pending result at once, with the review link and the card's view. A
- * client the configuration names also gets a URL-mode elicitation. Its retry is bound to the same
- * caller, tool and arguments, and only reads the stored state: the client's answer never approves
- * anything, and the application has already executed the action if the passkey check passed.
+ * A client the configuration names is first sent a URL-mode elicitation, and gets the pending
+ * result when it retries with its answer; every other client gets the pending result at once,
+ * with the review link and the card's view. The retry is bound to the same caller, tool and
+ * arguments, and only reads the stored state: the client's answer never approves anything, and
+ * the application has already executed the action if the passkey check passed.
+ *
+ * A request key that names an earlier request returns that request's recorded outcome, and the
+ * result says so: nothing runs for that call.
  */
 final readonly class ApprovalFlow
 {
@@ -63,6 +68,8 @@ final readonly class ApprovalFlow
                     'status' => ['type' => 'string'],
                     'reason' => ['type' => ['string', 'null']],
                     'approvedWithPasskey' => ['type' => 'boolean', 'description' => 'Whether a person approved it with their passkey. A completed request without one ran because the application’s rule did not require approval.'],
+                    'completedAt' => ['type' => ['string', 'null'], 'description' => 'When the action ran, as RFC 3339 in UTC, once it has.'],
+                    'earlier' => ['type' => 'boolean', 'description' => 'Whether this call’s request key named an earlier request: this is that request’s recorded outcome, and nothing ran for this call.'],
                     'reviewUrl' => ['type' => 'string'],
                     'statusTool' => ['type' => 'string', 'description' => 'The read-only tool that reports this request’s outcome.'],
                     'statement' => ['type' => 'string', 'description' => 'The exact statement the person approves.'],
@@ -88,7 +95,8 @@ final readonly class ApprovalFlow
      */
     public const REQUEST_KEY_DESCRIPTION = 'For clients that generate a unique random id for each new request and resend it to retry. Otherwise leave it out: a key used before returns that earlier request and its outcome, even after it finished, so never make one up from the arguments or the date.';
 
-    public function __construct(private ApprovalService $approvals, private ResultPresenter $presenter, private UrlPrompt $prompt)
+    /** @param ClockInterface $clock the approval service's clock, which dates the requests it makes */
+    public function __construct(private ApprovalService $approvals, private ResultPresenter $presenter, private UrlPrompt $prompt, private ClockInterface $clock)
     {
     }
 
@@ -131,11 +139,26 @@ final readonly class ApprovalFlow
             return $this->presenter->toolResult($state, UrlPrompt::note($resumed['answer'], $state, $this->presenter->statusTool()));
         }
 
+        $called = $this->clock->now();
         $state = $request();
         if ('pending' === $state->status && $this->prompt->allowsContext($context)) {
             return $this->prompt->ask($context, $state, $this->presenter->reviewUrl($state), UrlPrompt::binding($actor, $tool, $arguments));
         }
+        // A call that makes a request gets it pending, or completed by a rule that needs no passkey. A finished
+        // request made before this call came back by its request key, and must not read as this call's outcome.
+        $earlier = 'pending' !== $state->status && new \DateTimeImmutable($state->request->payload()['createdAt']) < $called;
 
-        return $this->presenter->toolResult($state);
+        return $this->presenter->toolResult($state, $earlier ? self::earlier($state) : null, $earlier);
+    }
+
+    /** What the model is told when a request key named an earlier request that has finished. */
+    private static function earlier(ApprovalState $state): string
+    {
+        if ('completed' !== $state->status) {
+            return 'This request key belongs to an earlier request, which is '.$state->status.' and changed nothing. Nothing ran now. To ask again, call without this request key.';
+        }
+        $completed = ApprovalCard::completedAt($state);
+
+        return 'This request key belongs to an earlier request, completed'.(null === $completed ? '' : ' at '.$completed).'. This is the recorded outcome of that request: nothing ran now. To ask again, call without this request key.';
     }
 }
