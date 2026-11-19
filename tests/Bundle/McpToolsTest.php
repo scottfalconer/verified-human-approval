@@ -1,0 +1,96 @@
+<?php
+
+declare(strict_types=1);
+
+namespace VerifiedHumanApproval\Tests\Bundle;
+
+use PHPUnit\Framework\TestCase;
+use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\HttpFoundation\Request;
+use VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool;
+use VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool;
+use VerifiedHumanApproval\Tests\Bundle\Fixture\ReviewKernel;
+
+/**
+ * The bundle's MCP side as an application's own MCP server serves it: a protected tool written as the guide writes
+ * one, the status tool, and the phone tool, called the way a 2026-07-28 client calls them.
+ */
+final class McpToolsTest extends TestCase
+{
+    private string $runtime;
+    /** @var list<ReviewKernel> */ private array $kernels = [];
+
+    protected function setUp(): void
+    {
+        $this->runtime = ReviewKernel::runtime();
+    }
+
+    protected function tearDown(): void
+    {
+        foreach ($this->kernels as $kernel) {
+            $kernel->shutdown();
+        }
+        (new Filesystem())->remove($this->runtime);
+    }
+
+    public function testAnAgentsCallsToAskForAnActionHaveABudgetAndReadingTheOutcomeIsFree(): void
+    {
+        $kernel = $this->kernel(['agent_requests_per_minute' => 2]);
+        $first = $this->call($kernel, 'publish_article', ['article_id' => 1, 'request_key' => 'k1']);
+        self::assertSame('pending', $first['structuredContent']['status'] ?? null, json_encode($first));
+        self::assertSame('pending', $this->call($kernel, 'publish_article', ['article_id' => 2, 'request_key' => 'k2'])['structuredContent']['status'] ?? null);
+
+        $refused = $this->call($kernel, 'publish_article', ['article_id' => 1, 'request_key' => 'k3']);
+
+        self::assertTrue($refused['isError'] ?? false);
+        self::assertSame(['status' => 'rejected', 'reason' => 'rate_limited', 'message' => 'Too many requests for approval from this account. Wait a minute, then ask again.'], $refused['structuredContent'] ?? null);
+        self::assertSame(2, $this->requests(), 'The refused call prepared nothing.');
+        for ($check = 0; $check < 3; ++$check) {
+            self::assertSame('pending', $this->call($kernel, ApprovalStatusTool::NAME, ['request_id' => $first['structuredContent']['requestId']])['structuredContent']['status'] ?? null, 'The status tool reads for free.');
+        }
+    }
+
+    /** @param array<string, mixed> $approval */
+    private function kernel(array $approval = [], ?array $tools = null): ReviewKernel
+    {
+        $kernel = new ReviewKernel($this->runtime, $approval, tools: $tools ?? [ApprovalStatusTool::class, ApprovalHandoffTool::class]);
+        $kernel->boot();
+
+        return $this->kernels[] = $kernel;
+    }
+
+    /**
+     * A tools/call (or, with no tool name, a tools/list) as a stateless 2026-07-28 client sends it.
+     *
+     * @param array<string, mixed> $arguments
+     *
+     * @return array<string, mixed> the JSON-RPC result, or the error with the HTTP status under "http"
+     */
+    private function call(ReviewKernel $kernel, ?string $tool, array $arguments = []): array
+    {
+        $method = null === $tool ? 'tools/list' : 'tools/call';
+        $params = (null === $tool ? [] : ['name' => $tool, 'arguments' => (object) $arguments]) + ['_meta' => [
+            'io.modelcontextprotocol/protocolVersion' => '2026-07-28',
+            'io.modelcontextprotocol/clientCapabilities' => new \stdClass(),
+            'io.modelcontextprotocol/clientInfo' => ['name' => 'mcp-tools-test', 'version' => '1.0'],
+        ]];
+        $request = Request::create('https://app.example/mcp', 'POST', server: ['HTTPS' => 'on'], content: json_encode(['jsonrpc' => '2.0', 'id' => 1, 'method' => $method, 'params' => $params], \JSON_THROW_ON_ERROR));
+        $request->headers->add(['Content-Type' => 'application/json', 'Accept' => 'application/json, text/event-stream', 'Mcp-Method' => $method, 'MCP-Protocol-Version' => '2026-07-28'] + (null === $tool ? [] : ['Mcp-Name' => $tool]));
+        $response = $kernel->handle($request);
+        ob_start();
+        $response->sendContent();
+        $body = (string) ob_get_clean();
+        if (1 === preg_match('/^data: (.+)$/m', $body, $match)) {
+            $body = $match[1];
+        }
+        $message = json_decode($body, true, 512, \JSON_THROW_ON_ERROR);
+        self::assertIsArray($message, $body);
+
+        return $message['result'] ?? ['http' => $response->getStatusCode(), 'error' => $message['error'] ?? null];
+    }
+
+    private function requests(): int
+    {
+        return (int) (new \PDO('sqlite:'.$this->runtime.'/application.sqlite'))->query('SELECT COUNT(*) FROM verified_human_approval_requests')->fetchColumn();
+    }
+}

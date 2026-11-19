@@ -96,6 +96,7 @@ verified_human_approval:
     receipt_signer: VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner
     relying_party_id: '%env(APP_RP_ID)%'
     attempts_per_minute: 30
+    agent_requests_per_minute: 30
 ```
 
 On Doctrine, replace `store` with `persistence: { driver: doctrine, connection: default }`, as [Storage on Doctrine](#storage-on-doctrine) describes; `store` and `persistence` are exclusive.
@@ -400,7 +401,7 @@ Install the [testing package](testing.md) as a development dependency. It suppli
 
 Keep the application database and signing keys persistent across deploys. Restore and back up them deliberately; generating a replacement key on every boot breaks trust in earlier records. Protect your signing key separately from database write access. To replace the key on purpose, [rotate it](https://github.com/scottfalconer/verified-human-approval/blob/main/docs/evidence.md#rotate-the-signing-key): the old public key stays trusted for what it signed, as long as it is listed under `receipt_keys.retired`. A key replaced without being listed there leaves every request it completed reading as an integrity error. Keep a checkpoint of the audit log's head outside the application on a schedule, with `verified-human-approval:audit-head`.
 
-The browser rate limiter defaults to 30 attempts per person per minute. Override the `verified_human_approval` framework limiter or point `rate_limiter` to your own `RateLimiterFactoryInterface` service. The phone handoff uses `cache.app` and a lock; multiple web servers need a shared cache and a shared lock store configured through `lock_factory`. Its default file lock is local to one host.
+The browser rate limiter defaults to 30 attempts per person per minute. Override the `verified_human_approval` framework limiter or point `rate_limiter` to your own `RateLimiterFactoryInterface` service. Agents have a budget of their own, as the MCP specification asks a server to rate limit tool calls: `agent_requests_per_minute`, 30 by default, counts each person's calls to protected tools across all their agent connections, through the framework limiter `verified_human_approval_agent_requests`. A call past it is refused before anything is prepared, with `status: rejected` and the reason `rate_limited`; reading an outcome, with `approval_status` or a URL prompt's retry, is free. `ApprovalFlow` spends it through the `VerifiedHumanApproval\Mcp\ProposalBudget` service, which you can replace. The phone handoff uses `cache.app` and a lock; multiple web servers need a shared cache and a shared lock store configured through `lock_factory`. Its default file lock is local to one host.
 
 The phone link is single-use and lasts two minutes. Opening it shows a Continue button; Continue redeems it and creates a session for that request only. It grants no general login and cannot cancel a request. App-only tool visibility is a client convention; the server still checks ownership and read permission.
 

@@ -17,10 +17,12 @@ use Mcp\Server\Stateless\InputContext;
 use Mcp\Server\Stateless\RequestMeta;
 use Mcp\Server\Stateless\RequestStateCodec;
 use PHPUnit\Framework\TestCase;
+use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalState;
 use VerifiedHumanApproval\Mcp\ApprovalCard;
 use VerifiedHumanApproval\Mcp\ApprovalFlow;
+use VerifiedHumanApproval\Mcp\ProposalBudget;
 use VerifiedHumanApproval\Mcp\ResultPresenter;
 use VerifiedHumanApproval\Mcp\UrlPrompt;
 use VerifiedHumanApproval\Tests\Support\CoreFixture;
@@ -30,11 +32,38 @@ final class ApprovalFlowTest extends TestCase
 {
     private CoreFixture $fixture;
     private RequestStateCodec $codec;
+    /** @var list<string> each person who spent from the budget, once per spend */
+    private array $spent = [];
+    private int $budget = 100;
 
     protected function setUp(): void
     {
         $this->fixture = new CoreFixture();
         $this->codec = new RequestStateCodec(str_repeat('k', 32));
+    }
+
+    public function testEachCallThatMayOpenAProposalSpendsTheBudgetAndTheRetryOfAPromptIsFree(): void
+    {
+        $this->budget = 2;
+        $flow = $this->flow(new UrlPrompt(true, ['*']));
+        $asked = $flow->respond($this->context(['id' => 1]), $this->fixture->actor, 'publish', ['id' => 1], $this->request(...));
+        self::assertInstanceOf(InputRequiredResult::class, $asked);
+        self::assertSame(['alice'], $this->spent);
+        foreach ([1, 2] as $retry) {
+            $read = $flow->respond($this->context(['id' => 1], $this->answered($asked)), $this->fixture->actor, 'publish', ['id' => 1], self::readOnly(...));
+            self::assertSame('pending', $read->structuredContent['status'] ?? null, 'retry '.$retry);
+        }
+        self::assertSame(['alice'], $this->spent, 'Reading the outcome costs nothing.');
+
+        $again = $this->flow(new UrlPrompt())->respond($this->context(['id' => 1]), $this->fixture->actor, 'publish', ['id' => 1], $this->request(...));
+        self::assertSame('pending', $again->structuredContent['status'] ?? null);
+        try {
+            $this->flow(new UrlPrompt())->respond($this->context(['id' => 2]), $this->fixture->actor, 'publish', ['id' => 2], self::readOnly(...));
+            self::fail('A call past the budget asked for the action.');
+        } catch (ApprovalException $error) {
+            self::assertSame('rate_limited', $error->reason, 'The tool turns it into a refusal with ApprovalFlow::errorResult().');
+        }
+        self::assertSame(1, (int) $this->fixture->pdo->query('SELECT COUNT(*) FROM verified_human_approval_requests')->fetchColumn(), 'Nothing was prepared for the refused call.');
     }
 
     public function testADecimalArgumentIsAskedForWithOrWithoutTheUrlPrompt(): void
@@ -132,7 +161,20 @@ final class ApprovalFlowTest extends TestCase
             {
                 return 'approval_status';
             }
-        }, $prompt, $this->fixture->clock);
+        }, $prompt, new class($this->spent, $this->budget) implements ProposalBudget {
+            /** @param list<string> $spent */
+            public function __construct(private array &$spent, private readonly int $budget)
+            {
+            }
+
+            public function spend(Actor $person): void
+            {
+                if (\count($this->spent) >= $this->budget) {
+                    throw new ApprovalException('rate_limited', 'Too many requests for approval from this account.');
+                }
+                $this->spent[] = $person->userId;
+            }
+        }, $this->fixture->clock);
     }
 
     /** What the tool hands respond(): it requests the fixture's action, whatever its own arguments are. */

@@ -72,6 +72,10 @@ The SDK signs request state but does not encrypt it, and its expiry bounds repla
 
 A platform supplies a `ResultPresenter`: its review URL, its normal tool result, and its status tool's name.
 
+## Rate limiting
+
+The MCP tools specification asks a server to rate limit tool calls. `ApprovalFlow::respond()` spends one from the person's `ProposalBudget` on every call that may open a proposal, before the action is prepared. The retry of a URL prompt only reads, and spends nothing. Once the budget is spent, `respond()` throws an `ApprovalException` with the reason `rate_limited`, which `ApprovalFlow::errorResult()` turns into a refusal. A platform supplies the budget; the Symfony bundle's is a rate limiter, per person across their agent connections.
+
 ## The request key argument
 
 A protected tool may take an optional request key and pass it to `ApprovalService::request()`. Describe that argument with `ApprovalFlow::REQUEST_KEY_DESCRIPTION`:

@@ -25,6 +25,9 @@ use VerifiedHumanApproval\Core\ApprovalState;
  *
  * A request key that names an earlier request returns that request's recorded outcome, and the
  * result says so: nothing runs for that call.
+ *
+ * Every call that may open a proposal spends one from the person's {@see ProposalBudget}, and is
+ * refused with the reason rate_limited once it is spent. The retry of a prompt is free.
  */
 final readonly class ApprovalFlow
 {
@@ -96,7 +99,7 @@ final readonly class ApprovalFlow
     public const REQUEST_KEY_DESCRIPTION = 'For clients that generate a unique random id for each new request and resend it to retry. Otherwise leave it out: a key used before returns that earlier request and its outcome, even after it finished, so never make one up from the arguments or the date.';
 
     /** @param ClockInterface $clock the approval service's clock, which dates the requests it makes */
-    public function __construct(private ApprovalService $approvals, private ResultPresenter $presenter, private UrlPrompt $prompt, private ClockInterface $clock)
+    public function __construct(private ApprovalService $approvals, private ResultPresenter $presenter, private UrlPrompt $prompt, private ProposalBudget $budget, private ClockInterface $clock)
     {
     }
 
@@ -139,6 +142,8 @@ final readonly class ApprovalFlow
             return $this->presenter->toolResult($state, UrlPrompt::note($resumed['answer'], $state, $this->presenter->statusTool()));
         }
 
+        // Any call that may open a proposal spends the person's budget, before anything is prepared.
+        $this->budget->spend($actor);
         $called = $this->clock->now();
         $state = $request();
         if ('pending' === $state->status && $this->prompt->allowsContext($context)) {

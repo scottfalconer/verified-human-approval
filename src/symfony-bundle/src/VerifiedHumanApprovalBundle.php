@@ -20,6 +20,7 @@ use VerifiedHumanApproval\Bundle\Handoff\ApprovalHandoff;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool;
+use VerifiedHumanApproval\Bundle\Mcp\RateLimiterProposalBudget;
 use VerifiedHumanApproval\Bundle\Security\ReviewRequestMatcher;
 use VerifiedHumanApproval\Bundle\Twig\ContentSecurityPolicyExtension;
 use VerifiedHumanApproval\Bundle\Twig\VerificationExtension;
@@ -41,6 +42,7 @@ use VerifiedHumanApproval\Doctrine\DbalTransaction;
 use VerifiedHumanApproval\Doctrine\Orm\ApprovalSchemaListener;
 use VerifiedHumanApproval\Doctrine\Orm\ProtectedEntityListener;
 use VerifiedHumanApproval\Mcp\ApprovalFlow;
+use VerifiedHumanApproval\Mcp\ProposalBudget;
 use VerifiedHumanApproval\Mcp\ResultPresenter;
 use VerifiedHumanApproval\Mcp\UrlPrompt;
 use VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository;
@@ -96,6 +98,8 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
             ->scalarNode('clock')->defaultValue('clock')->info('Service id of a PSR-20 clock; the framework\'s "clock" by default.')->end()
             ->integerNode('attempts_per_minute')->min(2)->max(1000)->defaultValue(30)
                 ->info('Browser approval attempts per person per minute, across all requests. It sets the default of the framework rate limiter "verified_human_approval", which your own framework.rate_limiter config can override.')->end()
+            ->integerNode('agent_requests_per_minute')->min(1)->max(1000)->defaultValue(30)
+                ->info('Calls per person per minute, across their agent connections, to protected tools that may open a proposal, as the MCP specification asks a server to rate limit tool calls. Reading an outcome is free. It sets the default of the framework rate limiter "verified_human_approval_agent_requests", which your own framework.rate_limiter config can override.')->end()
             ->scalarNode('rate_limiter')->defaultValue('limiter.verified_human_approval')->info('Service id of a Symfony\\Component\\RateLimiter\\RateLimiterFactoryInterface, to replace the framework limiter with your own.')->end()
             ->scalarNode('lock_factory')->defaultValue('verified_human_approval.lock_factory')
                 ->info('Service id of a Symfony\\Component\\Lock\\LockFactory that makes each phone code single-use. The default locks files on this host; use "lock.factory" with a shared store when several hosts serve the application.')->end()
@@ -190,19 +194,21 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
     }
 
     /**
-     * The approval budget is an ordinary framework rate limiter named "verified_human_approval": it uses the
-     * framework's rate-limiter cache and lock, and your own framework.rate_limiter config overrides any of it,
-     * per environment too.
+     * The approval budget and the agents' request budget are ordinary framework rate limiters, named
+     * "verified_human_approval" and "verified_human_approval_agent_requests": they use the framework's rate-limiter
+     * cache and lock, and your own framework.rate_limiter config overrides any of it, per environment too.
      */
     public function prependExtension(ContainerConfigurator $container, ContainerBuilder $builder): void
     {
-        $attempts = 30;
+        $attempts = $requests = 30;
         foreach ($builder->getExtensionConfig($this->extensionAlias) as $config) {
             $attempts = $config['attempts_per_minute'] ?? $attempts;
+            $requests = $config['agent_requests_per_minute'] ?? $requests;
         }
-        $builder->prependExtensionConfig('framework', ['rate_limiter' => [$this->extensionAlias => [
-            'policy' => 'fixed_window', 'limit' => $attempts, 'interval' => '1 minute',
-        ]]]);
+        $builder->prependExtensionConfig('framework', ['rate_limiter' => [
+            $this->extensionAlias => ['policy' => 'fixed_window', 'limit' => $attempts, 'interval' => '1 minute'],
+            $this->extensionAlias.'_agent_requests' => ['policy' => 'fixed_window', 'limit' => $requests, 'interval' => '1 minute'],
+        ]]);
     }
 
     /** @param array<string, mixed> $config */
@@ -263,9 +269,12 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
 
         $services->set('verified_human_approval.url_prompt', UrlPrompt::class)
             ->args([$config['url_elicitation']['enabled'], $config['url_elicitation']['clients']]);
+        $services->set('verified_human_approval.proposal_budget', RateLimiterProposalBudget::class)
+            ->args([service('limiter.verified_human_approval_agent_requests')]);
+        $services->alias(ProposalBudget::class, 'verified_human_approval.proposal_budget');
         $services->set('verified_human_approval.flow', ApprovalFlow::class)->args([
             service('verified_human_approval.approval_service'), service('verified_human_approval.presenter'), service('verified_human_approval.url_prompt'),
-            service('verified_human_approval.clock'),
+            service('verified_human_approval.proposal_budget'), service('verified_human_approval.clock'),
         ]);
         $services->alias(ApprovalFlow::class, 'verified_human_approval.flow');
 
