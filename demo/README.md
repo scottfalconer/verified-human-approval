@@ -25,7 +25,7 @@ composer install
 php demo/bin/setup.php
 ```
 
-Setup prints each account's `password`, `personal_token`, and `passkey_link`. Save this output privately before continuing: credentials are shown only once. With `--json`, setup prints only those credentials, as JSON, for a script to read. Setup also writes the editor's token to a private header file for the optional Claude Desktop connection.
+Setup prints, as JSON, each account's `password`, `personal_token`, and `passkey_link`, then the commands to start the server and connect Claude. Save this output privately before continuing: credentials are shown only once. With `--json`, setup prints only that JSON, for a script to read. Setup also writes the editor's token to a private header file for the optional Claude Desktop connection.
 
 Start the server in the same terminal and leave it running:
 
@@ -33,7 +33,7 @@ Start the server in the same terminal and leave it running:
 PHP_CLI_SERVER_WORKERS=4 php -S localhost:8080 -t demo/public demo/public/index.php
 ```
 
-The four workers allow browser requests and MCP calls to run at the same time. Use `localhost` consistently; the passkey configuration is for that hostname.
+The four workers allow browser requests and MCP calls to run at the same time. Open the site at `localhost`, not `127.0.0.1`: its passkeys belong to that hostname, and at any other address the demo answers only with where to open it.
 
 #### If port 8080 is taken
 
@@ -44,7 +44,7 @@ VERIFIED_HUMAN_APPROVAL_ORIGIN=http://localhost:8090 php demo/bin/setup.php --re
 PHP_CLI_SERVER_WORKERS=4 php -S localhost:8090 -t demo/public demo/public/index.php
 ```
 
-`--reset` replaces a demo you already set up, with its accounts and passkeys. Setup prints the server command for the address it was given. In Terminal B, run `export VERIFIED_HUMAN_APPROVAL_MCP_URL=http://localhost:8090/mcp` before the example client's commands, and use port 8090 wherever this guide links to the site.
+`--reset` replaces a demo you already set up, with its accounts and passkeys. Setup prints the server command for the address it was given. It reads the address each time it runs, so set `VERIFIED_HUMAN_APPROVAL_ORIGIN` again for a later `--reset`; without it, setup uses `http://localhost:8080`. In Terminal B, run `export VERIFIED_HUMAN_APPROVAL_MCP_URL=http://localhost:8090/mcp` before the example client's commands, and use port 8090 wherever this guide links to the site.
 
 ### 2. Add the editor's passkey
 
@@ -103,7 +103,7 @@ For this unchanged proposal, the command returns the existing request and result
 
 Sign out, sign in as `manager`, and open **Audit log**. Find the completed action. The page shows the requester, rule, outcome, receipt check, and passkey check. It rechecks completed records when you open it. The **Evidence** link downloads the record for independent verification.
 
-The application signs the receipt when the action commits. This lets a later verifier detect changes to the stored approval or execution record. See [Evidence and verification](../docs/evidence.md) for the trust keys, verification commands, and limits.
+The application signs the receipt when the action commits. This lets a later verifier detect changes to the stored approval or execution record. See [Verify a receipt](../docs/evidence.md) for the trust keys, verification commands, and limits.
 
 To change the site's signing key, run `php demo/bin/console demo:rotate-receipt-key` while nobody is approving. The old key stays trusted for what it signed, so your downloaded receipt still checks against a freshly saved `/approval/receipt-keys.json`, and the audit log records the rotation. `php demo/bin/console verified-human-approval:audit-head` prints the log's newest entry, a checkpoint to keep elsewhere. See [Rotate the signing key](../docs/evidence.md#rotate-the-signing-key).
 
@@ -154,7 +154,7 @@ demo/bin/public start
 This starts a second demo and a Cloudflare quick tunnel under launchd. It prints the address and MCP connector URL. Its credentials and passkey links are in `var/public-demo-setup.txt`; keep that file private. Passkeys belong to a hostname, so a tunnel that comes back with a new one needs a fresh demo: `start` then says what it would replace and asks first. `demo/bin/public start --yes` answers yes, for use without a terminal.
 
 1. Open the public address, sign in as its `editor`, and enroll a passkey through that editor's link. Use a passkey available on the phone if you want to approve there.
-2. Add the printed HTTPS MCP URL as a custom connector in claude.ai. Sign in as the public demo's editor and grant access through the demo's OAuth flow. claude.ai identifies itself with a client ID metadata document; the public demo does not let clients register themselves.
+2. Add the printed HTTPS MCP URL as a custom connector in claude.ai, and sign in as the public demo's editor. The demo's consent page should say the client was published by claude.ai and returns to claude.ai; then choose **Allow**. claude.ai identifies itself with a client ID metadata document; the public demo does not let clients register themselves. The demo accepts ChatGPT's document too, but [no run with ChatGPT is recorded](../docs/verification.md#what-is-not-proven).
 3. Request the alert. Use **Review and approve**, or **Approve on your phone** when the client displays the card. Scan the QR code, review the alert, and approve with the enrolled passkey.
 
 The phone code works once for two minutes. It opens only that review, without granting a general login, and still requires the person's passkey.
