@@ -490,6 +490,20 @@ final class OAuthTest extends TestCase
         self::assertSame(410, $browser->getResponse()->getStatusCode(), 'Neither request was put to the person.');
     }
 
+    public function testALoopbackClientThatNamesNoRedirectUriLearnsHereOfAScopeThisServerDoesNotOffer(): void
+    {
+        // The client registered itself with one redirect URI, on this computer, where League would send the error.
+        // UnknownScopeGuard answers before League and looks only at a redirect URI the request names.
+        $reader = $this->json($this->client(), 'POST', '/oauth/register', ['redirect_uris' => [self::LOOPBACK], 'client_name' => 'Reader', 'scope' => 'alert.read']);
+        $browser = $this->signedIn('editor');
+        $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query(['scope' => 'alert.read offline_access'] + self::authorizeQuery($reader['client_id'], null)));
+        self::assertSame(400, $browser->getResponse()->getStatusCode(), (string) $browser->getResponse()->headers->get('Location'));
+        self::assertFalse($browser->getResponse()->headers->has('Location'), 'The error stays on this site.');
+        self::assertSame('invalid_scope', json_decode((string) $browser->getResponse()->getContent(), true, 8)['error'] ?? null);
+        $browser->request('GET', self::ORIGIN.'/oauth/consent');
+        self::assertSame(410, $browser->getResponse()->getStatusCode(), 'The request was not put to the person.');
+    }
+
     public function testAClientNamedByItsMetadataDocumentLearnsOfAScopeThisServerDoesNotOffer(): void
     {
         $browser = $this->client();
