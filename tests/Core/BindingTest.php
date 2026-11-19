@@ -110,6 +110,47 @@ final class BindingTest extends TestCase
         new ApprovalRequest($request->id, str_replace('Approved', 'Changed!', $request->canonical), $request->digest);
     }
 
+    /** @return iterable<string, array{\Closure(array<string, mixed>): array<string, mixed>}> */
+    public static function rewrittenProposals(): iterable
+    {
+        yield 'another format' => [static fn (array $payload): array => ['format' => 'verified-human-approval/proposal/v2'] + $payload];
+        yield 'a number for the person' => [static function (array $payload): array {
+            $payload['actor']->userId = 5;
+
+            return $payload;
+        }];
+        yield 'no action' => [static fn (array $payload): array => array_diff_key($payload, ['action' => true])];
+        yield 'a target that is not an object' => [static function (array $payload): array {
+            $payload['action']->target = 'notice';
+
+            return $payload;
+        }];
+        yield 'a number for the statement' => [static fn (array $payload): array => ['statement' => 5] + $payload];
+        yield 'an expiry that is not a time' => [static fn (array $payload): array => ['expiresAt' => 'soon'] + $payload];
+        yield 'no policy digest' => [static fn (array $payload): array => array_diff_key($payload, ['policyDigest' => true])];
+    }
+
+    /**
+     * A proposal rewritten together with its digest still has to be a proposal: one that loads can always be read,
+     * so the methods that read it never fail later, in the middle of an ownership check or a review page.
+     *
+     * @param \Closure(array<string, mixed>): array<string, mixed> $rewrite
+     */
+    #[DataProvider('rewrittenProposals')]
+    public function testAProposalRewrittenWithItsDigestMustStillBeAProposal(\Closure $rewrite): void
+    {
+        $action = new PreparedAction('notice.publish', '1', ['tenant' => 't'], ['body' => 'Approved'], [], ['title' => 'Notice']);
+        $request = ApprovalRequest::create(new Actor('alice', 't'), $action, new ApprovalPolicy('notice.publish', '1', 'Publish the exact notice.'), new \DateTimeImmutable('2026-11-08T10:00:00Z'), 'en');
+        $canonical = CanonicalJson::encode((object) $rewrite(CanonicalJson::map(CanonicalJson::decode($request->canonical))));
+        try {
+            new ApprovalRequest($request->id, $canonical, hash('sha256', $canonical));
+            self::fail('A rewritten proposal loaded.');
+        } catch (ApprovalException $error) {
+            self::assertSame('corrupt_proposal', $error->reason);
+            self::assertNotNull($error->getPrevious(), 'What failed is kept.');
+        }
+    }
+
     public function testUnknownOrExecutableStatementPlaceholdersAreRejected(): void
     {
         $action = new PreparedAction('notice.publish', '1', ['tenant' => 't'], [], [], ['title' => 'Notice'], ['title' => 'Notice']);
