@@ -30,7 +30,7 @@ use VerifiedHumanApproval\StoreContracts\Fixture\TestProofVerifier;
  */
 abstract class StoreHarness
 {
-    /** The ordinary writers' changes a test can make: what attempt() and the named methods below perform. */
+    /** The ordinary writers' changes a test can make with attempt(). editArticle() and revokeGrant() make the first two, and must succeed. */
     public const CHANGES = ['edit_article', 'revoke_grant', 'revoke_permission', 'revoke_credential', 'change_policy'];
 
     public readonly Faults $faults;
@@ -120,21 +120,6 @@ abstract class StoreHarness
     public function revokeGrant(): void
     {
         $this->mustCommit('revoke_grant');
-    }
-
-    public function revokePermission(): void
-    {
-        $this->mustCommit('revoke_permission');
-    }
-
-    public function changePolicy(): void
-    {
-        $this->mustCommit('change_policy');
-    }
-
-    public function revokeCredential(): void
-    {
-        $this->mustCommit('revoke_credential');
     }
 
     public function actor(): Actor
