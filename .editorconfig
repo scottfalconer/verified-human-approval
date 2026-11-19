@@ -1,0 +1,26 @@
+# https://editorconfig.org
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+
+# PHP follows Symfony's coding standard (.php-cs-fixer.dist.php), including the scripts without an extension.
+[*.php]
+indent_size = 4
+
+[{demo/bin/console,examples/doctrine-publishing/bin/console,examples/doctrine-publishing/bin/setup}]
+indent_size = 4
+
+[*.{py,neon,xlf}]
+indent_size = 4
+
+[*.{json,yml,yaml,xml,xml.dist,css}]
+indent_size = 2
+
+# Composer writes its lock file, and PHP's JSON_PRETTY_PRINT the test fixtures, with four spaces.
+[{composer.lock,src/store-contracts/resources/*.json,tests/fixtures/**.json}]
+indent_size = 4

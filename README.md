@@ -1,23 +1,18 @@
 # Verified Human Approval
 
-**Cryptographic evidence of human approval, bound to the exact action.**
+[![Tests](https://github.com/scottfalconer/verified-human-approval/actions/workflows/tests.yml/badge.svg)](https://github.com/scottfalconer/verified-human-approval/actions/workflows/tests.yml)
 
-Let an AI agent request an action in your Symfony application. When your application's rule requires approval, it freezes the proposal and asks the person to review it on your site. The person approves with a passkey. The application checks their current permissions, applies that stored proposal once, and signs a receipt as the action commits.
+**A Symfony bundle that requires a human's passkey before a high-risk MCP tool runs.**
 
-The demo is a council alerts site. An agent can request publication of an evacuation alert, but an editor must review the exact public page and approve it before it goes live. The same rule applies to the site's own **Issue alert** button.
+Allowing an AI agent to use an application is not the same as a person approving a specific change. With this bundle, an agent requests an action through an ordinary MCP tool. When your application's rule requires approval, the application freezes the exact proposal and asks the person to review it on your site. The person approves with a passkey. The application checks their current permissions, applies that stored proposal once, and signs a receipt as the action commits: cryptographic evidence of human approval, bound to the exact action.
+
+![The demo's review page. Left: an agent's request to issue the public alert "Evacuation order: Riverside Road area", the statement the editor approves, and the buttons "Approve with your passkey" and "Cancel request". Right: the frozen preview of the public alerts page that goes live on approval, marked "Frozen preview, revision 1".](docs/images/review-page.png)
+
+The demo is a council alerts site. An agent can request publication of an evacuation alert, but an editor must review the exact public page, as above, and approve it before it goes live. The same rule applies to the site's own **Issue alert** button.
+
+Built for the [Symfony AI & MCP Hackathon](https://symfony.com/hackathon/projects/verified-human-approval).
 
 **[Run the demo](demo/README.md)** · **[Integrate into Symfony](src/symfony-bundle/docs/index.md)** · **[Test your integration](src/symfony-bundle/docs/testing.md)** · **[Verify a receipt](docs/evidence.md)**
-
-## Current scope
-
-This is a development preview. The packages are not on Packagist yet; the integration guide shows how to install them from this repository. [Versions and releases](docs/releasing.md) says what a version promises, and [the changelog](CHANGELOG.md) what is in the first one.
-
-- PHP 8.3+ and Symfony 7.4 or 8. Symfony 8 requires PHP 8.4+.
-- Storage: the PDO store supports **SQLite**; the Doctrine package supports **SQLite, PostgreSQL, MySQL 8.0.17+ and MariaDB** on your DBAL connection, with your entities in the same transaction. Either way, approval records, credentials, permission checks and the business change must use the same connection and transaction.
-- Your application supplies its accounts, current permissions, trusted passkey enrollment and protected action. The bundle supplies the approval flow and review pages.
-- Configure `receipt_signer` to sign receipts when actions commit. The demo and integration example include this configuration.
-- Passkeys use WebAuthn. The device can use Touch ID, Face ID, a PIN or another supported local method. The server receives a signature, not biometric data, and does not claim which local method was used.
-- The demo's account screens, administrator audit page and maintained-package OAuth integration are reference application code. The bundle uses the host's authentication and current permissions; it does not provide an OAuth issuer. See the [host contract](src/symfony-bundle/docs/authentication.md).
 
 ## Try it locally
 
@@ -31,7 +26,7 @@ php demo/bin/setup.php
 PHP_CLI_SERVER_WORKERS=4 php -S localhost:8080 -t demo/public demo/public/index.php
 ```
 
-Keep the setup output private. It contains the demo accounts' passwords, personal agent tokens and first-passkey links.
+Keep the setup output private. It contains the demo accounts' passwords, personal tokens and first-passkey links.
 
 With the server running, continue at [Add the editor's passkey](demo/README.md#2-add-the-editors-passkey). Use the **editor** account: its rule requires passkey approval. The walkthrough uses the included PHP MCP client, so no model API key or agent application is needed.
 
@@ -56,6 +51,24 @@ A client clicking **Accept** is not human approval. If the application permits a
 
 The application must route every supported write path through the guarded action service. The bundle cannot protect an unrelated raw SQL write. See the [architecture](docs/overview.md) and [security model](docs/security-model.md) for the boundary.
 
+## Built with Symfony AI and the PHP MCP SDK
+
+The [PHP MCP SDK](https://github.com/modelcontextprotocol/php-sdk) and the [MCP Bundle](https://symfony.com/doc/current/ai/bundles/mcp-bundle.html) from [Symfony AI](https://ai.symfony.com) let a Symfony application put a person's passkey in front of an MCP tool while the tool stays an ordinary tool. A client needs nothing written for this project: the approval travels in a standard tool result, an MCP App and a URL-mode elicitation, and no client holds anything that can approve.
+
+- **An ordinary tool.** The demo's `publish_alert` ([`DemoTools`](demo/src/Mcp/DemoTools.php)) is a service method with the SDK's `#[McpTool]` attribute, which the MCP Bundle serves at `/mcp`. After a scope check it makes one call, `ApprovalFlow::respond()`, around `ApprovalService::request()`.
+- **A structured result.** The tool declares `outputSchema: ApprovalFlow::OUTPUT_SCHEMA` and returns a `CallToolResult` whose `structuredContent` holds the status, the review link and, once the action has run, the signed receipt. Only `completed` means that the action ran.
+- **The approval card.** `meta: ApprovalCard::TOOL_META` links the tool to an MCP App resource, which the bundle serves through the MCP Bundle's `#[AsMcpApp]` attribute (`ApprovalCardApp`). The card opens the review page and shows the outcome the application recorded. It never runs the passkey ceremony.
+- **A prompt that does not hold the call open.** For a client on protocol revision 2026-07-28 or later that declares URL mode and that the configuration names (the demo names `claude-code`), `UrlPrompt` ends the call with the SDK's `InputRequiredResult`: a URL-mode `ElicitRequest` for the review page, and request state signed by `RequestContext::mintRequestState()`. When the client retries, the tool checks that state and reads only the stored outcome.
+- **Authorization.** The host's Symfony Security firewall validates the bearer token and gives the SDK an `AccessToken`. The demo's tools read it from their `RequestContext` to check scopes; the bundle's `approval_status` and `approval_handoff` tools ask the host's `ActorProvider` instead, which in the demo reads the same token. The bundle's `McpScopeChallengeSubscriber`, which the demo registers, applies the SDK's `ScopePolicy`, so a token without a scope a tool needs gets HTTP 403 with `WWW-Authenticate: Bearer error="insufficient_scope"`.
+
+Symfony carries the application side. The bundle is an `AbstractBundle` with validated configuration. It relies on the host's SecurityBundle firewall and login, renders the review pages with Twig, checks CSRF tokens, limits approval attempts with RateLimiter and makes each phone code single-use with Lock. Its console commands print the audit log's head, record a key rotation and, on Doctrine, install the tables. The [Doctrine package](src/doctrine/README.md) keeps approvals on the application's DBAL connection, in the same transaction as its entities.
+
+Passkey registration and verification use [`web-auth/webauthn-lib`](https://github.com/web-auth/webauthn-lib), from the WebAuthn Framework. Receipts are Ed25519 signatures, made by the supplied `SodiumEvidenceSigner` and checked against the trusted keys, both with PHP's sodium extension. The demo's OAuth runs on `league/oauth2-server-bundle` and `omouren/mcp-oauth-bundle`.
+
+Symfony AI's agent is used as a client. [`examples/agent.php`](examples/agent.php) runs Symfony AI's `Agent` with an `McpToolbox` connected to the demo through the SDK's client, and `--scripted` replaces the model with `MockPlatformFactory`, so no API key is needed. The packages and the demo server do not depend on Symfony AI's agent or platform packages; only the repository root requires them, for the examples.
+
+The [examples guide](examples/README.md) explains what each example runs, and the [publishing example](examples/doctrine-publishing/README.md) is a complete application on Doctrine to copy from. The [MCP conformance](docs/conformance-review.md) page records protocol choices and interoperability limits.
+
 ## What it refuses
 
 | Attempt | Result |
@@ -66,20 +79,20 @@ The application must route every supported write path through the guarded action
 | The draft is edited after you reviewed it | Not issued: the proposal no longer matches |
 | The alerts page layout changes after review | Not issued: the layout is part of what you approved |
 | A signed approval is replayed for another request | Rejected: the signature covers one proposal's digest |
-| A client answers "accept" without your passkey | Still pending: accept only means the page was opened |
+| A client answers "accept" without your passkey | Still pending: accepting only means the person agreed to open the page |
 | The same approval is repeated | The same receipt, and the alert issued once |
-| The rule lets a role act directly | It runs, and every page says it ran without a passkey |
+| The rule lets a role act directly | It runs, and the agent's result and the review page say it ran without a passkey |
 | A phone code is used twice, or after two minutes | Refused: each code works once |
-| Someone with only the password tries to add a passkey | Refused: the first needs a one-time link, any other an existing passkey |
+| Someone with only the password tries to add a passkey | Refused: adding one takes a one-time link or a fresh confirmation with an existing passkey |
 | A passkey row is added or changed directly in the database | It approves nothing: no signed enrollment record vouches for it |
 | A record is edited and its receipt deleted to hide it | The audit page flags it, and no evidence is signed for that record |
 | A passkey is revoked just after it confirmed adding another | The confirmation ends with it: no new passkey or passkey link |
-| An approval's record is edited in the database afterwards | The audit page's checks fail: the receipt was signed at commit, and the passkey signed the original |
+| An approval's proposal is rewritten in the database, with its digest recomputed to match | The audit page's checks fail: the receipt was signed at commit, and the passkey signed the original |
 | The site's record changes after the person kept their receipt | Their copy no longer matches it, checked with only the site's published key |
 | An administrator's password alone tries to switch verification off | Pending: the rule change waits for the administrator's passkey |
-| Another account, or a read-only agent token | No access to the request, and no rights from a passkey |
+| Another account, or the person's own personal token | Another account cannot open the request, and the token cannot approve it, add a passkey or change the rule |
 
-Each row is a test in [tests](tests).
+The tests in [tests](tests) cover each row, except the phone code's two-minute limit: the code enforces it, but no test moves the clock past it.
 
 ## Check the original record later
 
@@ -94,7 +107,19 @@ The verifier uses public keys trusted separately from the downloaded record. Cha
 
 The person keeps their own copy. Once the action runs, the review page offers **Download your receipt**: the exact request, their passkey's signature on it and what ran, signed by the site as it ran. The agent's result carries the same signed receipt, and the site publishes the keys that check it at `/approval/receipt-keys.json`, including any key it [rotated](docs/evidence.md#rotate-the-signing-key) away from. If the site's record of that request were changed or deleted later, the person's copy would show it.
 
-This checks the **historical approval and execution record**. It does not monitor later edits to the live content, prove what the person understood, or independently witness the database change. Follow the [receipt walkthrough](docs/evidence.md) to verify a real demo receipt and then see an edited copy fail.
+This checks the **historical approval and execution record**. It does not monitor later edits to the live content, prove what the person understood, or independently witness the database change. Follow [Verify a receipt](docs/evidence.md) to check a real demo receipt and then see an edited copy fail.
+
+## Current scope
+
+This is a development preview. The packages are not on Packagist yet; the integration guide shows how to install them from this repository. [Versions and releases](docs/releasing.md) says what a version promises, and [the changelog](CHANGELOG.md) what is in the first one.
+
+- PHP 8.3+ and Symfony 7.4 or 8. Symfony 8 requires PHP 8.4+.
+- Storage: the PDO store supports **SQLite**; the Doctrine package supports **SQLite, PostgreSQL, MySQL 8.0.17+ and MariaDB** on your DBAL connection, with your entities in the same transaction. Either way, approval records, credentials, permission checks and the business change must use the same connection and transaction.
+- Your application supplies its accounts, current permissions, trusted passkey enrollment and protected action. The bundle supplies the approval flow and review pages.
+- Configure `receipt_signer` to sign receipts when actions commit. The demo and integration example include this configuration.
+- Passkeys use WebAuthn. The device can use Touch ID, Face ID, a PIN or another supported local method. The server receives a signature, not biometric data, and does not claim which local method was used.
+- The demo's account screens, administrator audit page and maintained-package OAuth integration are reference application code. The bundle uses the host's authentication and current permissions; it does not provide an OAuth issuer. See the [host contract](src/symfony-bundle/docs/authentication.md).
+- The root `composer.json` installs `symfony/mcp-bundle` 1.0.0-BETA1 under the alias `0.13.99`, because the demo's OAuth bundle, `omouren/mcp-oauth-bundle` 1.2, still requires `^0.13` ([Authentication ownership](demo/authentication.md) explains it). The alias applies only to this repository's root project: the bundle requires `symfony/mcp-bundle ^1.0`, and an application that installs it does not need the alias unless it also installs that OAuth bundle.
 
 ## Add it to your Symfony application
 
@@ -108,17 +133,11 @@ The [integration guide](src/symfony-bundle/docs/index.md) is the canonical insta
 | [`verified-human-approval/symfony-bundle`](src/symfony-bundle/README.md) | Symfony services, review routes, CSRF, rate limits, status tool and scoped phone handoff. |
 | [`verified-human-approval/doctrine`](src/doctrine/README.md) | The approval store, signed audit log and passkey storage on a Doctrine DBAL connection, the ORM schema listener, an entity action base and a flush check for protected entities. |
 | [`verified-human-approval/store-contracts`](src/store-contracts/README.md) | The storage contract tests, with the fixture application and process races, to check an adapter of your own. |
-| [`verified-human-approval/testing`](src/testing/README.md) | Development helpers: a software authenticator, rendered passkey panels and an in-process MCP HTTP client for host integration tests. |
+| [`verified-human-approval/testing`](src/testing/README.md) | Development helpers for host integration tests: a software authenticator, a driver for the passkey panel a page renders, and a PSR-18 client that sends requests through your kernel in process. |
 
-The engine is independent of Symfony. The worked Symfony example uses a single SQLite transaction; the Doctrine storage passes the same contract on SQLite, PostgreSQL and MySQL. External effects, such as an email or another service's API, are outside the transaction and need their own design.
+The engine is independent of Symfony. The worked Symfony example uses a single SQLite transaction; the Doctrine storage passes the same contract on SQLite, PostgreSQL, MySQL and MariaDB. External effects, such as an email or another service's API, are outside the transaction and need their own design.
 
-On Doctrine ORM, start from the [publishing example](examples/doctrine-publishing/README.md): a runnable newsroom where publishing, editing live content, archiving (also a batch, under one approval) and deleting each wait for the person's passkey, from the web and from an agent alike, with entities that refuse any other write and a public page that marks approved live text. Its tests cover SQLite, PostgreSQL and MySQL.
-
-## Built with Symfony and MCP
-
-The project uses the official PHP MCP SDK, Symfony MCP Bundle, Symfony AI and the WebAuthn Framework. Protected actions remain ordinary MCP tools. MCP Apps show the approval card, URL-mode elicitation provides an optional native prompt, and every client receives a plain review link. The demo includes OAuth for remote clients.
-
-The [examples guide](examples/README.md) explains what each example runs, and the [publishing example](examples/doctrine-publishing/README.md) is a complete application on Doctrine to copy from. The [conformance review](docs/conformance-review.md) records protocol choices and interoperability limits.
+On Doctrine ORM, start from the [publishing example](examples/doctrine-publishing/README.md): a runnable newsroom where publishing, editing live content, archiving (also a batch, under one approval) and deleting each wait for the person's passkey, from the web and from an agent alike, with entities that refuse any other write and a public page that marks approved live text. Its tests cover SQLite, PostgreSQL, MySQL and MariaDB.
 
 ## Verification
 
@@ -129,7 +148,18 @@ composer cs
 PHP_BIN=php python3 tests/http_smoke.py
 ```
 
-The tests cover real WebAuthn signatures, Symfony and MCP integration, concurrent completion, transaction rollback and receipt tampering. CI runs them on PHP 8.3, 8.4 and 8.5, on the lowest supported dependencies and on Symfony 8, runs the storage suites on PostgreSQL, MySQL and MariaDB, and fails on a deprecation. Browser tests, physical devices and hosted clients are reported separately in [verification status](docs/verification.md).
+`composer test` runs the PHPUnit suite, which takes two to three minutes; the script turns off Composer's process timeout for it. `composer analyse` runs PHPStan at level 8 and `composer cs` checks the coding standard. `tests/http_smoke.py` starts the demo on a real HTTP server, drives it with the PHP MCP client and the scripted Symfony AI agent, and checks that nothing is published without approval.
+
+Expect PHPUnit to report skipped tests. Without the server variables below, the PostgreSQL and MySQL variants of the storage contract, schema, transaction, ORM and publishing-example tests skip. Two SQLite audit-log cases also skip, because on SQLite's rollback journal the host's read keeps the other writer from committing at all. `composer test -- --display-skipped` lists each one with its reason. CI runs the server variants with `--fail-on-skipped`, so there a skipped test fails the job. To run them yourself, give the tests a server account that can create and drop databases; each test creates its own throwaway database:
+
+```bash
+VERIFIED_HUMAN_APPROVAL_POSTGRES_URL='pdo-pgsql://postgres:postgres@127.0.0.1:5432/postgres' \
+  vendor/bin/phpunit --testsuite contract,doctrine,example --filter Postgres --fail-on-skipped
+VERIFIED_HUMAN_APPROVAL_MYSQL_URL='pdo-mysql://root:root@127.0.0.1:3306/mysql?charset=utf8mb4' \
+  vendor/bin/phpunit --testsuite contract,doctrine,example --filter Mysql --fail-on-skipped
+```
+
+The tests cover real WebAuthn signatures, Symfony and MCP integration, concurrent completion, transaction rollback and receipt tampering. CI ([`tests.yml`](.github/workflows/tests.yml)) runs the suite on PHP 8.3, 8.4 and 8.5 with the locked dependencies, where any deprecation fails the run, and on the lowest allowed dependencies and on Symfony 8, where deprecations are reported without failing it. It runs the server variants on PostgreSQL 14 and 17, MySQL 8.0 and 8.4 and MariaDB 11.4, and installs the packages into separate Composer projects, among them [Editorial Desk](tests/EditorialDesk/README.md), an independent Symfony application. Browser tests, physical devices and hosted clients are reported separately in [verification status](docs/verification.md).
 
 ## Further reading
 
@@ -138,6 +168,7 @@ The tests cover real WebAuthn signatures, Symfony and MCP integration, concurren
 - [Integration contracts](docs/integration-contract.md)
 - [Security model](docs/security-model.md)
 - [Reporting a vulnerability](SECURITY.md)
-- [Receipt verification](docs/evidence.md)
+- [Verify a receipt](docs/evidence.md)
+- [Contributing](CONTRIBUTING.md)
 
-MIT licensed. See [LICENSE](LICENSE).
+MIT licensed: the packages, the demo, the examples and the test applications. See [LICENSE](LICENSE).

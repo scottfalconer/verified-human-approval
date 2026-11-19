@@ -1,8 +1,8 @@
 {
   "name": "integration-evaluation/editorial-desk",
-  "description": "Independent Symfony application evaluating exact human approval for publishing",
+  "description": "Independent Symfony publishing application that the Verified Human Approval tests use to check the packages from the outside",
   "type": "project",
-  "license": "proprietary",
+  "license": "MIT",
   "require": {
     "php": "^8.3",
     "ext-pdo": "*",

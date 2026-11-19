@@ -19,6 +19,8 @@ composer require --dev verified-human-approval/testing:dev-main
 
 The package does not install PHPUnit, the MCP SDK or any Symfony bundle. Keep your application's test runner; supply a PSR-17 implementation such as `nyholm/psr7` when using `KernelHttpClient`.
 
+This package is developed in the [Verified Human Approval repository](https://github.com/scottfalconer/verified-human-approval). Open issues and pull requests there.
+
 ## Approve through the page
 
 Use a BrowserKit browser already signed in through your application's normal test fixtures. Enroll the software passkey through your trusted test enrollment flow first. The passkey's origin must match the application's configured WebAuthn origin.
@@ -50,6 +52,7 @@ The account page and its authorization are yours to supply; the bundle supplies 
 `PanelAnswer::refused()` reports an HTTP status outside 200–299. Read `status` as well: HTTP 200 can contain `invalidated`, with no business mutation. The complete JSON object is in `data`; casting the answer to a string gives a useful assertion message.
 
 ```php
+$panel = PasskeyPanel::open($browser, $reviewUrl);
 $ceremony = $panel->begin();
 self::assertFalse($ceremony->refused(), (string) $ceremony);
 
