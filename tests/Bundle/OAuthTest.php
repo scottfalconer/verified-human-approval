@@ -413,13 +413,22 @@ final class OAuthTest extends TestCase
         self::assertSame('/oauth/consent', $browser->getResponse()->headers->get('Location'), 'A refusal is used once: the same request is asked about again.');
     }
 
-    public function testDontAllowForAClientThatChoseItsOwnReturnAddressEndsOnThisSite(): void
+    /** @return iterable<string, array{?string}> the redirect URI an authorization request names, or null when it leaves it out */
+    public static function redirectUrisNamedOrLeftOut(): iterable
+    {
+        yield 'the request names it' => [self::ELSEWHERE];
+        // League then uses the only one the client registered.
+        yield 'the request leaves it out' => [null];
+    }
+
+    #[DataProvider('redirectUrisNamedOrLeftOut')]
+    public function testDontAllowForAClientThatChoseItsOwnReturnAddressEndsOnThisSite(?string $redirectUri): void
     {
         // RFC 9700 §4.11.2: anyone can register a client that returns to a site of their own. A person who refuses
         // it, because something looks wrong, must not be sent there all the same.
         $impostor = $this->json($this->client(), 'POST', '/oauth/register', ['redirect_uris' => [self::ELSEWHERE], 'client_name' => 'acme-tools-9931']);
         $browser = $this->signedIn('editor');
-        $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query(self::authorizeQuery($impostor['client_id'], self::ELSEWHERE)));
+        $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query(self::authorizeQuery($impostor['client_id'], $redirectUri)));
         $page = $browser->request('GET', self::ORIGIN.'/oauth/consent');
         $allow = $page->selectButton('Allow')->form();
         $browser->submit($page->selectButton('Don’t allow')->form());
@@ -456,11 +465,18 @@ final class OAuthTest extends TestCase
     public function testARequestForAScopeTheClientCannotHaveGoesBackOnlyToAnAddressTheServerTrusts(string $scope): void
     {
         $reader = $this->json($this->client(), 'POST', '/oauth/register', ['redirect_uris' => [self::ELSEWHERE, self::LOOPBACK], 'client_name' => 'Reader', 'scope' => 'alert.read']);
+        $single = $this->json($this->client(), 'POST', '/oauth/register', ['redirect_uris' => [self::ELSEWHERE], 'client_name' => 'Reader', 'scope' => 'alert.read']);
         $browser = $this->signedIn('editor');
-        $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query(['scope' => $scope] + self::authorizeQuery($reader['client_id'], self::ELSEWHERE)));
-        self::assertSame(400, $browser->getResponse()->getStatusCode(), (string) $browser->getResponse()->headers->get('Location'));
-        self::assertFalse($browser->getResponse()->headers->has('Location'), 'It registered itself, so the error is not sent to the address it chose (RFC 9700 §4.11.2).');
-        self::assertSame('invalid_scope', json_decode((string) $browser->getResponse()->getContent(), true, 8)['error'] ?? null);
+        foreach ([
+            'naming the address it chose' => self::authorizeQuery($reader['client_id'], self::ELSEWHERE),
+            // League would send the error to the only one the client registered.
+            'naming none' => self::authorizeQuery($single['client_id'], null),
+        ] as $case => $query) {
+            $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query(['scope' => $scope] + $query));
+            self::assertSame(400, $browser->getResponse()->getStatusCode(), $case.': '.$browser->getResponse()->headers->get('Location'));
+            self::assertFalse($browser->getResponse()->headers->has('Location'), $case.': it registered itself, so the error is not sent to the address it chose (RFC 9700 §4.11.2).');
+            self::assertSame('invalid_scope', json_decode((string) $browser->getResponse()->getContent(), true, 8)['error'] ?? null, $case);
+        }
 
         $query = ['scope' => $scope] + self::authorizeQuery($reader['client_id'], self::LOOPBACK);
         $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query($query));
@@ -1005,13 +1021,17 @@ final class OAuthTest extends TestCase
         return [$query['code'], $verifier];
     }
 
-    /** @return array<string, string> an authorization request with a state and PKCE challenge of its own */
-    private static function authorizeQuery(string $clientId, string $redirectUri): array
+    /**
+     * @param string|null $redirectUri null for none, which a client with only one registered may leave out
+     *
+     * @return array<string, string> an authorization request with a state and PKCE challenge of its own
+     */
+    private static function authorizeQuery(string $clientId, ?string $redirectUri): array
     {
         return [
-            'response_type' => 'code', 'client_id' => $clientId, 'redirect_uri' => $redirectUri, 'state' => bin2hex(random_bytes(8)),
+            'response_type' => 'code', 'client_id' => $clientId, 'state' => bin2hex(random_bytes(8)),
             'code_challenge' => self::challenge(bin2hex(random_bytes(32))), 'code_challenge_method' => 'S256', 'resource' => self::ORIGIN.'/mcp',
-        ];
+        ] + (null === $redirectUri ? [] : ['redirect_uri' => $redirectUri]);
     }
 
     /**
