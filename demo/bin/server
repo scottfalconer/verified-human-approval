@@ -4,6 +4,9 @@
 # VERIFIED_HUMAN_APPROVAL_RUNTIME (default var/demo) selects another copy, such as the public one. The site answers
 # only at the address it was set up for: one set up for http://localhost:<port> is served on that port, and one set
 # up for an https address, which a proxy or tunnel forwards here, on localhost at PORT (default 8080).
+# Its launchd label is one per port for the whole computer, so the script starts, stops and reports only this
+# checkout's own server. Anything else on the port, another checkout's server included, is named and left alone.
+# status exits 0 while this demo is served, 3 while nothing holds the port, and 1 while anything else does.
 set -eu
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 PHP=${PHP_BIN:-$(command -v php)}
@@ -13,8 +16,10 @@ case "$COMMAND" in
   *) echo "Usage: $0 start | stop | restart | status"; exit 2 ;;
 esac
 RUNTIME=${VERIFIED_HUMAN_APPROVAL_RUNTIME:-$ROOT/var/demo}
-SETUP="php demo/bin/setup.php"
-[ -z "${VERIFIED_HUMAN_APPROVAL_RUNTIME:-}" ] || SETUP="VERIFIED_HUMAN_APPROVAL_RUNTIME='$RUNTIME' $SETUP"
+# How the commands this script prints name the runtime: only when it is not the default.
+NAMED=
+[ -z "${VERIFIED_HUMAN_APPROVAL_RUNTIME:-}" ] || NAMED="VERIFIED_HUMAN_APPROVAL_RUNTIME='$RUNTIME' "
+SETUP="${NAMED}php demo/bin/setup.php"
 # The origin the runtime was set up for, read from its settings.json as setup.php and the demo kernel read it.
 ORIGIN=$("$PHP" -r '$s = json_decode((string) @file_get_contents($argv[1]), true); echo is_array($s) && is_string($s["origin"] ?? null) ? $s["origin"] : "";' "$RUNTIME/settings.json")
 case "$ORIGIN" in
@@ -22,47 +27,150 @@ case "$ORIGIN" in
   http://localhost:*) OWN_PORT=${ORIGIN#http://localhost:} ;;
   *) OWN_PORT= ;;
 esac
+# This script, to run again with the command $1: for a demo behind a proxy or tunnel, on port $2 (default PORT).
+again() { if [ -n "$OWN_PORT" ]; then echo "$NAMED$0 $1"; else echo "${NAMED}PORT=${2:-$PORT} $0 $1"; fi; }
 if [ -n "$OWN_PORT" ] && [ "${PORT:-$OWN_PORT}" != "$OWN_PORT" ]; then
-  echo "This demo was set up for $ORIGIN, so it is served on port $OWN_PORT. Leave PORT out: $0 $COMMAND"
+  echo "This demo was set up for $ORIGIN, so it is served on port $OWN_PORT. Leave PORT out: $(again "$COMMAND")"
   echo "To serve it on port $PORT, set it up for that address first, which replaces its accounts and passkeys:"
   echo "  VERIFIED_HUMAN_APPROVAL_ORIGIN=http://localhost:$PORT $SETUP --reset"
   exit 1
 fi
 PORT=${OWN_PORT:-${PORT:-8080}}
+# The port is matched in command lines and named in the label, so it must be a plain number.
+case "$PORT" in '' | *[!0-9]*) echo "PORT must be a port number, not \"$PORT\"."; exit 2 ;; esac
 LABEL=dev.verified-human-approval.demo.$PORT
 LOG="$ROOT/var/demo-server-$PORT.log"
+# The command line of the server start submits, and of every worker it forks: it names this checkout's files.
+SERVES="-S localhost:$PORT -t $ROOT/demo/public $ROOT/demo/public/index.php"
 
-running() { lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; }
 # The local address, and for a demo behind a proxy or tunnel, the one people open.
 site() { if [ -z "$OWN_PORT" ] && [ -n "$ORIGIN" ]; then echo "http://localhost:$PORT for $ORIGIN"; else echo "http://localhost:$PORT"; fi; }
+# launchctl's description of the job under LABEL, which is empty when there is none.
+job() { launchctl list "$LABEL" 2>/dev/null || true; }
+# Whether the job described in $1 was started from this checkout: it writes to this checkout's log.
+started_here() { case "$1" in *"\"$LOG\""*) ;; *) return 1 ;; esac; }
+# This checkout's server processes on PORT, listening or not.
+own_processes() { ps -axww -o pid= -o command= | while read -r pid command; do case "$command" in *" $SERVES") echo "$pid" ;; esac; done; }
+
+# Who holds PORT. Returns 0 for this demo's own server and 3 for nothing. Otherwise it says what does, and
+# returns 2 for this checkout's server when it is not this demo's job, or 1 for any other program.
+holder() {
+  pids=$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null) || pids=
+  if [ -z "$pids" ]; then
+    # lsof lists only this account's processes; a listener it cannot see still answers.
+    nc -z localhost "$PORT" >/dev/null 2>&1 || return 3
+    echo "Port $PORT is in use by a program this account cannot inspect."
+    return 1
+  fi
+  others=
+  for pid in $pids; do
+    command=$(ps -ww -o command= -p "$pid" 2>/dev/null) || command=
+    case "$command" in *" $SERVES") continue ;; esac
+    # Workers share their server's command line, so each program is named once, by its first process.
+    case "$others" in *"($command)"*) continue ;; esac
+    others="${others:+$others; }PID $pid${command:+ ($command)}"
+  done
+  if [ -n "$others" ]; then
+    echo "Port $PORT is in use by another program: $others."
+    return 1
+  fi
+  description=$(job)
+  if ! started_here "$description"; then
+    echo "Port $PORT is in use by this checkout's server, but not by its launchd job: PID $(echo $pids)."
+    return 2
+  fi
+  case "$description" in *"\"VERIFIED_HUMAN_APPROVAL_RUNTIME=$RUNTIME\""*) return 0 ;; esac
+  other=$(printf '%s\n' "$description" | sed -n 's/^[[:space:]]*"VERIFIED_HUMAN_APPROVAL_RUNTIME=\(.*\)";$/\1/p')
+  echo "Port $PORT is in use by this checkout's server for another demo${other:+, in $other}."
+  return 2
+}
+
+# How to serve this demo while another program holds PORT.
+another_port() {
+  if [ -n "$OWN_PORT" ]; then
+    echo "Stop that program, or set this demo up for another port, which replaces its accounts and passkeys:"
+    echo "  VERIFIED_HUMAN_APPROVAL_ORIGIN=http://localhost:$((PORT + 10)) $SETUP --reset"
+  else
+    echo "Stop that program, or serve this demo on another port, one the proxy or tunnel forwards to: $(again start $((PORT + 10)))"
+  fi
+}
+
+# Says that the job described in $1 was started from somewhere else, and is left alone.
+foreign_job() {
+  log=$(printf '%s\n' "$1" | sed -n 's/^[[:space:]]*"StandardOutPath" = "\(.*\)";$/\1/p')
+  case "$log" in
+    */var/demo-server-"$PORT".log) echo "The launchd job $LABEL was started from another checkout, ${log%/var/demo-server-"$PORT".log}, and is left alone: stop it from there." ;;
+    *) echo "The launchd job $LABEL was not started from this checkout, and is left alone. Stop it where it was started, or remove it: launchctl remove $LABEL" ;;
+  esac
+}
 
 start() {
   [ -n "$ORIGIN" ] || { echo "No demo is set up in $RUNTIME. Set one up first: $SETUP"; exit 1; }
-  if running; then echo "Already serving $(site)"; return 0; fi
+  held=0
+  found=$(holder) || held=$?
+  case $held in
+    0) echo "Already serving $(site)"; return 0 ;;
+    1) echo "$found"; another_port; exit 1 ;;
+    2) echo "$found Stop it first: $(again stop)"; exit 1 ;;
+  esac
+  description=$(job)
+  if [ -n "$description" ]; then
+    started_here "$description" || { foreign_job "$description"; exit 1; }
+    # This checkout's job, serving nothing: it failed, so it is replaced.
+    launchctl remove "$LABEL" 2>/dev/null || true
+  fi
   mkdir -p "$ROOT/var"
   # The demo kernel runs without debug, so compiled container and template caches are rebuilt on each start; code changes take effect.
   rm -rf "$RUNTIME/cache"
   VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" "$PHP" "$ROOT/demo/bin/console" assets:install "$ROOT/demo/public" --symlink --relative >/dev/null
   launchctl submit -l "$LABEL" -o "$LOG" -e "$LOG" -- /usr/bin/env PHP_CLI_SERVER_WORKERS=4 VERIFIED_HUMAN_APPROVAL_RUNTIME="$RUNTIME" "$PHP" -S "localhost:$PORT" -t "$ROOT/demo/public" "$ROOT/demo/public/index.php"
   i=0
-  while [ $i -lt 40 ]; do running && break; sleep 0.25; i=$((i + 1)); done
-  if running; then echo "Serving $(site) (log: $LOG)"; else echo "It did not start; see $LOG"; exit 1; fi
+  while :; do
+    held=0
+    found=$(holder) || held=$?
+    [ "$held" -eq 3 ] && [ $i -lt 40 ] || break
+    sleep 0.25
+    i=$((i + 1))
+  done
+  if [ "$held" -eq 0 ]; then echo "Serving $(site) (log: $LOG)"; return 0; fi
+  # Left in launchd, the job would keep trying to start.
+  launchctl remove "$LABEL" 2>/dev/null || true
+  [ "$held" -eq 3 ] || echo "$found"
+  echo "It did not start; see $LOG"
+  exit 1
 }
 
 stop() {
-  launchctl remove "$LABEL" 2>/dev/null || true
-  [ "$PORT" = 8080 ] && launchctl remove dev.verified-human-approval.demo 2>/dev/null || true
-  # Also stops a server started by hand, including worker processes left behind. The space ends the port, so port 80
-  # does not match 8080.
-  pkill -f "php -S localhost:$PORT " 2>/dev/null || true
+  description=$(job)
+  if [ -n "$description" ]; then
+    started_here "$description" || { foreign_job "$description"; exit 1; }
+    launchctl remove "$LABEL" 2>/dev/null || true
+  fi
+  # Workers can outlive their job; they share its command line.
+  own_processes | xargs -r kill 2>/dev/null || true
   i=0
-  while [ $i -lt 20 ]; do running || break; sleep 0.25; i=$((i + 1)); done
-  if running; then echo "Port $PORT is still in use"; exit 1; else echo "Stopped"; fi
+  while [ -n "$(own_processes)" ] && [ $i -lt 20 ]; do sleep 0.25; i=$((i + 1)); done
+  pids=$(own_processes)
+  [ -z "$pids" ] || { echo "This checkout's server is still running: PID $(echo $pids). See $LOG"; exit 1; }
+  echo "Stopped"
+  held=0
+  found=$(holder) || held=$?
+  [ "$held" -ne 1 ] || echo "$found This script did not start it, so it is left running."
+}
+
+status() {
+  held=0
+  found=$(holder) || held=$?
+  case $held in
+    0) echo "Serving $(site)" ;;
+    3) echo "Not running"; exit 3 ;;
+    *) echo "Not running. $found"; exit 1 ;;
+  esac
 }
 
 case "$COMMAND" in
   start) start ;;
   stop) stop ;;
   restart) stop; start ;;
-  status) if running; then echo "Serving $(site)"; else echo "Not running"; fi ;;
+  status) status ;;
 esac
