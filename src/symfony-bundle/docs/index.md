@@ -243,11 +243,10 @@ URL-mode elicitation is optional and off by default; the card and the review lin
 # config/packages/verified_human_approval.yaml
 verified_human_approval:
     url_elicitation:
-        enabled: true
         clients: ['*']          # or only the clients you have tested, such as [claude-code]
 ```
 
-`'*'` leaves the decision to the capability each client declares, as the specification advises. A list of names is for clients that declare URL mode and then drop the prompt; it changes the server's behaviour by `clientInfo`, which the specification advises against, and decides nothing about security. The prompt is sent only on MCP 2026-07-28 or later, and its retry carries signed request state, so the MCP server needs the `request_state.key` shown above. See [MCP presentation](https://github.com/scottfalconer/verified-human-approval/blob/main/src/mcp/README.md) for client and protocol details.
+Listing clients turns the prompt on; `enabled: false` turns it off and keeps the list. `'*'` leaves the decision to the capability each client declares, as the specification advises. A list of names is for clients that declare URL mode and then drop the prompt; it changes the server's behaviour by `clientInfo`, which the specification advises against, and decides nothing about security. The prompt is sent only on MCP 2026-07-28 or later, and its retry carries signed request state, so the MCP server needs the `request_state.key` shown above. See [MCP presentation](https://github.com/scottfalconer/verified-human-approval/blob/main/src/mcp/README.md) for client and protocol details.
 
 ### Scope challenges over HTTP
 

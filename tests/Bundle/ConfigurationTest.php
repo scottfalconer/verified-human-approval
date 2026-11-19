@@ -64,11 +64,34 @@ final class ConfigurationTest extends TestCase
         self::assertSame([], array_values(array_filter($keys, static fn (string $key): bool => !str_contains($guides, $key))), 'Keys no guide names.');
     }
 
+    /** @return iterable<string, array{array<string, mixed>, bool, list<string>}> */
+    public static function urlPrompts(): iterable
+    {
+        yield 'left out: off' => [[], false, []];
+        yield 'clients listed: on for them' => [['url_elicitation' => ['clients' => ['claude-code']]], true, ['claude-code']];
+        yield 'turned off, the list kept' => [['url_elicitation' => ['enabled' => false, 'clients' => ['claude-code']]], false, ['claude-code']];
+        yield 'on for every client that declares URL mode' => [['url_elicitation' => ['enabled' => true, 'clients' => ['*']]], true, ['*']];
+    }
+
+    /**
+     * @param array<string, mixed> $config
+     * @param list<string>         $clients
+     */
+    #[DataProvider('urlPrompts')]
+    public function testListingClientsTurnsTheUrlPromptOn(array $config, bool $enabled, array $clients): void
+    {
+        $prompt = (new Processor())->processConfiguration($this->configuration(), [self::REQUIRED + ['store' => 'store'], $config])['url_elicitation'];
+
+        self::assertSame([$enabled, $clients], [$prompt['enabled'], $prompt['clients']]);
+    }
+
     /** @return iterable<string, array{array<string, mixed>, string}> */
     public static function configurationsThatCouldNeverWork(): iterable
     {
         yield 'a public page with no receipt to show' => [['receipt_signer' => null, 'public_verification' => true], 'public_verification shows the receipt signed as the change committed: configure receipt_signer too.'];
-        yield 'a URL prompt for no client' => [['url_elicitation' => ['enabled' => true]], 'url_elicitation is enabled for no client: list the clientInfo names to prompt under "clients", or "*" for every client that declares URL mode.'];
+        foreach (['enabled: true' => ['enabled' => true], 'url_elicitation: true' => true, 'an empty clients list' => ['clients' => []]] as $how => $prompt) {
+            yield 'a URL prompt for no client, '.$how => [['url_elicitation' => $prompt], 'url_elicitation is enabled for no client: list the clientInfo names to prompt under "clients", or "*" for every client that declares URL mode.'];
+        }
     }
 
     /** @param array<string, mixed> $config */
