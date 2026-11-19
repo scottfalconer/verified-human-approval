@@ -80,16 +80,28 @@
   const REQUEST_TIMEOUT_MS = 15000;
   const SETTLE_MS = 300;
   const UNANSWERED = new Error('The host did not answer.');
-  let nextId = 1, view = null, timer = null, since = 0, host = {}, hostInfo = {}, capabilities = {}, codeTimer = null, ended = false, generation = 0, polling = false, shown = false, hint = null, echo = false;
+  let nextId = 1, view = null, timer = null, since = 0, host = {}, hostInfo = {}, capabilities = {}, codeTimer = null, ended = false, generation = 0, polling = false, shown = false, hint = null, announced = 0;
   const waiting = new Map();
-  // The arguments of the server tools this card called for the current view. A host may also announce the card's
-  // own calls, as the specification's diagram draws: a tool-input with those arguments, then that call's tool-result.
-  // The card leaves both alone, since the call's reply brings its result.
-  const own = new Set();
+  // A host may also announce the card's own calls, as the specification's diagram draws: a tool-input with a call's
+  // arguments, then that call's tool-result. The card leaves both alone, since the call's reply brings its result.
+  // The status and phone tools take the same arguments, so the card counts: each announcement takes one call made
+  // with its arguments for the current view, and each tool-result after it one announcement. A new request starts
+  // both counts again, so an announced call whose result never came cannot take a later result for itself.
+  const unannounced = new Map();
   function callTool(name, args) {
-    own.add(JSON.stringify(args));
+    const key = JSON.stringify(args);
+    unannounced.set(key, (unannounced.get(key) || 0) + 1);
     return request('tools/call', { name, arguments: args });
   }
+  // Whether a tool-input announces one of the card's own calls, which is then owed one tool-result.
+  function announces(args) {
+    const key = JSON.stringify(args ?? null), calls = unannounced.get(key) || 0;
+    if (!calls) return false;
+    unannounced.set(key, calls - 1);
+    announced++;
+    return true;
+  }
+  function forget() { unannounced.clear(); announced = 0; }
   // The request a tool result names, if it names one.
   function named(result) {
     const data = result && result.structuredContent;
@@ -305,7 +317,7 @@
   function show(result) {
     if (ended) return;
     shown = true;
-    own.clear();
+    forget();
     retire();
     view = read(result);
     since = Date.now();
@@ -337,14 +349,13 @@
       return;
     }
     if (message.method === 'ui/notifications/tool-input' && !ended) {
-      // One of the card's own calls, announced: the tool-result after it is that call's too.
-      if (own.has(JSON.stringify((message.params && message.params.arguments) || null))) { echo = true; return; }
-      own.clear(); retire(); view = null; render(); status.textContent = NOTE.waiting;
+      if (announces(message.params && message.params.arguments)) return;
+      forget(); retire(); view = null; render(); status.textContent = NOTE.waiting;
     }
     if (message.method === 'ui/notifications/tool-result') {
-      const repeated = echo && [null, view && view.requestId].includes(named(message.params));
-      echo = false;
-      if (!repeated) show(message.params);
+      // An announced call's result names this request, or none when the site refused the call. Any other is drawn.
+      if (announced > 0 && [null, view && view.requestId].includes(named(message.params))) announced--;
+      else show(message.params);
     }
     if (message.method === 'ui/notifications/host-context-changed') applyTheme(message.params);
     if (message.method === 'ui/notifications/tool-cancelled') {

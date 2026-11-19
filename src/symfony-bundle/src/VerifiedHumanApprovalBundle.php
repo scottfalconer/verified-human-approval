@@ -6,6 +6,7 @@ namespace VerifiedHumanApproval\Bundle;
 
 use Doctrine\ORM\Tools\Event\GenerateSchemaEventArgs;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
+use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
@@ -16,6 +17,7 @@ use VerifiedHumanApproval\Bundle\Command\InstallStorageCommand;
 use VerifiedHumanApproval\Bundle\Command\RecordKeyRotationCommand;
 use VerifiedHumanApproval\Bundle\Controller\ApprovalController;
 use VerifiedHumanApproval\Bundle\Controller\VerificationController;
+use VerifiedHumanApproval\Bundle\DependencyInjection\CheckPhoneHandoffPass;
 use VerifiedHumanApproval\Bundle\DependencyInjection\CheckScopeChallengePass;
 use VerifiedHumanApproval\Bundle\Handoff\ApprovalHandoff;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp;
@@ -65,6 +67,8 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
     {
         parent::build($container);
         $container->addCompilerPass(new CheckScopeChallengePass());
+        // Late: after the MCP bundle's passes have told each server what to serve, and named arguments are resolved.
+        $container->addCompilerPass(new CheckPhoneHandoffPass(), PassConfig::TYPE_BEFORE_REMOVING);
     }
 
     public function configure(DefinitionConfigurator $definition): void
@@ -105,7 +109,7 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
                 ->info('Calls per person per minute, across their agent connections, to protected tools that may open a proposal, as the MCP specification asks a server to rate limit tool calls. Reading an outcome is free. It sets the default of the framework rate limiter "verified_human_approval_agent_requests", which your own framework.rate_limiter config can override.')->end()
             ->scalarNode('rate_limiter')->defaultValue('limiter.verified_human_approval')->info('Service id of a Symfony\\Component\\RateLimiter\\RateLimiterFactoryInterface, to replace the framework limiter with your own.')->end()
             ->booleanNode('phone_handoff')->defaultTrue()
-                ->info('"Approve on your phone": the approval card offers a one-time code that opens one pending request\'s review on the person\'s phone. While it is on, list VerifiedHumanApproval\\Bundle\\Mcp\\ApprovalHandoffTool under your MCP server\'s registry tools. Off, the card offers no code, the tool is not defined, and a code link answers 410.')->end()
+                ->info('"Approve on your phone": the approval card offers a one-time code that opens one pending request\'s review on the person\'s phone. While it is on, each MCP server that serves the card lists VerifiedHumanApproval\\Bundle\\Mcp\\ApprovalHandoffTool under its registry tools, or the container does not build. Off, the card offers no code, the tool is not defined, and a code link answers 410.')->end()
             ->scalarNode('lock_factory')->defaultValue('verified_human_approval.lock_factory')
                 ->info('Service id of a Symfony\\Component\\Lock\\LockFactory that makes each phone code single-use. The default locks files on this host; use "lock.factory" with a shared store when several hosts serve the application.')->end()
             ->scalarNode('receipt_signer')

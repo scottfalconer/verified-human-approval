@@ -16,7 +16,7 @@ interface ResultPresenter
     /**
      * The normal result: status, review link, the card's view, and an optional message for the model.
      *
-     * @param bool $earlier whether this tool call's request key named an earlier request, so nothing ran for this call
+     * @param bool $earlier whether this tool call's request key named an earlier request that had finished, so nothing ran for this call
      */
     public function toolResult(ApprovalState $state, ?string $message = null, bool $earlier = false): CallToolResult;
 

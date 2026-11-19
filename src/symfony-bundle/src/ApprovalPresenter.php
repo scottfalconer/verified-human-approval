@@ -42,7 +42,7 @@ final readonly class ApprovalPresenter implements ResultPresenter
     }
 
     /**
-     * @param bool $earlier whether a tool call's request key named this earlier request, so nothing ran for that call
+     * @param bool $earlier whether a tool call's request key named this earlier request after it had finished, so nothing ran for that call
      *
      * @return array<string, mixed>
      */

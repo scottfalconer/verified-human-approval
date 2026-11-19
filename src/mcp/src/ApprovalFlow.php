@@ -25,8 +25,9 @@ use VerifiedHumanApproval\Core\ApprovalState;
  * state the server signs, so a server without a request-state key refuses a prompted call before
  * anything is made.
  *
- * A request key that names an earlier request returns that request's recorded outcome, and the
- * result says so: nothing runs for that call.
+ * A request key that names an earlier request that has finished returns that request's recorded
+ * outcome, and the result says so: nothing runs for that call. A pending request is not marked,
+ * whichever call made it: the person has yet to approve it.
  *
  * Every call that may open a proposal spends one from the person's {@see ProposalBudget}, and is
  * refused with the reason rate_limited once it is spent. The retry of a prompt is free.
@@ -74,7 +75,7 @@ final readonly class ApprovalFlow
                     'reason' => ['type' => ['string', 'null']],
                     'approvedWithPasskey' => ['type' => 'boolean', 'description' => 'Whether a person approved it with their passkey. A completed request without one ran because the application’s rule did not require approval.'],
                     'completedAt' => ['type' => ['string', 'null'], 'description' => 'When the action ran, as RFC 3339 in UTC, once it has.'],
-                    'earlier' => ['type' => 'boolean', 'description' => 'Whether this call’s request key named an earlier request: this is that request’s recorded outcome, and nothing ran for this call.'],
+                    'earlier' => ['type' => 'boolean', 'description' => 'Whether this call’s request key named an earlier request that had already finished: this is that request’s recorded outcome, and nothing ran for this call. Never true while the request is pending, whichever call made it: it is still waiting for the person’s approval.'],
                     'reviewUrl' => ['type' => 'string'],
                     'statusTool' => ['type' => 'string', 'description' => 'The read-only tool that reports this request’s outcome.'],
                     'statement' => ['type' => 'string', 'description' => 'The exact statement the person approves.'],

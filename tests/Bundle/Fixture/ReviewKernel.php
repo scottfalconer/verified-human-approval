@@ -27,7 +27,8 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
  * The bundle on its own, as an application installs it: FrameworkBundle, TwigBundle and the bundle, over the core
  * test fixtures' SQLite application, with alice signed in and receipts signed. Each test chooses the bundle's
  * configuration, whether there is a translator, an application layout around the review pages, whether an MCP
- * server at /mcp serves alice's agent, and which of the bundle's services the application replaces with its own.
+ * server at /mcp serves alice's agent, which others serve beside it, and which of the bundle's services the
+ * application replaces with its own.
  *
  * The compiled container depends only on those choices, so kernels that make the same ones share it; the
  * database is the runtime's, reached through the kernel at runtime.
@@ -37,11 +38,12 @@ final class ReviewKernel extends Kernel
     use MicroKernelTrait;
 
     /**
-     * @param array<string, mixed>                      $approval     verified_human_approval configuration beyond the required services
-     * @param array<string, array<string, string>>|null $translations a translator holding these messages by domain, or no translator
-     * @param string|null                               $templates    a Twig default path, whose bundles/VerifiedHumanApprovalBundle/ overrides the bundle's templates
-     * @param list<class-string>|null                   $tools        the MCP server's tools, beside the fixture's PublishArticleTool and the card; or no MCP server
-     * @param array<string, class-string>               $services     services the application defines, by id, in place of any the bundle defines under that id
+     * @param array<string, mixed>                       $approval     verified_human_approval configuration beyond the required services
+     * @param array<string, array<string, string>>|null  $translations a translator holding these messages by domain, or no translator
+     * @param string|null                                $templates    a Twig default path, whose bundles/VerifiedHumanApprovalBundle/ overrides the bundle's templates
+     * @param list<class-string>|null                    $tools        the MCP server's tools, beside the fixture's PublishArticleTool and the card; or no MCP server
+     * @param array<string, class-string>                $services     services the application defines, by id, in place of any the bundle defines under that id
+     * @param array<string, array<string, list<string>>> $servers      further MCP servers beside it, by name, each at /mcp/<name> with this registry, as the MCP bundle takes it: its tools, and its apps such as the card
      */
     public function __construct(
         private readonly string $runtime,
@@ -52,6 +54,7 @@ final class ReviewKernel extends Kernel
         private readonly ?array $realTranslator = null,
         private readonly ?array $tools = null,
         private readonly array $services = [],
+        private readonly array $servers = [],
     ) {
         parent::__construct('test', false);
     }
@@ -145,11 +148,19 @@ final class ReviewKernel extends Kernel
         }
         if (null !== $this->tools) {
             // Stateless MCP 2026-07-28 calls, as the agent's client makes them; the connection is alice's.
-            $container->extension('mcp', ['servers' => ['application' => [
+            $servers = ['application' => [
                 'http' => ['path' => '/mcp', 'allowed_hosts' => ['app.example']],
                 'session' => ['store' => 'memory'],
                 'registry' => ['tools' => [PublishArticleTool::class, ...$this->tools], 'apps' => [ApprovalCardApp::class]],
-            ]]]);
+            ]];
+            foreach ($this->servers as $name => $registry) {
+                $servers[$name] = [
+                    'http' => ['path' => '/mcp/'.$name, 'allowed_hosts' => ['app.example']],
+                    'session' => ['store' => 'memory'],
+                    'registry' => $registry,
+                ];
+            }
+            $container->extension('mcp', ['servers' => $servers]);
             $services->set(PublishArticleTool::class)->autoconfigure();
         }
         if (null !== $this->translations) {
@@ -173,6 +184,6 @@ final class ReviewKernel extends Kernel
         $shared = getenv('VERIFIED_HUMAN_APPROVAL_TEST_CACHE');
         $root = \is_string($shared) && '' !== $shared ? $shared : sys_get_temp_dir().'/verified-human-approval-review-kernel';
 
-        return $root.'/review-kernel-'.hash('xxh128', serialize([$this->approval, $this->translations, $this->templates, $this->realTranslator, $this->tools, $this->services]));
+        return $root.'/review-kernel-'.hash('xxh128', serialize([$this->approval, $this->translations, $this->templates, $this->realTranslator, $this->tools, $this->services, $this->servers]));
     }
 }
