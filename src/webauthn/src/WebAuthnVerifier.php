@@ -219,9 +219,8 @@ final class WebAuthnVerifier implements ApprovalVerifier
                 false,
                 $label,
             );
-        } catch (\Throwable) {
-            // Do not put assertion material or potentially sensitive decoder messages into application logs.
-            throw new ApprovalException('invalid_registration', 'The passkey registration could not be verified.');
+        } catch (\Throwable $error) {
+            throw self::refused('invalid_registration', 'The passkey registration could not be verified.', $error);
         }
         $this->credentials->add($credential);
 
@@ -245,8 +244,8 @@ final class WebAuthnVerifier implements ApprovalVerifier
                 $this->configuration->host,
                 $this->userHandle($actor),
             );
-        } catch (\Throwable) {
-            throw new ApprovalException('invalid_approval', 'The passkey assertion could not be verified.');
+        } catch (\Throwable $error) {
+            throw self::refused('invalid_approval', 'The passkey assertion could not be verified.', $error);
         }
     }
 
@@ -283,8 +282,8 @@ final class WebAuthnVerifier implements ApprovalVerifier
             }
 
             return $record;
-        } catch (\Throwable) {
-            throw new ApprovalException('credential_unavailable', 'No acceptable approval credential is available.');
+        } catch (\Throwable $error) {
+            throw self::refused('credential_unavailable', 'No acceptable approval credential is available.', $error);
         }
     }
 
@@ -293,9 +292,20 @@ final class WebAuthnVerifier implements ApprovalVerifier
     {
         try {
             return $this->serializer->deserialize($this->encoded($response), PublicKeyCredential::class, 'json');
-        } catch (\Throwable) {
-            throw new ApprovalException('invalid_approval', 'The passkey response could not be read.');
+        } catch (\Throwable $error) {
+            throw self::refused('invalid_approval', 'The passkey response could not be read.', $error);
         }
+    }
+
+    /**
+     * The refusal for anything that fails while the library reads or checks a response or a stored passkey. Every
+     * failure refuses, errors included: the library meets some malformed responses with a TypeError. What failed is
+     * kept for whoever debugs the refusal, as its class and where it was raised, but not its message or the failure
+     * itself, which can quote what was sent or carry it.
+     */
+    private static function refused(string $reason, string $message, \Throwable $cause): ApprovalException
+    {
+        return new ApprovalException($reason, $message, new \RuntimeException(\sprintf('%s raised at %s:%d.', $cause::class, $cause->getFile(), $cause->getLine())));
     }
 
     private function userHandle(Actor $actor): string

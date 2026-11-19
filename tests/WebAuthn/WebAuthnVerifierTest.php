@@ -249,4 +249,70 @@ final class WebAuthnVerifierTest extends TestCase
         yield 'invalid base64' => [['id' => '!', 'rawId' => '!', 'type' => 'public-key', 'response' => []]];
         yield 'too large' => [['id' => str_repeat('x', 150000)]];
     }
+
+    /** @return iterable<string, array{\Closure(self): mixed, string, class-string<\Throwable>}> */
+    public static function failuresInsideTheLibrary(): iterable
+    {
+        $assertion = static function (self $test, \Closure $change): array {
+            $challenge = random_bytes(32);
+            $assertion = $test->authenticator->assertion($test->verifier->requestOptions($test->actor, $challenge));
+
+            return [$challenge, $change($assertion)];
+        };
+        yield 'a user handle that is not a string, which the library meets with a TypeError' => [static function (self $test) use ($assertion): mixed {
+            [$challenge, $sent] = $assertion($test, static fn (array $sent): array => array_replace_recursive($sent, ['response' => ['userHandle' => ['quoted-material']]]));
+
+            return $test->verifier->verify($test->actor, $challenge, $sent);
+        }, 'invalid_approval', \TypeError::class];
+        yield 'an id that is not base64url' => [static function (self $test) use ($assertion): mixed {
+            [$challenge, $sent] = $assertion($test, static fn (array $sent): array => ['id' => 'quoted-material!', 'rawId' => 'quoted-material!'] + $sent);
+
+            return $test->verifier->verify($test->actor, $challenge, $sent);
+        }, 'invalid_approval', \RangeException::class];
+        yield 'a signature that is not an ECDSA signature' => [static function (self $test) use ($assertion): mixed {
+            [$challenge, $sent] = $assertion($test, static fn (array $sent): array => array_replace_recursive($sent, ['response' => ['signature' => Base64UrlSafe::encodeUnpadded(random_bytes(72))]]));
+
+            return $test->verifier->verify($test->actor, $challenge, $sent);
+        }, 'invalid_approval', \InvalidArgumentException::class];
+        yield 'an assertion made for another origin' => [static function (self $test): mixed {
+            $challenge = random_bytes(32);
+            $sent = $test->authenticator->assertion($test->verifier->requestOptions($test->actor, $challenge), ['origin' => 'https://quoted-material.test']);
+
+            return $test->verifier->verify($test->actor, $challenge, $sent);
+        }, 'invalid_approval', \Webauthn\Exception\AuthenticatorResponseVerificationException::class];
+        yield 'a stored passkey that is not a passkey record' => [static function (self $test): mixed {
+            $test->pdo->exec('UPDATE verified_human_approval_credentials SET source_json = \'{"quoted-material":true}\'');
+
+            return $test->verifier->requestOptions($test->actor, random_bytes(32));
+        }, 'credential_unavailable', \Webauthn\Exception\InvalidDataException::class];
+        yield 'enrollment options for another relying party' => [static function (self $test): mixed {
+            $options = (new WebAuthnVerifier(new Configuration('other.test', 'https://other.test'), $test->credentials))->registrationOptions($test->actor, random_bytes(32), 'quoted-material');
+
+            return $test->verifier->register($test->actor, $options, (new VirtualAuthenticator())->registration($options));
+        }, 'invalid_registration', \UnexpectedValueException::class];
+    }
+
+    /**
+     * Whatever fails while the library reads or checks a response or a stored passkey, the result is a refusal,
+     * errors included. The refusal says what failed and where, for whoever debugs it, but keeps neither the cause's
+     * message nor the cause itself, which can quote or carry what was sent.
+     *
+     * @param \Closure(self): mixed    $operation
+     * @param class-string<\Throwable> $cause
+     */
+    #[DataProvider('failuresInsideTheLibrary')]
+    public function testARefusalNamesWhereItsCauseWasRaisedWithoutQuotingWhatWasSent(\Closure $operation, string $reason, string $cause): void
+    {
+        try {
+            $operation($this);
+            self::fail('The failure was not refused.');
+        } catch (ApprovalException $refusal) {
+            self::assertSame($reason, $refusal->reason);
+            $kept = $refusal->getPrevious();
+            self::assertInstanceOf(\RuntimeException::class, $kept);
+            self::assertMatchesRegularExpression('/^'.preg_quote($cause, '/').' raised at \S+\.php:\d+\.$/D', $kept->getMessage());
+            self::assertNull($kept->getPrevious(), 'The cause itself is not kept.');
+            self::assertStringNotContainsString('quoted-material', $refusal->getMessage().$kept->getMessage());
+        }
+    }
 }
