@@ -32,7 +32,7 @@ final class DemoSetup
     public static function initialize(string $directory, string $origin = 'http://localhost:8080', bool $dynamicClientRegistration = true): array
     {
         if (is_file($directory.'/settings.json')) {
-            throw new \RuntimeException('This demo is already initialized; existing accounts were not replaced.');
+            throw new \RuntimeException('This demo is already initialized; existing accounts were not replaced. To replace it with a fresh demo, run setup again with --reset.');
         }
         $rpId = parse_url($origin, \PHP_URL_HOST);
         if (!\is_string($rpId)) {

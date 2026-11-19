@@ -32,6 +32,27 @@ final class DemoScriptsTest extends TestCase
         }
     }
 
+    public function testSetupPrintsHowToServeTheAddressItWasGiven(): void
+    {
+        $runtime = $this->directory.'/local';
+        $setup = [\PHP_BINARY, 'demo/bin/setup.php'];
+        [$status, $output] = self::script($setup, ['VERIFIED_HUMAN_APPROVAL_RUNTIME' => $runtime, 'VERIFIED_HUMAN_APPROVAL_ORIGIN' => 'http://localhost:8090']);
+        self::assertSame(0, $status, $output);
+        self::assertStringContainsString("Start the site:\n  VERIFIED_HUMAN_APPROVAL_RUNTIME=".escapeshellarg($runtime).' PHP_CLI_SERVER_WORKERS=4 php -S localhost:8090 -t demo/public demo/public/index.php', $output);
+        self::assertStringContainsString('export VERIFIED_HUMAN_APPROVAL_MCP_URL=http://localhost:8090/mcp', $output);
+        self::assertStringNotContainsString('localhost:8080', $output);
+
+        [$status, $output] = self::script($setup, ['VERIFIED_HUMAN_APPROVAL_RUNTIME' => $runtime, 'VERIFIED_HUMAN_APPROVAL_ORIGIN' => 'http://localhost:8090']);
+        self::assertSame(1, $status);
+        self::assertStringContainsString('This demo is already initialized; existing accounts were not replaced. To replace it with a fresh demo, run setup again with --reset.', $output);
+
+        // The public kind is served through a tunnel to a local server, so there is no server command to copy.
+        [$status, $output] = self::script($setup, ['VERIFIED_HUMAN_APPROVAL_RUNTIME' => $this->directory.'/public', 'VERIFIED_HUMAN_APPROVAL_ORIGIN' => 'https://alerts.example']);
+        self::assertSame(0, $status, $output);
+        self::assertStringContainsString('Serve the site at https://alerts.example through an HTTPS proxy or tunnel to this computer', $output);
+        self::assertStringNotContainsString('php -S', $output);
+    }
+
     public function testPublicStartAsksBeforeReplacingADemoSetUpForAnotherAddress(): void
     {
         $root = $this->publicDemo('https://old-tunnel-name.trycloudflare.com', 'https://new-tunnel-name.trycloudflare.com');

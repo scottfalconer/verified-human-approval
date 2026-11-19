@@ -36,10 +36,22 @@ try {
     file_put_contents($headers, 'Authorization: Bearer '.$created['accounts']['editor']['personal_token']."\n");
     chmod($headers, 0600);
     $mcp = rtrim($origin, '/').'/mcp';
-    fwrite(\STDOUT, "Local demo initialized. Save these credentials privately; passwords/tokens are shown only once.\n");
+    fwrite(\STDOUT, "Demo initialized for $origin. Save these credentials privately; passwords/tokens are shown only once.\n");
     fwrite(\STDOUT, json_encode($created, \JSON_THROW_ON_ERROR | \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES)."\n\n");
     fwrite(\STDOUT, "Add a passkey: sign in as an account, then open that account's passkey_link above. A password alone cannot add an approval passkey; each link works once, for seven days.\n\n");
-    fwrite(\STDOUT, "Start the site:\n  PHP_CLI_SERVER_WORKERS=4 php -S localhost:8080 -t demo/public demo/public/index.php\n\n");
+    // The site answers only at its origin, so the server listens on the origin's host and port, for this runtime.
+    $site = parse_url($origin);
+    if (is_array($site) && 'http' === ($site['scheme'] ?? null) && isset($site['host'])) {
+        $runtime = getenv('VERIFIED_HUMAN_APPROVAL_RUNTIME');
+        $server = (is_string($runtime) && '' !== $runtime ? 'VERIFIED_HUMAN_APPROVAL_RUNTIME='.escapeshellarg($directory).' ' : '')
+            .'PHP_CLI_SERVER_WORKERS=4 php -S '.$site['host'].':'.($site['port'] ?? 80).' -t demo/public demo/public/index.php';
+        fwrite(\STDOUT, "Start the site:\n  $server\n\n");
+    } else {
+        fwrite(\STDOUT, "Serve the site at $origin through an HTTPS proxy or tunnel to this computer, as demo/bin/public does: it answers only there.\n\n");
+    }
+    if ('http://localhost:8080' !== $origin) {
+        fwrite(\STDOUT, "Point the example clients in examples/ at it:\n  export VERIFIED_HUMAN_APPROVAL_MCP_URL=$mcp\n\n");
+    }
     fwrite(\STDOUT, "Connect Claude Code as the editor:\n  claude mcp add --transport http verified-human-approval $mcp --header \"Authorization: Bearer ".$created['accounts']['editor']['personal_token']."\"\n\n");
     fwrite(\STDOUT, "Connect Claude Desktop as the editor: add this under \"mcpServers\" in claude_desktop_config.json, then restart Claude:\n");
     fwrite(\STDOUT, '  "verified-human-approval": {"command": "npx", "args": ["-y", "mcp-remote", "'.$mcp.'", "--allow-http", "--header-file", "'.$headers.'"]}'."\n");

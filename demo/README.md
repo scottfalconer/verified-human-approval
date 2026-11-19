@@ -35,6 +35,17 @@ PHP_CLI_SERVER_WORKERS=4 php -S localhost:8080 -t demo/public demo/public/index.
 
 The four workers allow browser requests and MCP calls to run at the same time. Use `localhost` consistently; the passkey configuration is for that hostname.
 
+#### If port 8080 is taken
+
+The demo answers only at the address it was set up for, because its passkeys and the links it gives agents belong to that address; opened at another one, it says where to open it. To use port 8090 instead, set the demo up for that address and start the server on the same port:
+
+```bash
+VERIFIED_HUMAN_APPROVAL_ORIGIN=http://localhost:8090 php demo/bin/setup.php --reset
+PHP_CLI_SERVER_WORKERS=4 php -S localhost:8090 -t demo/public demo/public/index.php
+```
+
+`--reset` replaces a demo you already set up, with its accounts and passkeys. Setup prints the server command for the address it was given. In Terminal B, run `export VERIFIED_HUMAN_APPROVAL_MCP_URL=http://localhost:8090/mcp` before the example client's commands, and use port 8090 wherever this guide links to the site.
+
 ### 2. Add the editor's passkey
 
 1. Open [the local site](http://localhost:8080) and sign in as `editor`, using the password from setup.
