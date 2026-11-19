@@ -108,9 +108,13 @@ final class DemoScriptsTest extends TestCase
         [$status, $output] = self::server($root, 'stop');
         self::assertSame(0, $status, $output);
         self::assertContains('launchctl remove dev.verified-human-approval.demo.8090', self::calls($root));
-        // Only that port's server: php -S localhost:80 must not also stop the one on 8080 or 8081.
         self::assertContains('pkill -f php -S localhost:8090 ', self::calls($root));
         self::assertSame("Not running\n", self::server($root, 'status')[1]);
+
+        // An origin without a port is served on port 80, and stopping it leaves the servers on 8080 and 8081 alone.
+        $root = $this->serverTree('http://localhost');
+        self::assertSame(0, self::server($root, 'stop')[0]);
+        self::assertSame(['launchctl remove dev.verified-human-approval.demo.80', 'pkill -f php -S localhost:80 '], self::calls($root));
     }
 
     public function testServerRefusesToServeADemoOnAPortItDoesNotAnswerOn(): void
