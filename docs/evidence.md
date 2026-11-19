@@ -1,4 +1,4 @@
-# Verify a stored approval
+# Verify a receipt
 
 An action approved with a passkey and signed at commit has two signatures with different jobs:
 
@@ -29,7 +29,7 @@ While signed in as the person who approved the request, open its review page and
 http://localhost:8080/approval/REQUEST_ID/evidence
 ```
 
-Use the actual request ID from the approval page URL or the tool result, and your own origin if the demo runs elsewhere. Only the signed-in owner can download it; a phone opened with a one-time code is sent back to the signed-in browser. An administrator can also open **Audit log** and use a completed action's **Evidence** link, at `/admin/audit/REQUEST_ID/evidence`.
+Use the actual request ID from the approval page URL or the tool result, and your own origin if the demo runs elsewhere. Only the signed-in owner can download it. A phone opened with a one-time code cannot: its page says to download the receipt from the signed-in browser. An administrator can also open **Audit log** and use a completed action's **Evidence** link, at `/admin/audit/REQUEST_ID/evidence`.
 
 Create a working directory and save the download there as `receipt.json`:
 
@@ -49,7 +49,7 @@ curl -fsS http://localhost:8080/approval/receipt-keys.json -o var/evidence-check
 
 Its `format` is `verified-human-approval/receipt-keys/v2`. It names the key that signs now (`currentKeyId`), lists every key in `keys`, and gives the passkey relying party and origin (`rpId`, `origin`). Each key has a `keyId`, a base64url Ed25519 `publicKey`, and the window it signed in: `validFrom` and `validUntil`, RFC 3339 times, either of which may be `null` (no earlier limit, or still signing). Save it and keep it with your receipts: later checks use your saved copy, so a key the site added or changed afterwards would not match. For an independent review, obtain the keys through a source you trust, never from the receipt file itself.
 
-The site also serves the earlier one-key file at `/approval/receipt-key.json` (`verified-human-approval/receipt-key/v1`, with `keyId`, `publicKey`, `rpId` and `origin`). It names only the key signing now. The command below reads both files; a copy of the one-key file saved earlier keeps checking what its key signed.
+The site also serves a one-key file at `/approval/receipt-key.json` (`verified-human-approval/receipt-key/v1`, with `keyId`, `publicKey`, `rpId` and `origin`). It names only the key signing now. The command below reads both files, and a saved copy of the one-key file keeps checking what its key signed.
 
 ### 3. Verify the original
 
@@ -184,7 +184,7 @@ The trust files use these fields:
 | File | Required fields | Trusted source |
 | --- | --- | --- |
 | Application keys: the bundle's key set, `receipt-keys.json` | `format` (`verified-human-approval/receipt-keys/v2`), `keys`, `rpId`, `origin`; each key has `keyId`, `publicKey`, `validFrom` and `validUntil` | The application's published or independently supplied signing keys, the window each signed in, and its WebAuthn configuration. `publicKey` is a base64url Ed25519 public key; `validFrom` and `validUntil` are RFC 3339 times or `null`. `currentKeyId` is informational. |
-| Or one application key, such as the bundle's `receipt-key.json` | `keyId`, `publicKey`, `rpId`, `origin` | The earlier one-key file. Its key is trusted at any time, without a window. The bundle's file adds `format` (`verified-human-approval/receipt-key/v1`). |
+| Or one application key, such as the bundle's `receipt-key.json` | `keyId`, `publicKey`, `rpId`, `origin` | A one-key file. Its key is trusted at any time, without a window. The bundle's file adds `format` (`verified-human-approval/receipt-key/v1`). |
 | `trusted-credential.json`, optional | `id`, `userId`, `tenantId`, `sourceJson` | The original, trusted passkey enrollment for that account. `id` is the base64url credential ID. Without it, the passkey signature is not checked. |
 
 A receipt names the key that signed it. The CLI refuses a key the file does not list, and a receipt whose time falls outside its key's window. A receipt signed at commit was signed when its execution record says the action was recorded (`recordedAt`, which the receipt signs). A receipt signed at export does not record when it was exported, only that this came after `recordedAt`, so its key must not have retired before then.
@@ -195,7 +195,7 @@ The CLI checks the receipt with `ReceiptVerifier`, then checks the assertion wit
 
 The CLI uses the package's default hashed user handles. If your host supplies another `UserHandleProvider`, call `verifyEvidenceAssertion()` with that same trusted provider.
 
-An action whose policy did not require approval has no passkey proof. Its execution record says `approval: "not_required"`, and successful verification reports `credentialApprovedExactProposal: false`. Its application report is still verifiable. When a passkey did approve and no credential file is given, the CLI reports `credentialApprovedExactProposal: null`: that signature was not checked.
+An action whose rule did not require approval has no passkey proof. Its execution record says `approval: "not_required"`, and successful verification reports `credentialApprovedExactProposal: false`. Its application report is still verifiable. When a passkey did approve and no credential file is given, the CLI reports `credentialApprovedExactProposal: null`: that signature was not checked.
 
 ### Limits
 
@@ -210,7 +210,7 @@ Serving original receipts needs no signing key: construct the exporter without a
 One Ed25519 key signs new receipts and new audit log entries. Rotating it replaces that key without breaking what the old one signed: the old public key stays trusted, but only for records whose own time falls inside the window it signed in.
 
 - A receipt's time is its execution record's `recordedAt`, as described above.
-- An audit entry's time is its `at`. Once the chain records the rotation, an entry signed with the old key after that point is refused, whatever time it claims.
+- An audit entry's time is its `at`. Once the chain records the rotation, and while that rotation entry verifies, an entry signed with the old key after that point is refused, whatever time it claims.
 - A record that names a key the trusted keys do not list verifies nothing.
 
 ### With the Symfony bundle
@@ -256,7 +256,7 @@ One Ed25519 key signs new receipts and new audit log entries. Rotating it replac
    php bin/console verified-human-approval:record-key-rotation application-1 --reason="scheduled rotation"
    ```
 
-   The entry, `signing_key.rotated`, is signed with the new key and names both keys, so the chain shows where trust moved. From it on, the log refuses any entry the old key signs. Record it as soon as the old key's window has closed: from then until the new key signs its first entry, nothing the old key signed counts, so passkeys enrolled under it cannot approve: a person who tries is told to ask the administrator (`credential_unvouched`), and `verified-human-approval:audit-head` names the key and this command (`AuditLog::unvouchedKeys()` lists such keys). It also names a closed key whose rotation is not recorded, from the moment its window closes (`AuditLog::unrecordedRotations()`). The new key's first entry vouches, through the chain, for every entry before it. The command refuses a rotation the configuration does not show yet: the old key needs a `valid_until`, the new one a `valid_from`. It prints the new head of the log.
+   The entry, `signing_key.rotated`, is signed with the new key and names both keys, so the chain shows where trust moved. From it on, while it verifies, the log refuses any entry the old key signs. Record it as soon as the old key's window has closed: from then until the new key signs its first entry, nothing the old key signed counts, so passkeys enrolled under it cannot approve: a person who tries is told to ask the administrator (`credential_unvouched`), and `verified-human-approval:audit-head` names the key and this command (`AuditLog::unvouchedKeys()` lists such keys). It also names a closed key whose rotation is not recorded, from the moment its window closes (`AuditLog::unrecordedRotations()`). The new key's first entry vouches, through the chain, for every entry before it. The command refuses a rotation the configuration does not show yet: the old key needs a `valid_until`, the new one a `valid_from`. It prints the new head of the log.
 
 5. **Keep a checkpoint** of that head ([below](#keep-checkpoints-of-the-audit-log)), then **destroy the old private key** everywhere it was kept, backups included. Ask anyone who checks your receipts to save `/approval/receipt-keys.json` again.
 
@@ -301,7 +301,7 @@ Rotation limits what a stolen key can do from then on. It cannot take back what 
 3. **Keep a new checkpoint** right after the rotation entry.
 4. **Destroy the old private key**, publish the new key set, and say when the exposure started if you know.
 
-After the rotation, the old key cannot add an entry to the chain: one it signs after the rotation entry is refused, whatever time it claims. To slip in a backdated entry, someone would have to replace an entry from before the rotation, which breaks the chain at the next entry (the audit page and `audit-head` show it), or cut the chain back to before the rotation, which a checkpoint kept after it shows. A receipt is not in the chain: only its key's window bounds it. A receipt signed with the stolen key and dated inside its window cannot be told apart from a genuine one by its signature. Check a disputed one against your records, and against the copy its holder downloaded.
+After the rotation, while the rotation entry verifies, the old key cannot add an entry to the chain: one it signs after the rotation entry is refused, whatever time it claims. To slip in a backdated entry, someone would have to replace an entry from before the rotation, which breaks the chain at the next entry; cut the chain back to before the rotation, which a checkpoint kept after it shows; or damage the rotation entry itself, after which an entry the old key appends counts as soon as the application's next entry links to it. The audit page and `audit-head` show a broken chain and a damaged rotation entry alike. A receipt is not in the chain: only its key's window bounds it. A receipt signed with the stolen key and dated inside its window cannot be told apart from a genuine one by its signature. Check a disputed one against your records, and against the copy its holder downloaded.
 
 ## Regression checks
 
