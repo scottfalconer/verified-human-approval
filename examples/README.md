@@ -61,9 +61,9 @@ Only `completed` confirms that the action ran. Save the request ID and use statu
 php examples/agent.php --scripted
 ```
 
-This runs Symfony AI's real `Agent` and `McpToolbox`, discovers tools from the server, and sends a real publication request. Only the model responses are scripted. The script always requests the `riverside-evacuation` alert with a fresh request key, then prints the tool result.
+This runs Symfony AI's real `Agent` and `McpToolbox`, discovers tools from the server, and sends a real publication request. Only the model responses are scripted. The script always requests the `riverside-evacuation` alert with a fresh request key, then prints the tool result, with the review link on a line of its own.
 
-No model API key is needed. Human approval is not simulated: with the editor's initial policy, the initial result is pending. Approval still happens on the site, and the request can expire or be cancelled. Use the returned review URL and check status with `mcp.php` as above. This mode checks the integration flow; it is not a language-model benchmark.
+No model API key is needed. Human approval is not simulated: with the editor's initial policy, the initial result is pending. Approval still happens on the site, and the request can expire or be cancelled. Open the review link it prints, and check status with `mcp.php` as above. This mode checks the integration flow; it is not a language-model benchmark.
 
 If you already issued the alert in the earlier example, follow [Run it again](../demo/README.md#run-it-again) before demonstrating another publication.
 
