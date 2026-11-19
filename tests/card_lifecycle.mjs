@@ -17,7 +17,7 @@ const phoneReply = (requestId = 'r1') => ({ content: [], structuredContent: {
 
 function host() {
   let now = 0, sequence = 0;
-  const timers = new Map(), messages = [], listeners = {}, elements = new Map(), answered = new Set();
+  const timers = new Map(), messages = [], listeners = {}, elements = new Map(), answered = new Set(), applied = new Map();
   function element(id) {
     if (!elements.has(id)) elements.set(id, {
       hidden: true, disabled: false, textContent: id === 'status' ? 'Waiting for the request…' : '', children: [], handlers: {},
@@ -28,7 +28,8 @@ function host() {
   }
   const parent = { postMessage(message) { messages.push(structuredClone(message)); } };
   const document = {
-    hidden: false, body: { dataset: {} }, documentElement: { scrollHeight: 300, dataset: {}, style: { setProperty() {} } },
+    hidden: false, body: { dataset: {} },
+    documentElement: { scrollHeight: 300, dataset: {}, style: { setProperty(name, value) { applied.set(name, value); }, removeProperty(name) { applied.delete(name); } } },
     getElementById: element, createElementNS: (_ns, name) => element(`svg-${name}-${++sequence}`),
     addEventListener(name, handler) { listeners[`document-${name}`] = handler; },
   };
@@ -46,6 +47,9 @@ function host() {
     status: () => element('status').textContent,
     // The status the card's colour follows (body[data-status]).
     shade: () => document.body.dataset.status,
+    // The theme and the style variables the card has put on its root element.
+    theme: () => document.documentElement.dataset.theme,
+    variables: () => Object.fromEntries(applied),
     call: name => messages.findLast(m => m.method === 'tools/call' && m.params.name === name),
     calls: name => messages.filter(m => m.method === 'tools/call' && m.params.name === name).length,
     opened: () => messages.findLast(m => m.method === 'ui/open-link'),
@@ -58,8 +62,8 @@ function host() {
         if (check && !answered.has(check.id)) { answered.add(check.id); await this.reply(check, approval()); }
       }
     },
-    async initialize(capabilities = { openLinks: {}, serverTools: {} }) {
-      dispatch({ id: messages[0].id, result: { protocolVersion: '2026-01-26', hostCapabilities: capabilities, hostContext: { platform: 'web' } } });
+    async initialize(capabilities = { openLinks: {}, serverTools: {} }, context = { platform: 'web' }) {
+      dispatch({ id: messages[0].id, result: { protocolVersion: '2026-01-26', hostCapabilities: capabilities, hostContext: context } });
       await flush();
     },
     show(result = approval()) { dispatch({ method: 'ui/notifications/tool-result', params: result }); },
@@ -250,6 +254,25 @@ test('a new request does not inherit the colour of the one before it', async () 
   assert.equal(h.status(), 'Waiting for the request…');
   h.show(approval('pending', 'r2'));
   assert.equal(h.shade(), 'pending');
+});
+
+test('where the card cannot see its colours it starts all the same, with its own colours and the host’s font', async () => {
+  // This shim computes no styles, like a browser that will not report them or read a canvas back.
+  const h = host();
+  await h.initialize(undefined, { theme: 'dark', styles: { variables: {
+    '--color-text-primary': '#141413', '--color-background-primary': '#ffffff', '--font-sans': 'Georgia, serif', 'border-radius-md': '3px',
+    '--font-weight-semibold': undefined, '--fg': '#141413',
+  } } });
+  assert.equal(h.status(), 'Waiting for the request…');
+  assert.equal(h.theme(), 'dark');
+  // The host's colours are not used unseen, and a variable outside the specification cannot replace one of the card's own.
+  assert.deepEqual(h.variables(), { '--font-sans': 'Georgia, serif', '--border-radius-md': '3px' });
+  h.show();
+  assert.equal(h.element('open').hidden, false);
+  // A change of theme alone is taken, and the colours sent earlier are still not used unseen.
+  h.dispatch({ method: 'ui/notifications/host-context-changed', params: { theme: 'light' } });
+  assert.equal(h.theme(), 'light');
+  assert.deepEqual(h.variables(), { '--font-sans': 'Georgia, serif', '--border-radius-md': '3px' });
 });
 
 test('an unanswered open-link request is not reported as a refusal, and a refusal is', async () => {

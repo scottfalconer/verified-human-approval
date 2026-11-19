@@ -5,17 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Approval</title>
 <style>
-  :root { --fg: #1f2328; --muted: #59636e; --accent: #0b57d0; --ok: #1a7f37; --stop: #9a6700; --rule: rgba(31, 35, 40, .18); }
+  /* The card's own colours, light or dark: the host's theme (data-theme) decides, and the device's setting until the
+     host names one. color-scheme goes with them, so a host colour sent as light-dark() takes the same side. */
+  :root { color-scheme: light; --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --accent: #0b57d0; --ok: #1a7f37; --stop: #9a6700; --rule: rgba(31, 35, 40, .18); }
   @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) { --fg: #e6edf3; --muted: #9198a1; --accent: #6ea8fe; --ok: #3fb950; --stop: #d29922; --rule: rgba(230, 237, 243, .2); }
+    :root:not([data-theme="light"]) { color-scheme: dark; --bg: #1f1f1e; --fg: #e6edf3; --muted: #9198a1; --accent: #6ea8fe; --ok: #3fb950; --stop: #d29922; --rule: rgba(230, 237, 243, .2); }
   }
-  :root[data-theme="dark"] { --fg: #e6edf3; --muted: #9198a1; --accent: #6ea8fe; --ok: #3fb950; --stop: #d29922; --rule: rgba(230, 237, 243, .2); }
-  body { margin: 0; padding: 14px 16px; background: transparent; color: var(--color-text-primary, var(--fg));
+  :root[data-theme="dark"] { color-scheme: dark; --bg: #1f1f1e; --fg: #e6edf3; --muted: #9198a1; --accent: #6ea8fe; --ok: #3fb950; --stop: #d29922; --rule: rgba(230, 237, 243, .2); }
+  /* The card paints its own surface, from the same source as its text: the host's colours, or else these. */
+  body { margin: 0; padding: 14px 16px; background: var(--color-background-primary, var(--bg)); color: var(--color-text-primary, var(--fg));
     font-family: var(--font-sans, system-ui, -apple-system, "Segoe UI", sans-serif); font-size: var(--font-text-md-size, 15px); line-height: 1.45; }
+  /* Until the host has said how it is drawn, the card paints no surface: on a device set to light, inside an app drawn
+     dark, it would flash white first. A host that does not say gets the card's own surface after a moment. */
+  :root:not([data-settled]) body { background: transparent; }
   #site { margin: 0 0 6px; color: var(--color-text-secondary, var(--muted)); font-size: var(--font-text-sm-size, 13px); font-weight: 600; }
   #statement { margin: 0 0 12px; padding: 0 0 0 12px; border-left: 3px solid var(--rule); }
   button { font: inherit; font-weight: var(--font-weight-semibold, 600); min-height: 44px; padding: 8px 16px; border: 0; cursor: pointer;
-    border-radius: var(--border-radius-md, 8px); background: var(--color-background-inverse, var(--accent)); color: var(--color-text-inverse, #fff); }
+    border-radius: var(--border-radius-md, 8px); background: var(--color-background-inverse, var(--accent)); color: var(--color-text-inverse, var(--bg)); }
   button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   button.secondary { background: transparent; color: var(--color-text-primary, var(--fg)); border: 1px solid var(--rule); margin-left: 8px; }
   #phone-code { margin: 12px 0 0; }
@@ -67,6 +73,7 @@
   };
   const POLL_LIMIT_MS = 15 * 60 * 1000;
   const REQUEST_TIMEOUT_MS = 15000;
+  const SETTLE_MS = 300;
   const UNANSWERED = new Error('The host did not answer.');
   let nextId = 1, view = null, timer = null, since = 0, host = {}, capabilities = {}, codeTimer = null, ended = false, generation = 0, polling = false, shown = false, hint = null;
   const waiting = new Map();
@@ -100,14 +107,53 @@
   }
   function notify(method, params) { parent.postMessage({ jsonrpc: '2.0', method, params }, '*'); }
   function resize() { notify('ui/notifications/size-changed', { height: document.documentElement.scrollHeight }); }
+  // The given colours painted one over the other, as one sRGB pixel. A canvas has the browser parse and blend them,
+  // whatever their CSS notation, and a colour it cannot take paints nothing.
+  let pixel = null;
+  function paint(...colors) {
+    pixel = pixel || document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+    pixel.clearRect(0, 0, 1, 1);
+    for (const color of colors) { pixel.fillStyle = 'transparent'; pixel.fillStyle = color; pixel.fillRect(0, 0, 1, 1); }
+    return pixel.getImageData(0, 0, 1, 1).data;
+  }
+  // WCAG relative luminance of an sRGB pixel, from 0 (black) to 1 (white).
+  function luminance([red, green, blue]) {
+    const [r, g, b] = [red, green, blue].map((byte) => byte / 255).map((c) => c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4);
+    return .2126 * r + .7152 * g + .0722 * b;
+  }
+  // Whether the card's text can be read on the surface the card paints: the surface is opaque, the two contrast
+  // enough for body text (WCAG AA, 4.5 to 1), and the text is the lighter of them only in a dark theme. A browser
+  // that will not say counts as no.
+  function legible() {
+    try {
+      const { color, backgroundColor } = getComputedStyle(document.body);
+      const dark = getComputedStyle(document.documentElement).colorScheme === 'dark';
+      const surface = paint(backgroundColor), back = luminance(surface), text = luminance(paint(backgroundColor, color));
+      const contrast = (Math.max(text, back) + .05) / (Math.min(text, back) + .05);
+      return surface[3] === 255 && contrast >= 4.5 && (text > back) === dark;
+    } catch { return false; }
+  }
+  // The host's theme picks the card's colours, and the side of any light-dark() colour the host sent. The card takes
+  // the specification's style variables, so none can replace one of its own. It uses the host's colours only as a
+  // pair, the host's text on the host's surface, and only where that is legible in the theme. A host can name one
+  // theme and send the other's colours, or colours this browser cannot use: then the card's own apply. The host's
+  // fonts, sizes and radii apply either way.
+  const hostVariables = new Map();
+  function settle() { document.documentElement.dataset.settled = ''; }
   function applyTheme(context) {
     if (!context) return;
+    settle();
     host = { ...host, ...context };
-    if (context.theme === 'light' || context.theme === 'dark') document.documentElement.dataset.theme = context.theme;
-    const variables = context.styles && context.styles.variables;
-    if (variables) for (const [name, value] of Object.entries(variables)) {
-      if (typeof value === 'string') document.documentElement.style.setProperty(name.startsWith('--') ? name : '--' + name, value);
+    const root = document.documentElement;
+    if (context.theme === 'light' || context.theme === 'dark') root.dataset.theme = context.theme;
+    for (const [key, value] of Object.entries((context.styles && context.styles.variables) || {})) {
+      const name = key.startsWith('--') ? key : '--' + key;
+      if (typeof value === 'string' && /^--(color|font|border|shadow)-/.test(name)) hostVariables.set(name, value);
     }
+    // Every colour the host has sent is tried again: a change of theme alone can make them fit, or stop them fitting.
+    for (const [name, value] of hostVariables) root.style.setProperty(name, value);
+    const paired = hostVariables.has('--color-text-primary') && hostVariables.has('--color-background-primary');
+    if (!(paired && legible())) for (const name of hostVariables.keys()) if (name.startsWith('--color-')) root.style.removeProperty(name);
   }
   function reviewUrl(value) {
     try {
@@ -325,12 +371,14 @@
       if (ended) return;
       capabilities = result?.hostCapabilities || {};
       applyTheme(result?.hostContext);
+      settle();
       notify('ui/notifications/initialized', {});
       // A result that came first is drawn again, now that the card knows what the host allows.
       if (view) { render(); schedulePoll(); } else if (!shown) status.textContent = NOTE.waiting;
       resize();
     })
-    .catch(() => { clearTimeout(slow); if (ended || shown) return; status.textContent = NOTE.stalled; resize(); });
+    .catch(() => { clearTimeout(slow); settle(); if (ended || shown) return; status.textContent = NOTE.stalled; resize(); });
+  setTimeout(settle, SETTLE_MS);
 </script>
 </body>
 </html>
