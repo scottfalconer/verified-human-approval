@@ -53,6 +53,8 @@ final class OAuthTest extends TestCase
     private const ORIGIN = 'http://localhost:8080';
     private const CALLBACK = 'https://claude.ai/api/mcp/auth_callback';
     private const CLAUDE = 'https://claude.ai/oauth/mcp-oauth-client-metadata';
+    private const CHATGPT = 'https://chatgpt.com/oauth/client.json';
+    private const CHATGPT_CALLBACK = 'https://chatgpt.com/connector_platform_oauth_redirect';
     /** A return address registered by someone other than the person connecting. */
     private const ELSEWHERE = 'https://attacker.example/callback';
     private string $runtime;
@@ -440,6 +442,34 @@ final class OAuthTest extends TestCase
         self::assertSame('Bearer', $this->token($browser, $this->codeExchange(self::CLAUDE, $code, $verifier))['token_type'] ?? null);
     }
 
+    public function testChatGptConnectsWithItsClientIdMetadataDocumentWhereRegistrationIsOff(): void
+    {
+        // ChatGPT's document as chatgpt.com serves it. It prefers private_key_jwt, which this server does not offer,
+        // so it exchanges the code as a public client with its PKCE verifier.
+        (new Filesystem())->remove($this->runtime);
+        $this->accounts = DemoSetup::initialize($this->runtime, self::ORIGIN, dynamicClientRegistration: false)['accounts'];
+        $browser = $this->client();
+        $browser->disableReboot();
+        $browser->getKernel()->boot();
+        $document = [
+            'client_id' => self::CHATGPT, 'client_uri' => 'https://chatgpt.com/', 'redirect_uris' => [self::CHATGPT_CALLBACK],
+            'token_endpoint_auth_method' => 'private_key_jwt', 'token_endpoint_auth_methods_supported' => ['none', 'private_key_jwt'],
+            'grant_types' => ['authorization_code', 'refresh_token', 'urn:ietf:params:oauth:grant-type:jwt-bearer'],
+            'response_types' => ['code'], 'client_name' => 'ChatGPT', 'token_endpoint_auth_signing_alg' => 'RS256',
+            'jwks_uri' => 'https://chatgpt.com/oauth/jwks.json',
+        ];
+        $fetched = new MockHttpClient(new MockResponse(json_encode($document)));
+        $browser->getContainer()->get('test.service_container')->set(ClientMetadataHttpClient::class, new ClientMetadataHttpClient($fetched));
+        [$code, $verifier] = $this->consentIn($this->signIn($browser, 'editor'), self::CHATGPT, checkPage: static function (string $page): void {
+            self::assertStringContainsString('Published by chatgpt.com. It returns to chatgpt.com.', $page);
+            self::assertStringNotContainsString('Name not verified', $page);
+        }, redirectUri: self::CHATGPT_CALLBACK);
+        $tokens = $this->token($browser, $this->codeExchange(self::CHATGPT, $code, $verifier, self::CHATGPT_CALLBACK));
+        self::assertSame('Bearer', $tokens['token_type'] ?? null, json_encode($tokens));
+        self::assertSame(1, $fetched->getRequestsCount(), 'The document was fetched from chatgpt.com.');
+        self::assertSame('pending', $this->mcp($tokens['access_token'])->callTool('publish_alert', ['alert_id' => 'riverside-evacuation'])->structuredContent['status']);
+    }
+
     public function testOpenRegistrationIsOnByDefaultOnlyForADemoOnThisComputer(): void
     {
         // Setup told nothing chooses by the address, and so does a runtime whose settings do not say.
@@ -785,11 +815,11 @@ final class OAuthTest extends TestCase
      *
      * @return array{0: string, 1: string} the authorization code and its PKCE verifier
      */
-    private function consentIn(KernelBrowser $browser, string $clientId, ?string $resource = self::ORIGIN.'/mcp', ?\Closure $checkPage = null): array
+    private function consentIn(KernelBrowser $browser, string $clientId, ?string $resource = self::ORIGIN.'/mcp', ?\Closure $checkPage = null, string $redirectUri = self::CALLBACK): array
     {
         $verifier = rtrim(strtr(base64_encode(random_bytes(48)), '+/', '-_'), '=');
         $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query([
-            'response_type' => 'code', 'client_id' => $clientId, 'redirect_uri' => self::CALLBACK, 'state' => 'state-123',
+            'response_type' => 'code', 'client_id' => $clientId, 'redirect_uri' => $redirectUri, 'state' => 'state-123',
             'code_challenge' => self::challenge($verifier), 'code_challenge_method' => 'S256',
         ] + (null === $resource ? [] : ['resource' => $resource])));
         self::assertSame(302, $browser->getResponse()->getStatusCode(), (string) $browser->getResponse()->getContent());
@@ -803,7 +833,7 @@ final class OAuthTest extends TestCase
         $browser->request('GET', self::absolute((string) $browser->getResponse()->headers->get('Location')));
         self::assertSame(302, $browser->getResponse()->getStatusCode(), (string) $browser->getResponse()->getContent());
         $location = (string) $browser->getResponse()->headers->get('Location');
-        self::assertStringStartsWith(self::CALLBACK.'?', $location);
+        self::assertStringStartsWith($redirectUri.'?', $location);
         parse_str((string) parse_url($location, \PHP_URL_QUERY), $query);
         self::assertSame('state-123', $query['state']);
         self::assertSame(self::ORIGIN, $query['iss'] ?? null, 'RFC 9207: the response names its issuer.');
@@ -865,9 +895,9 @@ final class OAuthTest extends TestCase
         return new DemoDatabase(DemoDatabase::connect($this->runtime.'/application.sqlite'));
     }
 
-    private function codeExchange(string $clientId, string $code, string $verifier): array
+    private function codeExchange(string $clientId, string $code, string $verifier, string $redirectUri = self::CALLBACK): array
     {
-        return ['grant_type' => 'authorization_code', 'code' => $code, 'redirect_uri' => self::CALLBACK, 'client_id' => $clientId, 'code_verifier' => $verifier, 'resource' => self::ORIGIN.'/mcp'];
+        return ['grant_type' => 'authorization_code', 'code' => $code, 'redirect_uri' => $redirectUri, 'client_id' => $clientId, 'code_verifier' => $verifier, 'resource' => self::ORIGIN.'/mcp'];
     }
 
     private function exchange(KernelBrowser $api, string $clientId, string $grantType): array
