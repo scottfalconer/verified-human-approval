@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Real Chrome against the real approval card, as the server writes it, inside a scripted MCP Apps host.
+"""Real Chromium against the real approval card, as the server writes it, inside a scripted MCP Apps host.
 
-The host speaks the card's side of io.modelcontextprotocol/ui over postMessage: it answers
+The host plays the host's side of io.modelcontextprotocol/ui over postMessage: it answers
 ui/initialize, sends the tool result, and answers the card's tools/call requests. The test
 clicks "Approve on your phone", photographs the QR code the card drew, and reads it with a
-real QR decoder. It also reads the colours the card ends up with under hosts that send a theme,
-style variables, both or neither, and checks that its text is readable on the surface it paints.
-It needs Python Playwright, CHROMIUM_BIN, and PHP with GD.
+real QR decoder. It also reads the colors the card ends up with under hosts that send a theme,
+a theme and style variables, or neither, and checks that its text is readable on the surface it paints.
+It needs Python Playwright, and PHP with GD and this repository's Composer dependencies. It runs
+the browser CHROMIUM_BIN names, or else Playwright's own Chromium.
 """
 import html
 import json
