@@ -7,13 +7,17 @@ namespace VerifiedHumanApproval\Tests\Bundle;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\ConfigurationInterface;
+use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\Config\Definition\Processor;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\Yaml\Yaml;
 use VerifiedHumanApproval\Bundle\VerifiedHumanApprovalBundle;
 
-/** The bundle configuration its guides show is configuration it takes, and every key it takes is in a guide. */
-final class GuideConfigurationTest extends TestCase
+/**
+ * The bundle's configuration: what its guides show is taken as it is, every key it takes is in a guide, and a
+ * configuration that could never work is refused as the container is built.
+ */
+final class ConfigurationTest extends TestCase
 {
     private const GUIDES = __DIR__.'/../../src/symfony-bundle/docs';
     /** What the snippets leave to the reader's own setup. */
@@ -58,6 +62,23 @@ final class GuideConfigurationTest extends TestCase
         self::assertContains('url_elicitation', $keys);
 
         self::assertSame([], array_values(array_filter($keys, static fn (string $key): bool => !str_contains($guides, $key))), 'Keys no guide names.');
+    }
+
+    /** @return iterable<string, array{array<string, mixed>, string}> */
+    public static function configurationsThatCouldNeverWork(): iterable
+    {
+        yield 'a public page with no receipt to show' => [['receipt_signer' => null, 'public_verification' => true], 'public_verification shows the receipt signed as the change committed: configure receipt_signer too.'];
+        yield 'a URL prompt for no client' => [['url_elicitation' => ['enabled' => true]], 'url_elicitation is enabled for no client: list the clientInfo names to prompt under "clients", or "*" for every client that declares URL mode.'];
+    }
+
+    /** @param array<string, mixed> $config */
+    #[DataProvider('configurationsThatCouldNeverWork')]
+    public function testAConfigurationThatCouldNeverWorkIsRefused(array $config, string $refusal): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessage($refusal);
+
+        (new Processor())->processConfiguration($this->configuration(), [self::REQUIRED + ['store' => 'store'], $config]);
     }
 
     private function configuration(): ConfigurationInterface
