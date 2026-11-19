@@ -1,5 +1,5 @@
 {
-    "about": "A signed audit chain written by AuditLog at commit 4ea04eb1, before audit storage was extracted. Synthetic test key; public material only.",
+    "about": "A signed audit chain in the first entry format, which every store must read and extend unchanged. Synthetic test key; public material only.",
     "keyId": "audit-fixture-key",
     "publicKey": "xzDmVLfZoTFurj0Uu-sK41_szxksRGHtRVIXmrEmVro",
     "rows": [
