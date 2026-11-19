@@ -81,7 +81,7 @@ final class ReceiptKeyRotationTest extends TestCase
         self::assertSame(0, $exit, $stderr);
         [$exit, $stdout, $stderr] = $this->check($after, $oneKey);
         self::assertSame([1, ''], [$exit, $stdout]);
-        self::assertStringContainsString('The receipt is signed with key "application-2", which the trusted keys do not list.', $stderr);
+        self::assertSame("Verification failed: The receipt is signed with key \"application-2\", which the trusted keys do not list.\n", $stderr);
     }
 
     public function testAReceiptClaimingATimeOutsideItsKeysWindowFails(): void
@@ -98,7 +98,7 @@ final class ReceiptKeyRotationTest extends TestCase
             $this->assertRefused($evidence, $this->keys, \sprintf('The receipt claims a time outside the window of its key "%s".', $keyId));
             [$exit, , $stderr] = $this->check($evidence, $keySet);
             self::assertSame(1, $exit);
-            self::assertStringContainsString(\sprintf('outside the window of its key "%s"', $keyId), $stderr);
+            self::assertSame(\sprintf("Verification failed: The receipt claims a time outside the window of its key \"%s\".\n", $keyId), $stderr);
         }
         // The signatures themselves are genuine: checked against the lone key without a window, each verifies.
         self::assertSame('application-1', (new ReceiptVerifier())->verify($late, TrustedKeys::single('application-1', $this->old->publicKey()))['keyId']);
@@ -120,7 +120,7 @@ final class ReceiptKeyRotationTest extends TestCase
 
         // Renaming the key in the receipt to a trusted one breaks what it signed.
         $evidence['receipt']->keyId = 'application-1';
-        $this->assertRefused($evidence, $this->keys, 'Evidence components do not describe the same action.');
+        $this->assertRefused($evidence, $this->keys, 'The record is not what the application signed: its receipt has been changed.');
     }
 
     public function testAReceiptSignedAtExportIsRefusedOnlyWhenItsKeyRetiredBeforeTheActionWasRecorded(): void
