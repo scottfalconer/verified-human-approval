@@ -16,13 +16,21 @@ PHP_BIN=php python3 tests/http_smoke.py
 PHP_BIN=php python3 tests/oauth_http_smoke.py
 ```
 
-Without database servers, the PostgreSQL and MySQL tests skip; [Verification](README.md#verification) shows how to run them. A change to what a package requires or ships should also pass the package checks that CI runs, which install the packages into new Composer projects:
+Without database servers, the PostgreSQL and MySQL tests skip; [Verification](README.md#verification) shows how to run them.
+
+A change to what a package requires or ships should also pass the package checks that CI runs. The first six install packages from this checkout's `src/` into a new Composer project in a temporary directory and check them there with that project's own autoloader. The last installs nothing: it checks what each package's archive ships.
 
 ```bash
-php tests/Package/check-consumer.php archives
-php tests/Package/check-symfony-consumer.php
-php tests/Package/check-editorial-consumer.php
+php tests/Package/check-consumer.php webauthn   # core and WebAuthn
+php tests/Package/check-consumer.php mcp        # core, WebAuthn and MCP
+php tests/Package/check-consumer.php doctrine   # core, WebAuthn and the Doctrine storage
+php tests/Package/check-consumer.php testing    # core, WebAuthn and the testing package
+php tests/Package/check-symfony-consumer.php    # all seven, in a Symfony application copied from the publishing example
+php tests/Package/check-editorial-consumer.php  # all seven, in Editorial Desk, which then runs its own tests
+php tests/Package/check-consumer.php archives   # no vendor, tests or runtime state in any package archive
 ```
+
+CI runs the Editorial Desk check with `--browser`, which also runs the bundle's page script in Chrome; [its README](tests/EditorialDesk/README.md#run-it) says what that needs.
 
 ## Pull requests
 
