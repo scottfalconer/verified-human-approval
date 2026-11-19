@@ -163,6 +163,7 @@ final class OAuthTest extends TestCase
         $tokens = $this->token($api, ['grant_type' => 'authorization_code', 'code' => $code, 'redirect_uri' => self::CALLBACK, 'client_id' => $registration['client_id'], 'code_verifier' => $verifier] + (null === $resource ? [] : ['resource' => $resource]));
         $claims = json_decode(base64_decode(strtr(explode('.', $tokens['access_token'])[1], '-_', '+/')), true, 8, \JSON_THROW_ON_ERROR);
         self::assertSame(self::ORIGIN.'/mcp', $claims['resource'] ?? null, 'The token is bound to this server’s MCP endpoint.');
+        self::assertSame(self::ORIGIN.'/mcp', $claims['aud'] ?? null, 'Its audience is that endpoint too, not the client (RFC 8707).');
         self::assertSame(['alert.read', 'alert.publish', 'approval.read'], $claims['scopes'] ?? null);
         $result = $this->mcp($tokens['access_token'])->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
         self::assertSame('pending', $result->structuredContent['status']);

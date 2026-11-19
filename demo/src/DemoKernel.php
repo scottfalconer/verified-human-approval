@@ -9,9 +9,11 @@ use League\Bundle\OAuth2ServerBundle\Manager\InMemory\DeviceCodeManager;
 use Mcp\Server\Transport\Http\OAuth\ProtectedResourceMetadata;
 use Mcp\Server\Transport\Http\OAuth\ScopePolicy;
 use Omouren\McpOauthBundle\Cimd\ClientIdMetadataResolver;
+use Omouren\McpOauthBundle\DependencyInjection\AccessTokenRepositoryDecorator;
 use Omouren\McpOauthBundle\EventListener\ConsentListener;
 use Omouren\McpOauthBundle\EventListener\WwwAuthenticateListener;
 use Omouren\McpOauthBundle\McpOauthBundle;
+use Omouren\McpOauthBundle\OAuth\AccessTokenResourceClaims;
 use Symfony\AI\McpBundle\McpBundle;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
 use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
@@ -319,6 +321,12 @@ final class DemoKernel extends Kernel
             'approval_handoff' => ['approval.read'],
         ]), service(ProtectedResourceMetadata::class)]);
         $services->set(DeviceCodeManager::class);
+        // An access token's audience is this server's MCP endpoint, not the client (RFC 8707). League's own token
+        // names the client and lets no extra claim replace it, so the provider's resource-bound token, which it
+        // otherwise uses only with older League versions, is the one issued.
+        $services->set(AccessTokenRepositoryDecorator::class)
+            ->decorate('league.oauth2_server.repository.access_token')
+            ->args([service(AccessTokenRepositoryDecorator::class.'.inner'), service(AccessTokenResourceClaims::class)]);
         // League owns token protocol handling. The decorator holds the SQLite writer across
         // validation, single-use consumption and successor-token persistence.
         $services->set(AtomicTokenController::class)
