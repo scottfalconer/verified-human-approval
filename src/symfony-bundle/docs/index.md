@@ -221,7 +221,7 @@ mcp:
 
 The MCP Flex recipe may already define a server named `default` on `/mcp`. Update that server in place, or replace its definition with `application` above; do not leave two servers claiming the same path. Keep your other existing tools in the registry.
 
-`ApprovalHandoffTool` is the card's "Approve on your phone" code, and it goes with the bundle's `phone_handoff` key, on by default: while the key is on, list the tool, since the card is told to call it. To turn the phone code off, set the key and leave the tool out:
+`ApprovalHandoffTool` is the card's "Approve on your phone" code, and it goes with the bundle's `phone_handoff` key, on by default: while the key is on, list the tool on every MCP server that serves the card, since the card is told to call it. While a server serves the card without it, the container does not build, and the error names each such server and both remedies. A server that does not serve the card needs no phone tool. To turn the phone code off, set the key and leave the tool out:
 
 ```yaml
 # config/packages/verified_human_approval.yaml
