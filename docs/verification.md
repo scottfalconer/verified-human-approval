@@ -82,7 +82,7 @@ These runs used real clients, with a physical device where the table says so. Th
 - **The card's fixed colors in the Claude iOS app.** No check of them in the app is recorded. `card_smoke.py` checks the fixed colors in Chromium under scripted hosts, and no run of those checks is recorded either.
 - **Hosts other than Claude's.** No run with ChatGPT, VS Code, Cursor or another MCP Apps host is recorded.
 - **Physical authenticators in the automated tests.** They use synthetic credentials and Chrome's virtual authenticator.
-- **A live model in CI.** `http_smoke.py` gives Symfony AI scripted model responses. The [live-model example](../examples/README.md#live-model) needs a model API key, and the two checks with real Claude models above are not part of CI.
+- **A live model in CI.** `http_smoke.py` gives Symfony AI scripted model responses. The [live-model example](../examples/README.md#live-model) needs a model API key, and no run of it is recorded. The two checks with real Claude models above are not part of CI.
 - **The Python browser checks on the current code.** CI runs the Editorial Desk's browser check, not these three. Their newest recorded passes, on 10 November 2026, are on earlier code, and `card_smoke.py`'s color checks have no recorded run (see [browser checks outside CI](#browser-checks-outside-ci)).
 - **An install from Packagist.** The packages are not on Packagist; the consumer jobs install them from this repository's `src/` directories.
 - **Security.** This is a tested implementation, not an independent security audit.
