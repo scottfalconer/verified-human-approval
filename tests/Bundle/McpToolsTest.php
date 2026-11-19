@@ -9,6 +9,7 @@ use Symfony\AI\McpBundle\Exception\LogicException;
 use Symfony\Component\DependencyInjection\Exception\LogicException as ContainerLogicException;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\HttpFoundation\Request;
+use VerifiedHumanApproval\Bundle\Mcp\ApprovalCardApp;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalStatusTool;
 use VerifiedHumanApproval\Mcp\ApprovalCard;
@@ -107,19 +108,28 @@ final class McpToolsTest extends TestCase
             $this->refusal(new ReviewKernel($this->runtime, tools: [ApprovalStatusTool::class])),
         );
 
-        // Beside a server that has it, the servers that do not are named.
+        // Beside a server that has it, the servers that serve the card without it are named; one for scripts that only
+        // read outcomes serves no card and needs no phone tool.
+        $card = [ApprovalCardApp::class];
         $several = new ReviewKernel($this->runtime, tools: [ApprovalStatusTool::class, ApprovalHandoffTool::class], servers: [
-            'editors' => [ApprovalStatusTool::class], 'phones' => [ApprovalStatusTool::class, ApprovalHandoffTool::class], 'readers' => [ApprovalStatusTool::class],
+            'editors' => ['tools' => [ApprovalStatusTool::class], 'apps' => $card],
+            'phones' => ['tools' => [ApprovalStatusTool::class, ApprovalHandoffTool::class], 'apps' => $card],
+            'readers' => ['tools' => [ApprovalStatusTool::class], 'apps' => $card],
+            'scripts' => ['tools' => [ApprovalStatusTool::class]],
         ]);
         self::assertSame(
             'The MCP servers "editors", "readers" serve the approval card without '.ApprovalHandoffTool::class.', which the card calls for "Approve on your phone". List the tool under mcp.servers.editors.registry.tools, mcp.servers.readers.registry.tools, or set verified_human_approval.phone_handoff to false.',
             $this->refusal($several),
         );
 
-        // Listed beside the card on each, it is served by each.
-        $each = $this->kernel(servers: ['editors' => [ApprovalStatusTool::class, ApprovalHandoffTool::class]]);
+        // Listed beside the card on each, it is served by each, and the server without the card builds without it.
+        $each = $this->kernel(servers: [
+            'editors' => ['tools' => [ApprovalStatusTool::class, ApprovalHandoffTool::class], 'apps' => $card],
+            'scripts' => ['tools' => [ApprovalStatusTool::class]],
+        ]);
         self::assertContains(ApprovalHandoffTool::NAME, $this->tools($each, '/mcp/editors'));
         self::assertSame(ApprovalHandoffTool::NAME, $this->card($each, '/mcp/editors')['handoffTool']);
+        self::assertSame([ApprovalStatusTool::NAME], $this->tools($each, '/mcp/scripts'));
     }
 
     /** Why the kernel's container does not build. */
@@ -142,9 +152,9 @@ final class McpToolsTest extends TestCase
     }
 
     /**
-     * @param array<string, mixed>              $approval
-     * @param array<string, class-string>       $services
-     * @param array<string, list<class-string>> $servers
+     * @param array<string, mixed>                       $approval
+     * @param array<string, class-string>                $services
+     * @param array<string, array<string, list<string>>> $servers
      */
     private function kernel(array $approval = [], ?array $tools = null, array $services = [], array $servers = []): ReviewKernel
     {
