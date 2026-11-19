@@ -4,7 +4,7 @@ This Symfony application runs a fictional council's public alerts site. An agent
 
 The walkthrough uses the real MCP SDK client supplied in this repository. You do not need Claude, a model API key, or a paid model. You will request an alert, review the exact proposal, approve it, and check the recorded result.
 
-The accounts, alert pages, administrator screens, and OAuth wiring are reference application code. The OAuth protocol is supplied by `league/oauth2-server-bundle` and `omouren/mcp-oauth-bundle`; the approval packages do not implement or require an OAuth issuer. See [Authentication ownership](authentication.md) for the consent step, the connection lifecycle and the reference-only dependency compatibility alias. For your own application, start with the [Symfony bundle guide](../src/symfony-bundle/README.md).
+The accounts, alert pages, administrator screens and OAuth setup belong to this application, not to the approval packages. Its OAuth server comes from two maintained bundles, `league/oauth2-server-bundle` and `omouren/mcp-oauth-bundle`; the approval packages neither include nor need one. [Authentication ownership](authentication.md) says which part does what, including the consent step, agent connections and a version alias the OAuth bundle needs. For your own application, start with the [Symfony bundle guide](../src/symfony-bundle/README.md).
 
 ## Run the demo
 
@@ -25,7 +25,7 @@ composer install
 php demo/bin/setup.php
 ```
 
-Setup prints, as JSON, each account's `password`, `personal_token`, and `passkey_link`, then the commands to start the server and connect Claude. Save this output privately before continuing: credentials are shown only once. With `--json`, setup prints only that JSON, for a script to read. Setup also writes the editor's token to a private header file for the optional Claude Desktop connection.
+Setup prints, as JSON, each account's `password`, `personal_token`, and `passkey_link`, then the commands to start the server and connect Claude. Save this output privately before you start the server: credentials are shown only once, and the server's log scrolls them out of view. With `--json`, setup prints only that JSON, for a script to read. Setup also writes the editor's token to a private header file for the optional Claude Desktop connection.
 
 Start the server in the same terminal and leave it running:
 
@@ -33,24 +33,24 @@ Start the server in the same terminal and leave it running:
 PHP_CLI_SERVER_WORKERS=4 php -S localhost:8080 -t demo/public demo/public/index.php
 ```
 
-The four workers allow browser requests and MCP calls to run at the same time. Open the site at `localhost`, not `127.0.0.1`: its passkeys belong to that hostname, and at any other address the demo answers only with where to open it.
+The four workers allow browser requests and MCP calls to run at the same time. Open the site at `http://localhost:8080`, not `127.0.0.1`: its passkeys belong to the name `localhost`. On macOS the server may listen only on IPv6, so `127.0.0.1` may not connect at all; at any other address that reaches the server, the demo answers only with where to open it.
 
 #### If port 8080 is taken
 
-The demo answers only at the address it was set up for, because its passkeys and the links it gives agents belong to that address; opened at another one, it says where to open it. To use port 8090 instead, set the demo up for that address and start the server on the same port:
+If another program has the port, PHP's server stops at once with `Failed to listen on localhost:8080 (reason: Address already in use)`. The demo answers only at the address it was set up for, because its passkeys and the links it gives agents belong to that address; opened at another one, it says where to open it. To use port 8090 instead, set the demo up for that address and start the server on the same port:
 
 ```bash
 VERIFIED_HUMAN_APPROVAL_ORIGIN=http://localhost:8090 php demo/bin/setup.php --reset
 PHP_CLI_SERVER_WORKERS=4 php -S localhost:8090 -t demo/public demo/public/index.php
 ```
 
-`--reset` replaces a demo you already set up, with its accounts and passkeys. Setup prints the server command for the address it was given. It reads the address each time it runs, so set `VERIFIED_HUMAN_APPROVAL_ORIGIN` again for a later `--reset`; without it, setup uses `http://localhost:8080`. In Terminal B, run `export VERIFIED_HUMAN_APPROVAL_MCP_URL=http://localhost:8090/mcp` before the example client's commands, and use port 8090 wherever this guide links to the site.
+`--reset` replaces a demo you already set up, with its accounts and passkeys. Setup prints the server command for the address it was given. It reads the address each time it runs, so set `VERIFIED_HUMAN_APPROVAL_ORIGIN` again for a later `--reset`; without it, setup uses `http://localhost:8080`. In step 3, export `VERIFIED_HUMAN_APPROVAL_MCP_URL=http://localhost:8090/mcp` instead, and use port 8090 wherever this guide links to the site.
 
 ### 2. Add the editor's passkey
 
 1. Open [the local site](http://localhost:8080) and sign in as `editor`, using the password from setup.
 2. Open that account's `passkey_link` from the same setup output, in the same browser.
-3. Register a passkey using the browser's prompt.
+3. Choose **Register a passkey** and complete your browser's passkey prompt.
 
 The first passkey requires this one-time link, which expires after seven days. A password alone cannot enroll it. Adding another passkey requires confirming with an existing one, or a new one-time link from an administrator, who confirms with their own passkey to issue it.
 
@@ -58,9 +58,10 @@ Your device may use a fingerprint, face recognition, or a device PIN to unlock t
 
 ### 3. Request an alert through MCP
 
-In **Terminal B**, change to the same checkout. Enter the editor's `personal_token` at this prompt. Use the token, not the account password. These commands work in Bash and zsh and hide the pasted value:
+In **Terminal B**, change to the same checkout. The first command names the demo's MCP endpoint, which receives the editor's token: if you set the demo up for another port, use that port. Then enter the editor's `personal_token` at the prompt. Use the token, not the account password. These commands work in Bash and zsh and hide the pasted value:
 
 ```bash
+export VERIFIED_HUMAN_APPROVAL_MCP_URL=http://localhost:8080/mcp
 printf 'Editor personal token: '
 read -r -s VERIFIED_HUMAN_APPROVAL_TOKEN
 printf '\n'
@@ -71,13 +72,13 @@ php examples/mcp.php read riverside-evacuation
 php examples/mcp.php publish riverside-evacuation first-demo-request
 ```
 
-`list` discovers the tools. `read` shows the draft and current published content. `publish` returns a tool result containing `requestId`, `status: pending`, and `review_url`.
+`list` prints the definition of every tool the connection can discover, several hundred lines of JSON; look for the names `read_alert`, `publish_alert` and `approval_status`. `read` shows the draft and current published content. `publish` returns a tool result containing `requestId`, `status: pending`, and `review_url`.
 
 Keep the request ID. At this point, [the public alerts page](http://localhost:8080/alerts) still says **No active alerts**. A pending request has not issued anything.
 
 ### 4. Review, approve, and check the result
 
-Open the returned `review_url` while signed in as `editor`. The page shows the frozen alert and the statement you are approving. Check both, then approve with your passkey. Successful approval executes the action; there is no separate publish step.
+Open the returned `review_url` while signed in as `editor`. The page shows the frozen alert and the statement you are approving. Check both, then choose **Approve with your passkey**. Successful approval executes the action; there is no separate publish step. The page then says you can close the tab and return to your AI assistant: in this walkthrough, that is Terminal B.
 
 Approval requests expire after ten minutes. If a request expires, publish with a new request key and review the new proposal.
 
