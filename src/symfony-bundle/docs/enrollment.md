@@ -68,6 +68,8 @@ The panel sends `POST` with `{}`, `Accept: application/json`, `Content-Type: app
 
 This JSON illustrates the envelope. Send the complete unmodified options returned by `registrationOptions()`, including their algorithm and verification settings; do not build the WebAuthn options yourself. The panel converts binary fields and invokes `navigator.credentials.create()`.
 
+To refuse, answer as the completion endpoint below does: a 4xx status with `"status": "rejected"` and a `message`.
+
 ## Completion endpoint
 
 The panel posts this envelope to the completion URL with the same JSON and CSRF headers:
@@ -91,7 +93,7 @@ $passkeys->anchor($credential, [
 
 `$passkeys` is `AnchoredCredentialRepository`. `register()` validates and inserts the credential; `anchor()` records its signed enrollment. The credential and anchor must commit together. A missing or failed anchor must leave no usable credential. The Doctrine reference uses `DbalTransaction::run()` and consumes its link with a conditional update in that transaction. For PDO use the same shared connection and transaction boundary as your application.
 
-Return `{"status":"registered","message":"Your passkey is registered."}` only after commit. For a definite rejection, return an appropriate error status and `message`. A response lost after submission leaves the browser uncertain; reloading the account's credential list determines whether enrollment committed.
+Return `{"status":"registered","message":"Your passkey is registered."}` only after commit. For a definite refusal, answer with a 4xx status and a JSON body that carries `"status": "rejected"` and a `message`, such as `{"status":"rejected","reason":"expired","message":"This registration expired. Start again from this page."}`; the panel shows that message. It treats any other answer, a 4xx without that status included, as one whose outcome it cannot confirm: a response lost after submission leaves the browser uncertain, and reloading the account's credential list determines whether enrollment committed.
 
 ## Revocation and recovery
 

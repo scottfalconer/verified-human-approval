@@ -172,3 +172,14 @@ test('the way back opens Claude only for the card in Claude, and any other host 
         assert.equal(page.hint.textContent, 'You can close this tab and return to Claude.', hash);
     }
 });
+
+test('the refusal the enrollment guide shows is shown as the site’s refusal, and an unmarked one as unconfirmed', async () => {
+    const guide = readFileSync(new URL('../src/symfony-bundle/docs/enrollment.md', import.meta.url), 'utf8');
+    const refusal = JSON.parse(guide.match(/`(\{"status":"rejected"[^`]*\})`/)[1]);
+    const refused = host([options(), json(400, refusal)], 'registration');
+    await refused.approve.handlers.click();
+    assert.equal(refused.message.textContent, refusal.message);
+    const unmarked = host([options(), json(400, {message: refusal.message})], 'registration');
+    await unmarked.approve.handlers.click();
+    assert.match(unmarked.message.textContent, /can’t confirm whether your passkey was registered/);
+});
