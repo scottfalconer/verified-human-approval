@@ -26,6 +26,9 @@ abstract class AuditStoreContract extends TestCase
     private string $secretKey;
     private SodiumEvidenceSigner $signer;
 
+    /** @var list<AuditHarness> every harness connect() gave this test, closed when it ends */
+    private array $harnesses = [];
+
     /** @return class-string<AuditHarness> */
     abstract protected static function harness(): string;
 
@@ -38,6 +41,10 @@ abstract class AuditStoreContract extends TestCase
 
     protected function tearDown(): void
     {
+        foreach ($this->harnesses as $harness) {
+            $harness->close();
+        }
+        $this->harnesses = [];
         if (null !== $this->location) {
             static::harness()::destroy($this->location);
         }
@@ -340,7 +347,10 @@ abstract class AuditStoreContract extends TestCase
 
     private function connect(): AuditHarness
     {
-        return static::harness()::connect($this->location());
+        $harness = static::harness()::connect($this->location());
+        $this->harnesses[] = $harness;
+
+        return $harness;
     }
 
     private function log(AuditHarness $harness): AuditLog

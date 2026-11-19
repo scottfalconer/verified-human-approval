@@ -33,15 +33,21 @@ abstract class ApprovalSchemaTestCase extends TestCase
 
     private ?string $location = null;
     private Connection $connection;
+    /** @var list<Connection> */
+    private array $connections = [];
 
     protected function setUp(): void
     {
         $this->location = TestDatabase::create(static::KIND);
-        $this->connection = TestDatabase::connect(static::KIND, $this->location);
+        $this->connection = $this->connect();
     }
 
     protected function tearDown(): void
     {
+        // An entity manager holds its connection in reference cycles, which PHP frees only when it collects them.
+        foreach ($this->connections as $connection) {
+            $connection->close();
+        }
         if (null !== $this->location) {
             TestDatabase::drop(static::KIND, $this->location);
         }
@@ -140,15 +146,24 @@ abstract class ApprovalSchemaTestCase extends TestCase
         self::assertSame([], $tool->getUpdateSchemaSql([]), 'Once installed, nothing is proposed: no change, and no drop.');
 
         // An entity manager on another connection is left alone, even on the same database.
-        $other = new SchemaTool($this->entityManager(TestDatabase::connect(static::KIND, (string) $this->location), $this->connection));
+        $other = new SchemaTool($this->entityManager($this->connect(), $this->connection));
         self::assertSame([], $other->getCreateSchemaSql([]));
 
         // So is a table the application's schema filter hides, as DoctrineBundle's schema_filter does.
-        $filtered = TestDatabase::connect(static::KIND, (string) $this->location);
+        $filtered = $this->connect();
         $filtered->getConfiguration()->setSchemaAssetsFilter(static fn (string $name): bool => ApprovalSchema::AUDIT !== $name);
         $create = implode("\n", (new SchemaTool($this->entityManager($filtered)))->getCreateSchemaSql([]));
         self::assertStringNotContainsString(ApprovalSchema::AUDIT.' ', $create);
         self::assertStringContainsString(ApprovalSchema::REQUESTS.' ', $create);
+    }
+
+    /** A new connection to this test's database, closed when the test ends. */
+    private function connect(): Connection
+    {
+        $connection = TestDatabase::connect(static::KIND, (string) $this->location);
+        $this->connections[] = $connection;
+
+        return $connection;
     }
 
     private function entityManager(Connection $connection, ?Connection $approvals = null): EntityManager

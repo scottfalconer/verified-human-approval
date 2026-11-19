@@ -40,6 +40,11 @@ abstract class EntityActionTestCase extends TestCase
 
     protected function tearDown(): void
     {
+        // The fixture and its entity manager hold the connection in reference cycles, which PHP frees only when it
+        // collects them.
+        if (isset($this->fixture)) {
+            $this->fixture->connection->close();
+        }
         if (null !== $this->location) {
             TestDatabase::drop(static::KIND, $this->location);
         }

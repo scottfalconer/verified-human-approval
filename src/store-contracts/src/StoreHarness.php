@@ -49,6 +49,17 @@ abstract class StoreHarness
     /** A new connection to prepared data. It runs no DDL, so concurrent workers can use it. */
     abstract public static function connect(string $location): static;
 
+    /**
+     * Closes the connection connect() opened. The contract closes every harness a test connected when the test ends,
+     * before destroy(), rather than wait for PHP to free it: the authorizer's afterCheck closure over the harness puts
+     * it in a reference cycle, which PHP frees only when it next collects cycles, and until then its connection stays
+     * open and counts against the database server's limit. The default does nothing, for a store with no connection
+     * to close.
+     */
+    public function close(): void
+    {
+    }
+
     /** The service, over the adapter wrapped with this harness's faults. */
     abstract public function service(): ApprovalService;
 
