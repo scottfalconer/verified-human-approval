@@ -33,7 +33,7 @@ Then start the server. It keeps this terminal:
 PHP_CLI_SERVER_WORKERS=4 php -S localhost:8080 -t demo/public demo/public/index.php
 ```
 
-The demo answers only at the address it was set up for. If port 8080 is taken, PHP stops with `Failed to listen on localhost:8080 (reason: Address already in use)`. Then [set the demo up for another port](demo/README.md#if-port-8080-is-taken).
+The demo answers only at the address it was set up for. If PHP stops at once with `Failed to listen on localhost:8080 (reason: Address already in use)`, another program has port 8080: [set the demo up for another port](demo/README.md#if-port-8080-is-taken).
 
 With the server running, continue at [Add the editor's passkey](demo/README.md#2-add-the-editors-passkey). Use the **editor** account: its rule requires passkey approval. The walkthrough runs the included PHP MCP client in a second terminal, so no model API key or agent application is needed.
 
