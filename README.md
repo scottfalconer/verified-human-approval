@@ -67,7 +67,7 @@ Passkey registration and verification use [`web-auth/webauthn-lib`](https://gith
 
 Symfony AI's agent is used as a client. [`examples/agent.php`](examples/agent.php) runs Symfony AI's `Agent` with an `McpToolbox` connected to the demo through the SDK's client, and `--scripted` replaces the model with `MockPlatformFactory`, so no API key is needed. The packages and the demo server do not depend on Symfony AI's agent or platform packages; only the repository root requires them, for the examples.
 
-The [examples guide](examples/README.md) explains what each example runs, and the [publishing example](examples/doctrine-publishing/README.md) is a complete application on Doctrine to copy from. The [conformance review](docs/conformance-review.md) records protocol choices and interoperability limits.
+The [examples guide](examples/README.md) explains what each example runs, and the [publishing example](examples/doctrine-publishing/README.md) is a complete application on Doctrine to copy from. The [MCP conformance](docs/conformance-review.md) page records protocol choices and interoperability limits.
 
 ## What it refuses
 
@@ -90,7 +90,7 @@ The [examples guide](examples/README.md) explains what each example runs, and th
 | An approval's proposal is rewritten in the database, with its digest recomputed to match | The audit page's checks fail: the receipt was signed at commit, and the passkey signed the original |
 | The site's record changes after the person kept their receipt | Their copy no longer matches it, checked with only the site's published key |
 | An administrator's password alone tries to switch verification off | Pending: the rule change waits for the administrator's passkey |
-| Another account, or a read-only agent token | No access to the request, and no rights from a passkey |
+| Another account, or the person's own personal token | Another account cannot open the request, and the token cannot approve it, add a passkey or change the rule |
 
 The tests in [tests](tests) cover each row, except the phone code's two-minute limit: the code enforces it, but no test moves the clock past it.
 
