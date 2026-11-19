@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace VerifiedHumanApproval\Tests\WebAuthn;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Clock\MockClock;
 use VerifiedHumanApproval\Core\Actor;
@@ -96,16 +97,31 @@ final class AnchoredKeyRotationTest extends TestCase
         self::assertTrue($this->approves($after, $laptop));
     }
 
-    public function testTheRetiredKeyCannotAnchorAPasskeyByDamagingTheRotationEntry(): void
+    /** @return iterable<string, array{\Closure(\PDO, SodiumEvidenceSigner): void}> */
+    public static function rotationEdits(): iterable
+    {
+        yield 'its signature broken' => [static function (\PDO $pdo): void {
+            $pdo->exec("UPDATE verified_human_approval_audit SET signature = (CASE substr(signature, 1, 1) WHEN 'A' THEN 'B' ELSE 'A' END) || substr(signature, 2) WHERE type = 'signing_key.rotated'");
+        }];
+        // What the entry says, its hash and every link stay as they were.
+        yield 'signed again with the retired key' => [static function (\PDO $pdo, SodiumEvidenceSigner $old): void {
+            $entry = (string) $pdo->query("SELECT entry FROM verified_human_approval_audit WHERE type = 'signing_key.rotated'")->fetchColumn();
+            $pdo->prepare("UPDATE verified_human_approval_audit SET key_id = 'application-1', signature = ? WHERE type = 'signing_key.rotated'")->execute([$old->sign($entry)]);
+        }];
+    }
+
+    /** @param \Closure(\PDO, SodiumEvidenceSigner): void $edit */
+    #[DataProvider('rotationEdits')]
+    public function testTheRetiredKeyCannotAnchorAPasskeyByEditingTheRotationEntry(\Closure $edit): void
     {
         $laptop = new VirtualAuthenticator();
         $this->enroll($this->repository($this->old, new TrustedKeys([new TrustedKey('application-1', $this->old->publicKey(), TrustedKey::time('2026-11-01T00:00:00Z'))])), $laptop);
         $after = $this->rotate();
 
-        // Someone with the old private key and the database breaks the rotation entry's signature, adds their own
-        // passkey with an enrollment signed with the old key and backdated, then waits for the application's next
-        // entry, signed with the new key, to follow it.
-        $this->pdo->exec("UPDATE verified_human_approval_audit SET signature = (CASE substr(signature, 1, 1) WHEN 'A' THEN 'B' ELSE 'A' END) || substr(signature, 2) WHERE type = 'signing_key.rotated'");
+        // Someone with the old private key and the database edits the rotation entry so that it no longer moves trust,
+        // adds their own passkey with an enrollment signed with the old key and backdated, then waits for the
+        // application's next entry, signed with the new key, to follow it.
+        $edit($this->pdo, $this->old);
         $intruder = new VirtualAuthenticator();
         $credential = $this->enroll($this->repository($this->old, TrustedKeys::single('application-1', $this->old->publicKey()), new MockClock('2026-11-08T10:00:00Z')), $intruder);
         $this->clock->sleep(3600);
