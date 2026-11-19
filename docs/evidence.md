@@ -117,13 +117,14 @@ The original file still verifies. A field changed directly in the stored executi
 
 Deleting the original receipt does not reset this protection. The site answers `record_integrity_error` for a completed request whose receipt is gone, and the exporter, called directly, refuses it (`receipt_missing`). Neither creates a fresh signature over possibly altered data. A receipt the person already downloaded stays valid on its own.
 
-The command says only what did not match. It checks the receipt's signature before it compares the record with what the receipt signs, so it reports a changed record only under a receipt that the trusted key signed. A changed proposal or approval proof, which holds the assertion and the nonce, is named the same way, and several changed parts are named together, as in `its proposal, approval proof and execution record`. Its other answers:
+`verify-evidence.php` checks the receipt's signature before it compares the record with what the receipt signs, so it reports a changed record only under a receipt that the trusted key signed. A changed proposal or approval proof, which holds the assertion and the nonce, is named the same way, and several changed parts are named together, as in `its proposal, approval proof and execution record`. Its other answers:
 
 - The trusted key did not sign this receipt: the receipt itself was changed, its signature or what it signs, or it is checked against another site's keys under the same key id, such as those a demo publishes after `php demo/bin/setup.php --reset`.
 - The trusted keys do not list the receipt's key, or the receipt claims a time outside its key's window.
 - The receipt names another id of the key that signed it, which a key set can list twice.
 - The evidence's parts, though signed, do not describe one action, or its approval proof is missing or not bound to the proposal.
 - The evidence holds fields that nothing in it signs.
+- The evidence does not verify, and nothing more, when its proposal no longer reads back as a proposal.
 
 ### 5. Optional: check the passkey signature too
 
