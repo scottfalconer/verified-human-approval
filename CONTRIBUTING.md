@@ -16,7 +16,7 @@ PHP_BIN=php python3 tests/http_smoke.py
 PHP_BIN=php python3 tests/oauth_http_smoke.py
 ```
 
-Without database servers, the PostgreSQL and MySQL tests skip; [Verification](README.md#verification) shows how to run them.
+The PostgreSQL tests skip unless `VERIFIED_HUMAN_APPROVAL_POSTGRES_URL` names a database server, and the MySQL tests unless `VERIFIED_HUMAN_APPROVAL_MYSQL_URL` does; [Verification](README.md#verification) shows how to run them.
 
 A change to a `composer.json`, or to what a package ships, should also pass the manifest and package checks that CI runs. The `composer validate` lines check the root manifest, then each package's. Of the package checks, the first six install packages from this checkout's `src/` into a new Composer project in a temporary directory and check them there with that project's own autoloader. The last installs nothing: it checks what each package's archive ships.
 

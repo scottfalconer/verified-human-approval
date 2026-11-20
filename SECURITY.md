@@ -32,6 +32,6 @@ This is maintained by one person. Expect an acknowledgement within a week, and a
 
 **Out of scope:**
 
-- the limits the security model already states, such as a write that does not go through the guarded mutation service, an audit-log edit that only a checkpoint kept elsewhere shows, or a stolen signing key backdating records into its window;
+- the limits the security model already states, such as a write that does not go through the guarded mutation service, a stolen signing key backdating records into its window, or the two audit-log edits that only a checkpoint kept elsewhere shows: cutting the newest entries off, and rewriting them with a retired key's private half;
 - a compromised device, browser or authenticator;
 - denial of service through volume alone.

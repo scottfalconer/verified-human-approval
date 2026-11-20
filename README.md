@@ -25,7 +25,7 @@ composer install
 php demo/bin/setup.php
 ```
 
-Setup shows each demo account's password, personal token and first-passkey link once. Save them privately before you start the server: its log scrolls them off the screen. If you lose them, stop the server, run `php demo/bin/setup.php --reset` for a fresh demo with new ones, and start the server again.
+Setup shows each demo account's password, personal token and first-passkey link once. Save them privately before you start the server: its log scrolls them off the screen. If you lose them, stop the server, run `php demo/bin/setup.php --reset` for a fresh demo with new ones, and start the server again. If you set the demo up for another port, put the same `VERIFIED_HUMAN_APPROVAL_ORIGIN=...` in front of that command, or setup goes back to `http://localhost:8080`.
 
 Then start the server. It keeps this terminal:
 
@@ -159,7 +159,7 @@ PHP_BIN=php python3 tests/http_smoke.py
 
 `composer test` runs the PHPUnit suite, which takes about three minutes; the script turns off Composer's process timeout for it. `composer analyse` runs PHPStan at level 8 and `composer cs` checks the coding standard. `tests/http_smoke.py` starts the demo on a real HTTP server, drives it with the PHP MCP client and the scripted Symfony AI agent, and checks that nothing is published without approval.
 
-PHPUnit reports skipped tests, and `composer test -- --display-skipped` lists them with their reasons. Without a database server, the PostgreSQL and MySQL variants skip: those of the storage contracts, the schema, the approval transaction, the ORM helpers, passkey revocation and the publishing example. Two SQLite audit-log cases skip too: in SQLite's rollback journal, the race they test cannot happen. To run the server variants, give the tests an account that can create and drop databases; each test creates its own throwaway database. With `--fail-on-skipped`, as in CI, a skipped test fails the run:
+PHPUnit reports skipped tests, and `composer test -- --display-skipped` lists them with their reasons. The PostgreSQL variants skip unless `VERIFIED_HUMAN_APPROVAL_POSTGRES_URL` names a database server, and the MySQL variants unless `VERIFIED_HUMAN_APPROVAL_MYSQL_URL` does: those of the storage contracts, the schema, the approval transaction, the ORM helpers, passkey revocation and the publishing example. Two SQLite audit-log cases skip too: in SQLite's rollback journal, the race they test cannot happen. To run the server variants, give the tests an account that can create and drop databases; each test creates its own throwaway database. With `--fail-on-skipped`, as in CI, a skipped test fails the run:
 
 ```bash
 VERIFIED_HUMAN_APPROVAL_POSTGRES_URL='pdo-pgsql://postgres:postgres@127.0.0.1:5432/postgres' \

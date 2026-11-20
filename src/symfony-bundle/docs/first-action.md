@@ -70,7 +70,7 @@ final class Database
 }
 ```
 
-The package's PDO stores and credential repository use this connection as it is and change none of its settings. They refuse one that does not throw on errors, and an approval waits for another writer for as long as the busy timeout set here allows: ten seconds.
+The PDO stores (`verified-human-approval/core`) and `PdoCredentialRepository` (`verified-human-approval/webauthn`) use this connection as it is and change none of its settings. They refuse one that does not throw on errors, and an approval waits for another writer for as long as the busy timeout set here allows: ten seconds.
 
 Do not create another PDO in the action or credential repository. Do not wrap `ApprovalService` calls in a transaction: `PdoApprovalStore` begins the outer transaction itself, with `PDO::beginTransaction()`, and refuses to begin inside another one. Its first statement is a write that changes nothing, which takes SQLite's write reservation before anything is read, as `BEGIN IMMEDIATE` would, and holds it until the transaction ends. Your action must not end that transaction either: once code on the connection commits or rolls it back, the store refuses every later write, so the approval records no outcome and the request stays pending, even when the action's own commit has already made its change.
 
@@ -673,7 +673,7 @@ final readonly class PublishDocumentTool
 
 `ApprovalFlow::errorResult()` builds the error result a protected tool returns: `status`, `reason` and `message`, as text and as structured content that fits `ApprovalFlow::OUTPUT_SCHEMA`. A refusal is `rejected`. A stored request that fails the [integrity check](index.md#stored-receipts-and-later-verification) is `integrity_error`: the site cannot vouch for its outcome, so the agent must not report it as refused or as not having happened.
 
-Describe the request key argument with `ApprovalFlow::REQUEST_KEY_DESCRIPTION`. A request key suits a client that generates a unique id for each new request. Asked for one, Claude models built it from the arguments and the date, and often built the same key again in a later conversation. The application then returns the earlier request and its outcome, and the person is not asked again. With the description, those models left the argument out. Without a key, a repeated call returns the same pending request, and a new request once the earlier one has finished.
+Describe the request key argument with `ApprovalFlow::REQUEST_KEY_DESCRIPTION`. A request key suits a client that generates a unique id for each new request. Asked for one in the demo, Claude models built it from the alert's id, its revision and sometimes the date, and often built the same key again in a later conversation. The application then returns the earlier request and its outcome, and the person is not asked again. With the description, those models left the argument out. Without a key, a repeated call returns the same pending request, and a new request once the earlier one has finished.
 
 Register this class with the MCP configuration in the [integration guide](index.md#4-register-the-mcp-tools-and-card). Ask the tool to publish a real document belonging to the signed-in tenant. The caller needs an active account with publication permission and a personal grant containing `document.publish` and `approval.read`.
 
