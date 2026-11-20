@@ -52,8 +52,8 @@ td.checks { min-width: 14em; }
 .notice.outcome strong {display: block; font-size: 1.2rem; color: #0f4535;}
 /* On a wide screen the decision and what it changes sit side by side, so one screen holds the whole decision. */
 @media (min-width: 1100px) {
-  body:has(.approval-sheet) > header, body:has(.approval-sheet) > main, body:has(.approval-sheet) > footer {max-width: 1240px;}
-  .approval-sheet {display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); grid-template-rows: auto 1fr; grid-template-areas: "head preview" "decision preview"; column-gap: 2.2rem; align-items: start;}
+  body:has(.approval-sheet > .sheet-preview) > :is(header, main, footer) {max-width: 1240px;}
+  .approval-sheet:has(> .sheet-preview) {display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); grid-template-rows: auto 1fr; grid-template-areas: "head preview" "decision preview"; column-gap: 2.2rem; align-items: start;}
   .sheet-head {grid-area: head;} .sheet-decision {grid-area: decision;} .sheet-preview {grid-area: preview; margin-top: 0;}
 }
 /* The public page a verified badge links to: one column, framed like the approval sheet. */
