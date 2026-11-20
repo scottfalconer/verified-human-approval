@@ -206,8 +206,9 @@ final class ApprovalSchema
     }
 
     /**
-     * Inserts the lock rows that are missing. Safe to run again, and from several processes at once. The approval
-     * transaction calls it once before its first transaction, so a migration need not insert them.
+     * Inserts the missing lock rows outside an open transaction. Safe to repeat from several processes at once.
+     * On PostgreSQL, MySQL and MariaDB, DbalTransaction::run() calls it before opening its first transaction.
+     * If a migration created the tables, seed before opening a host transaction that appends to the audit log.
      */
     public static function seed(Connection $connection): void
     {

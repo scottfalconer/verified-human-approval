@@ -12,8 +12,10 @@ use VerifiedHumanApproval\Core\Audit\AuditStore;
  *
  * Appenders are serialized before the head is read, on every database and for an empty log too: on SQLite by the
  * database's write reservation, elsewhere by locking the audit row of the lock table. Inside a transaction (the
- * approval's, or the host's own begun through DBAL) an append joins it, holds that lock until it ends, and never
- * commits or rolls it back; outside one, it runs in a short approval transaction of its own.
+ * approval's, or the host's own begun through DBAL) an append joins it and holds that lock until it ends.
+ * The caller remains responsible for commit and rollback. Outside a transaction, the append runs in a short
+ * approval transaction of its own. On PostgreSQL, MySQL and MariaDB, seed the lock rows before opening a host
+ * transaction that appends to the log.
  *
  * Join only a READ COMMITTED transaction on PostgreSQL: under REPEATABLE READ the head can be older than the
  * newest row, and the append then fails on the sequence's uniqueness rather than fork the chain.

@@ -148,6 +148,8 @@ This registers, with autowiring aliases, `DbalTransaction`, `DbalApprovalStore` 
 
 **Tables and migrations.** With Doctrine Migrations, `doctrine:migrations:diff` creates the approval tables, since a schema listener adds them to the ORM's schema for that connection, and it never proposes to drop them. Without migrations, run `php bin/console verified-human-approval:install` once; it refuses to run inside a transaction. Canonical JSON is kept in text columns, **never `JSON` or `JSONB`**, which rewrite the signed bytes: do not change those columns' types. On MySQL and MariaDB the tables are `utf8mb4` with a binary no-pad collation and `LONGTEXT`; connect with `charset: utf8mb4` and keep strict SQL mode.
 
+On PostgreSQL, MySQL and MariaDB, the first `DbalTransaction::run()` seeds the lock rows before opening its transaction. If you enroll or revoke passkeys in your own DBAL transaction before that first run, call `ApprovalSchema::seed($connection)` on the approval connection after the migration and before opening the transaction.
+
 **No outer transaction.** The approval service begins the root transaction itself, through DBAL, so a flush inside your action nests as a savepoint. It refuses to start inside another one: never call `ApprovalService` inside `Connection::transactional()`, `EntityManager::wrapInTransaction()`, or a Messenger handler behind the `doctrine_transaction` middleware. Call it outside that transaction, or from a handler without that middleware. Your action must not end the root either: once code on the connection commits or rolls it back, even past DBAL, the approval store refuses every later write, so no outcome is recorded.
 
 **Your locking duty on PostgreSQL, MySQL and MariaDB.** SQLite has one writer at a time, and the approval holds that place. A server database runs writers side by side, so your reads must lock what the decision depends on, inside the approval's transaction: in your `Authorizer` and policy, the permission, grant and policy rows `FOR SHARE`; in your action's `prepare()`, `assertPreconditions()` and postconditions, the content it changes `FOR UPDATE`. Inject `DbalTransaction` and append its clause, which is empty on SQLite:
@@ -166,6 +168,8 @@ The approval transaction runs at `READ COMMITTED` on those databases, so a read 
 **Actions on entities.** Extend `VerifiedHumanApproval\Doctrine\Orm\EntityAction`: its final `execute()` clears the entity manager, loads the targets you name with pessimistic write locks, lets your `apply()` change them and flushes, so your postconditions read the written rows before the receipt is signed; after a rollback it resets the entity manager. Read current state with its `current()`, which locks and reloads the row.
 
 **Protected entities.** Mark an entity, or its approved-state fields, `#[RequiresApproval]` (or list them under `protected_entities`). Any flush on that connection that changes them outside an approved execution permitted for that entity fails with `approval_required`, whatever form, admin screen or command made the change. DQL bulk updates and plain SQL do not pass through the unit of work: keep those away from protected rows.
+
+In `protected_entities`, use the class name as declared in PHP and the property names as mapped by Doctrine. Symfony rejects unknown or incorrectly capitalized class names when building the container. Doctrine rejects unknown configured properties before flushing changes to the affected entity.
 
 ## 3. Connect existing authentication
 

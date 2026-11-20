@@ -35,7 +35,9 @@ Leave `store` out: `persistence` wires it. The bundle registers, and aliases for
 
 ## Create the tables
 
-With Doctrine Migrations, the schema listener adds the approval tables to the schema the ORM generates for the approval connection, so `doctrine:migrations:diff` (and `doctrine:schema:update`) create them and never propose to drop them. Review and run the migration as usual. The small lock table's rows are inserted when the first approval transaction starts, so a migration need not insert them.
+With Doctrine Migrations, the schema listener adds the approval tables to the schema the ORM generates for the approval connection, so `doctrine:migrations:diff` (and `doctrine:schema:update`) create them and never propose to drop them. Review and run the migration as usual.
+
+On PostgreSQL, MySQL and MariaDB, the first `DbalTransaction::run()` seeds the lock rows before opening its transaction. If you enroll or revoke passkeys in your own DBAL transaction before that first run, call `ApprovalSchema::seed($connection)` on the approval connection after the migration and before opening the transaction. The signed audit append needs these rows to lock the log.
 
 Without migrations, run the installation once, or call `ApprovalSchema::install($connection)` from your own installer:
 
@@ -180,7 +182,7 @@ $credentials = new AnchoredCredentialRepository(new DbalCredentialRepository($tr
 // $store and $credentials go to ApprovalService and WebAuthnVerifier; the transaction's lock clauses to your Authorizer.
 ```
 
-Add or revoke a passkey inside a transaction on the connection (`$transaction->run()`, or your own begun through DBAL), so its signed audit entry commits with it.
+Add or revoke a passkey inside `$transaction->run()` or in your own transaction begun through DBAL so its signed audit entry commits with it. On PostgreSQL, MySQL and MariaDB, make sure the [lock rows are seeded](#create-the-tables) before opening your own transaction.
 
 ## Checking an adapter
 
