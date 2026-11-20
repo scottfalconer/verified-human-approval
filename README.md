@@ -4,6 +4,8 @@
 
 **A Symfony bundle that requires a human's passkey before a high-risk MCP tool runs.**
 
+[![Watch the 90-second demo on YouTube: in Claude on a phone, an agent asks to issue a public alert, and the approval card waits for the editor's passkey](docs/images/demo-video.jpg)](https://www.youtube.com/watch?v=0UvjxnGn2Dg)
+
 Allowing an AI agent to use an application is not the same as a person approving a specific change. With this bundle, an agent requests an action through an ordinary MCP tool. When your application's rule requires approval, the application freezes the exact proposal and asks the person to review it on your site. The person approves with a passkey. The application checks their current permissions, applies that stored proposal once, and signs a receipt as the action commits: cryptographic evidence of human approval, bound to the exact action.
 
 ![The demo's review page. Left: an agent's request to issue the public alert "Evacuation order: Riverside Road area", the statement the editor approves, and the buttons "Approve with your passkey" and "Cancel request". Right: the frozen preview of the public alerts page that goes live on approval, marked "Frozen preview, revision 1".](docs/images/review-page.png)
