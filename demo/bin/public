@@ -49,12 +49,21 @@ close_tunnel() {
   echo "Stopped this checkout's tunnel, so that it publishes nothing else."
 }
 
+# Stops this checkout's tunnel as this script ends, once. Interruptions are ignored from here on, by the commands it
+# runs as well, so that another one, such as the second hangup a closing terminal sends, cannot cut the stop short.
+close_tunnel_at_end() {
+  trap '' HUP INT QUIT TERM
+  trap - EXIT
+  close_tunnel
+}
+
 # From here until serve() has the public demo's server answering, this checkout's tunnel stops whenever this script
-# refuses, fails or is interrupted: by a hangup, Ctrl-C, Ctrl-\ or kill. A kill -9 cannot be caught, and leaves the
-# tunnel to demo/bin/public stop.
+# refuses, fails or is interrupted: by a hangup, Ctrl-C, Ctrl-\ or kill. An interruption stops the tunnel itself rather
+# than leave that to the EXIT trap: one that comes just as the script exits is acted on before that trap, and its exit
+# would skip it. A kill -9 cannot be caught, and leaves the tunnel to demo/bin/public stop.
 close_tunnel_on_exit() {
-  trap close_tunnel EXIT
-  trap 'exit 1' HUP INT QUIT TERM
+  trap close_tunnel_at_end EXIT
+  trap 'close_tunnel_at_end; exit 1' HUP INT QUIT TERM
 }
 
 # Goes no further while the tunnel job described in $1 is not this checkout's. Its label is one for the whole

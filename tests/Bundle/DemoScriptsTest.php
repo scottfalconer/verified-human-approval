@@ -27,6 +27,16 @@ final class DemoScriptsTest extends TestCase
             world=$computer/world
             case "$1" in
               list)
+                # While world/held exists, a look at a job waits, and world/looking holds the IDs of the process that
+                # started it and of the look itself. It waits on /bin/sleep, since this computer's sleep takes no time.
+                # Like launchctl, it ends at a hangup, Ctrl-C, Ctrl-\ or kill, unless it started out ignoring them, which
+                # a shell's trap cannot undo.
+                if [ -f "$world/held" ]; then
+                  trap 'exit 1' HUP INT QUIT TERM
+                  echo "$PPID $$" > "$world/looking.next"
+                  mv "$world/looking.next" "$world/looking"
+                  while [ -f "$world/held" ]; do /bin/sleep 0.01; done
+                fi
                 [ -f "$world/jobs/$2" ] || { echo "Could not find service \"$2\" in domain for port" >&2; exit 113; }
                 cat "$world/jobs/$2"
                 ;;
@@ -537,7 +547,7 @@ final class DemoScriptsTest extends TestCase
     /** @return iterable<string, array{int}> how a person interrupts a script, and the signal that sends, by the number POSIX fixes for it */
     public static function interruptions(): iterable
     {
-        yield 'its terminal closing' => [1];
+        yield 'a hangup' => [1];
         yield 'Ctrl-C' => [2];
         yield 'Ctrl-\\' => [3];
         yield 'kill' => [15];
@@ -557,6 +567,50 @@ final class DemoScriptsTest extends TestCase
         self::assertFileDoesNotExist($this->world().'/jobs/'.self::TUNNEL, 'Left in launchd, the tunnel would publish whatever takes the port next.');
         self::assertSame(['launchctl remove '.self::TUNNEL], $this->calls(), 'Nothing was replaced, set up or started.');
         self::assertSame('https://old-tunnel-name.trycloudflare.com', self::settings($checkout.'/var/public-demo')['origin']);
+    }
+
+    /** @return iterable<string, array{int, int, bool}> how a person interrupts a script twice: the two signals that sends, and whether the second reaches every process of the script's job, as a terminal's signals do */
+    public static function secondInterruptions(): iterable
+    {
+        // The shell in the terminal hangs up the job it runs, and the system hangs that job up again as the shell exits.
+        yield 'its terminal closing' => [1, 1, true];
+        yield 'Ctrl-C, twice' => [2, 2, true];
+        yield 'Ctrl-C, then Ctrl-\\' => [2, 3, true];
+        yield 'kill, twice' => [15, 15, false];
+    }
+
+    #[DataProvider('secondInterruptions')]
+    public function testPublicStartFinishesStoppingItsTunnelWhenInterruptedAgain(int $first, int $second, bool $wholeJob): void
+    {
+        // Interrupted at the question, start stops its tunnel, and the second signal comes while it looks the job up.
+        $checkout = $this->checkout('https://old-tunnel-name.trycloudflare.com', 'var/public-demo');
+        $this->tunnel($checkout, 'https://new-tunnel-name.trycloudflare.com');
+        $world = $this->world();
+        $looking = false;
+        [$status, $output] = $this->startAsking($checkout, static function ($script, $terminal) use ($world, $first, $second, $wholeJob, &$looking): void {
+            touch($world.'/held');
+            try {
+                self::interrupt($script, $terminal, $first);
+                $deadline = microtime(true) + 30;
+                while (!is_file($world.'/looking') && microtime(true) < $deadline) {
+                    usleep(10_000);
+                }
+                $looking = is_file($world.'/looking');
+                if ($looking && $wholeJob) {
+                    // A terminal's signal reaches start's whole job, which now includes the look: launchctl and the
+                    // subshell that ran it.
+                    self::signal($second, ...array_map(intval(...), explode(' ', trim((string) file_get_contents($world.'/looking')))));
+                }
+                proc_terminate($script, $second);
+            } finally {
+                unlink($world.'/held');
+            }
+        });
+        self::assertTrue($looking, 'The second signal came while the tunnel was being stopped.');
+        self::assertSame(1, $status, $output);
+        self::assertStringEndsWith("Replace it? [y/N] Stopped this checkout's tunnel, so that it publishes nothing else.\n", $output);
+        self::assertFileDoesNotExist($world.'/jobs/'.self::TUNNEL, 'Left in launchd, the tunnel would publish whatever takes the port next.');
+        self::assertSame(['launchctl remove '.self::TUNNEL], $this->calls(), 'Nothing was replaced, set up or started.');
     }
 
     public function testPublicResetRefusesATakenPort(): void
@@ -720,8 +774,10 @@ final class DemoScriptsTest extends TestCase
      * can be. A server listens a moment after it starts: the first look at its port, with lsof or nc, finds nothing,
      * and the next ones find it. A job named in world/failing starts no process at all. A port in world/hidden has a
      * listener lsof cannot see, such as another account's. A tunnel that starts writes world/tunnel-output to its
-     * log, and the processes in world/meanwhile start with it. Waiting takes no time. What the scripts change (a job
-     * submitted or removed, a process killed, a console command, a setup) is recorded in calls.log.
+     * log, and the processes in world/meanwhile start with it. Waiting takes no time, except that while world/held
+     * exists, a look at a job waits for it to go, ending at an interruption it does not ignore, and world/looking holds
+     * the IDs of the process that started that look and of the look itself. What the scripts change (a job submitted or
+     * removed, a process killed, a console command, a setup) is recorded in calls.log.
      *
      * @return string the directory of the stand-ins, to put first in PATH
      */
@@ -1002,6 +1058,13 @@ final class DemoScriptsTest extends TestCase
         proc_terminate($script, $signal);
         // A script that has already ended reads nothing more, and its terminal refuses what is typed.
         @fwrite($terminal, "\n");
+    }
+
+    /** Sends $signal to the real processes $pids. */
+    private static function signal(int $signal, int ...$pids): void
+    {
+        [$status, $output] = self::script(['/bin/kill', '-'.$signal, ...array_map(strval(...), $pids)], []);
+        self::assertSame(0, $status, $output);
     }
 
     /**
