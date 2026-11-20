@@ -175,7 +175,7 @@ Only one public demo runs on a computer at a time. From another checkout, `start
 | Path | Purpose |
 | --- | --- |
 | [`src/DemoKernel.php`](src/DemoKernel.php) | Bundle configuration, firewalls, routes, service wiring, and the scopes each tool needs, which a token lacking one is told with HTTP 403 |
-| [`src/Mcp/DemoTools.php`](src/Mcp/DemoTools.php) | The read and publish tools. Reading needs the connection's `alert.read` scope. Publishing needs `approval.read`, since a retry can return an earlier result, and the authorizer also checks `alert.publish` |
+| [`src/Mcp/DemoTools.php`](src/Mcp/DemoTools.php) | The read and publish tools. Reading needs `alert.read` on the token. Publishing checks the token for `alert.publish` and `approval.read`, since a retry can return an earlier result. The authorizer also checks the stored grant. |
 | [`src/Action/PublishAlert.php`](src/Action/PublishAlert.php) | Frozen proposal, version, preconditions, and postconditions |
 | [`src/Action/AlertPublisher.php`](src/Action/AlertPublisher.php) | The guarded database mutation |
 | [`src/Action/DemoPolicyProvider.php`](src/Action/DemoPolicyProvider.php) | The administrator's rules |

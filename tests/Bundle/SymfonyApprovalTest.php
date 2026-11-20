@@ -9,6 +9,7 @@ use Mcp\Client\Transport\HttpTransport;
 use Mcp\Exception\RequestException;
 use Mcp\Schema\Extension\Apps\McpApps;
 use Nyholm\Psr7\Factory\Psr17Factory;
+use PHPUnit\Framework\Attributes\BackupGlobals;
 use PHPUnit\Framework\TestCase;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
@@ -291,9 +292,16 @@ final class SymfonyApprovalTest extends TestCase
         $id = $this->requestAction();
         foreach (['reader', 'other'] as $user) {
             $browser = $this->browser($user);
-            $browser->request('GET', self::ORIGIN.'/approval/'.$id);
-            self::assertSame(404, $browser->getResponse()->getStatusCode());
-            self::assertStringNotContainsString('Use the Hill Street route', (string) $browser->getResponse()->getContent());
+            foreach ([$id, 'unknown-approval'] as $requestId) {
+                $page = $browser->request('GET', self::ORIGIN.'/approval/'.$requestId);
+                self::assertSame(404, $browser->getResponse()->getStatusCode());
+                self::assertSame('Approval unavailable', $page->filter('main h1')->text());
+                self::assertStringContainsString('sign in with the account that requested the approval', $page->filter('main')->text());
+                self::assertStringContainsString("frame-ancestors 'none'", (string) $browser->getResponse()->headers->get('Content-Security-Policy'));
+                self::assertCount(1, $page->filter('link[href$="/approval.css"]'));
+                self::assertCount(1, $page->selectButton('Sign out'));
+                self::assertStringNotContainsString('Use the Hill Street route', (string) $browser->getResponse()->getContent());
+            }
             $browser->request('GET', self::ORIGIN.'/approval/'.$id.'/status', server: ['HTTP_ACCEPT' => 'application/json']);
             self::assertSame(404, $browser->getResponse()->getStatusCode(), 'The JSON status of a request that is not theirs is not found either.');
             self::assertSame('not_found', json_decode((string) $browser->getResponse()->getContent(), true)['reason'] ?? null);
@@ -383,8 +391,11 @@ final class SymfonyApprovalTest extends TestCase
         unset($review);
     }
 
-    public function testBrowserPublicationUsesSameGuardAndPolicyFormsCannotBeChangedByReadOnlyUsers(): void
+    #[BackupGlobals(true)]
+    public function testBrowserPublicationUsesSameGuardAndAdminRefusalsExplainTheDenial(): void
     {
+        // KernelBrowser runs under the CLI. Use the error renderer the browser gets in web mode.
+        $_SERVER['APP_RUNTIME_MODE'] = 'web=1';
         $browser = $this->browser('editor');
         $crawler = $browser->request('GET', self::ORIGIN.'/');
         $browser->submit($crawler->selectButton('Issue alert')->form());
@@ -396,8 +407,14 @@ final class SymfonyApprovalTest extends TestCase
         self::assertStringContainsString('Approve with your passkey', (string) $browser->getResponse()->getContent());
 
         $reader = $this->browser('reader');
-        $reader->request('GET', self::ORIGIN.'/admin/approval-policy');
-        self::assertSame(403, $reader->getResponse()->getStatusCode());
+        foreach (['/admin/approval-policy', '/admin/audit'] as $path) {
+            $page = $reader->request('GET', self::ORIGIN.$path);
+            self::assertSame(403, $reader->getResponse()->getStatusCode());
+            self::assertSame('Access denied', $page->filter('main h1')->text());
+            self::assertStringContainsString("frame-ancestors 'none'", (string) $reader->getResponse()->headers->get('Content-Security-Policy'));
+            self::assertCount(1, $page->filter('link[href$="/approval.css"]'));
+            self::assertCount(1, $page->selectButton('Sign out'));
+        }
     }
 
     public function testARequestMadeOnTheSiteLeadsBackToTheSiteNotToClaude(): void

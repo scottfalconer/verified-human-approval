@@ -59,9 +59,13 @@ final readonly class DemoTools
         $request_key = '' === $request_key ? null : $request_key;
         try {
             $actor = $this->actors->current();
+            $token = self::token($context);
             // A retried request may return an existing result, so the connection needs the read scope too.
-            if (!self::token($context)->hasScope('approval.read')) {
+            if (!$token->hasScope('approval.read')) {
                 throw new ApprovalException('result_read_denied', 'This personal connection is not allowed to receive approval results.');
+            }
+            if (!$token->hasScope('alert.publish')) {
+                throw new ApprovalException('scope_denied', 'This personal connection does not have the alert.publish scope.');
             }
 
             return $this->flow->respond(

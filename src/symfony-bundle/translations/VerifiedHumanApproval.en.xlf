@@ -397,6 +397,15 @@
                 <target>Each phone code works once, for two minutes. Show a new code in %agent% and scan it again.</target>
             </trans-unit>
 
+            <trans-unit id="review.unavailable.title">
+                <source>Approval unavailable</source>
+                <target>Approval unavailable</target>
+            </trans-unit>
+            <trans-unit id="review.unavailable.next">
+                <source>Check the review link and sign in with the account that requested the approval.</source>
+                <target>Check the review link and sign in with the account that requested the approval.</target>
+            </trans-unit>
+
             <trans-unit id="integrity.title">
                 <source>Approval record needs investigation</source>
                 <target>Approval record needs investigation</target>

@@ -61,7 +61,8 @@ final readonly class ApprovalController
             if ('record_integrity_error' === $error->reason) {
                 return new Response($this->twig->render('@VerifiedHumanApproval/integrity_error.html.twig', ['id' => $id]), 409);
             }
-            throw new NotFoundHttpException('This request is unavailable for your account.');
+
+            return new Response($this->twig->render('@VerifiedHumanApproval/review_unavailable.html.twig'), 404);
         }
 
         return new Response($this->twig->render('@VerifiedHumanApproval/review.html.twig', [
