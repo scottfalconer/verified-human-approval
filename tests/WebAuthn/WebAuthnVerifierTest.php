@@ -324,7 +324,7 @@ final class WebAuthnVerifierTest extends TestCase
             self::assertSame($reason, $refusal->reason);
             $kept = $refusal->getPrevious();
             self::assertInstanceOf(\RuntimeException::class, $kept);
-            self::assertSame(1, preg_match('/^'.preg_quote($cause, '/').' raised at (\S+\.php):(\d+)\.$/D', $kept->getMessage(), $place), $kept->getMessage());
+            self::assertSame(1, preg_match('/^'.preg_quote($cause, '/').' raised at ([^\r\n]+\.php):(\d+)\.$/D', $kept->getMessage(), $place), $kept->getMessage());
             self::assertNotSame((new \ReflectionClass($cause))->getFileName(), $place[1], 'It names the check that failed, not the exception\'s own class.');
             self::assertLessThanOrEqual(\count(file($place[1]) ?: []), (int) $place[2], 'It names a line of that file.');
             self::assertNull($kept->getPrevious(), 'The cause itself is not kept.');
