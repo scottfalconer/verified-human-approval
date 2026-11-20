@@ -101,8 +101,8 @@ final class ReceiptVerifier
     }
 
     /**
-     * Why a receipt its key signed does not vouch for this record, named by the parts whose digests differ from the
-     * ones it signed.
+     * Why a manifest its key signed does not vouch for this record: the parts whose digests differ from the ones it
+     * signed, else the other name it gives the key, else that the key signed no receipt of this record.
      *
      * @param array<string, mixed>  $signed the manifest the receipt carries
      * @param array<string, string> $record the manifest the receipt would carry for this record
@@ -116,9 +116,16 @@ final class ReceiptVerifier
             }
         }
         if ([] === $parts) {
-            // A manifest the application signed for this record differs from it only in the key it names: the receipt
-            // was given another name for the same public key, as a key set may list one under two.
-            return \sprintf('The receipt names key "%s", but it was signed as key "%s".', $record['keyId'], \is_string($signed['keyId'] ?? null) ? $signed['keyId'] : '');
+            $signedAs = $signed['keyId'] ?? null;
+            if (\is_string($signedAs) && $signedAs !== $record['keyId']) {
+                // The receipt was given another name for the key that signed it, as a key set may list one under two.
+                return \sprintf('The receipt names key "%s", but it was signed as key "%s".', $record['keyId'], $signedAs);
+            }
+
+            // Its digests are this record's and it names no other key, so it differs in how it is written: another
+            // format, a field more or less, or other bytes. Only what Receipt::manifest() writes is a receipt, so the
+            // key signed no receipt of this record.
+            return \sprintf('The trusted key "%s" did not sign this receipt.', $record['keyId']);
         }
         $last = array_pop($parts);
 

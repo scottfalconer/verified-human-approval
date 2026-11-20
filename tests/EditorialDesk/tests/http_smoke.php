@@ -32,8 +32,11 @@ if (!is_resource($fixture) || 0 !== proc_close($fixture)) {
     throw new RuntimeException('The isolated HTTP fixture failed.');
 }
 $fixtureData = json_decode(file_get_contents($runtime.'/fixture.json'), true, 512, \JSON_THROW_ON_ERROR);
+// Without workers the server is one process, so stopping it stops all of it.
+$environment = array_merge(getenv(), $fixtureData['env']);
+unset($environment['PHP_CLI_SERVER_WORKERS']);
 $server = proc_open([\PHP_BINARY, '-S', 'localhost:'.$port, '-t', $root.'/public', $root.'/public/router.php'],
-    [0 => ['pipe', 'r'], 1 => ['file', $runtime.'/http.log', 'w'], 2 => ['file', $runtime.'/http.log', 'a']], $pipes, $root, array_merge(getenv(), $fixtureData['env']));
+    [0 => ['pipe', 'r'], 1 => ['file', $runtime.'/http.log', 'w'], 2 => ['file', $runtime.'/http.log', 'a']], $pipes, $root, $environment);
 if (!is_resource($server)) {
     throw new RuntimeException('The local HTTP server did not start.');
 }

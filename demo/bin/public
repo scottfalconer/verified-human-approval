@@ -8,9 +8,10 @@
 # reset starts a fresh public demo, with new accounts, passkey links and connections, on the same address, which
 # this checkout's tunnel must still answer at.
 # The tunnel publishes whatever answers on port 8081, so the public demo uses that port and nothing else may while
-# it runs: start and reset go no further while anything else holds it, and should either stop short of serving the
-# public demo, for whatever reason, this checkout's tunnel stops too. The tunnel's launchd label is one for the
-# whole computer, and start, stop and reset touch only a tunnel that this checkout started.
+# it runs: start and reset go no further while anything else holds it, and whenever either is refused, fails or is
+# interrupted before the public demo is served, this checkout's tunnel stops too. A kill -9 cannot be caught, so
+# after one, stop the tunnel with: demo/bin/public stop. The tunnel's launchd label is one for the whole computer,
+# and start, stop and reset touch only a tunnel that this checkout started.
 set -eu
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 RUNTIME="$ROOT/var/public-demo"
@@ -48,11 +49,12 @@ close_tunnel() {
   echo "Stopped this checkout's tunnel, so that it publishes nothing else."
 }
 
-# From here until serve() has the public demo's server answering, this checkout's tunnel stops whenever this
-# script does, whatever the reason.
+# From here until serve() has the public demo's server answering, this checkout's tunnel stops whenever this script
+# refuses, fails or is interrupted: by a hangup, Ctrl-C, Ctrl-\ or kill. A kill -9 cannot be caught, and leaves the
+# tunnel to demo/bin/public stop.
 close_tunnel_on_exit() {
   trap close_tunnel EXIT
-  trap 'exit 1' HUP INT TERM
+  trap 'exit 1' HUP INT QUIT TERM
 }
 
 # Goes no further while the tunnel job described in $1 is not this checkout's. Its label is one for the whole
@@ -93,7 +95,7 @@ fresh() {
 serve() {
   if started=$(server start); then
     printf '%s\n' "$started"
-    trap - EXIT HUP INT TERM
+    trap - EXIT HUP INT QUIT TERM
     return 0
   fi
   guard_port

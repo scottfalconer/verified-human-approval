@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import secrets
 import shutil
+import signal
 import socket
 import sqlite3
 import subprocess
@@ -129,7 +130,8 @@ with tempfile.TemporaryDirectory(prefix="verified-human-approval-oauth-http-") a
         return request("/mcp", data=message, headers={"Authorization": "Bearer " + token, "Accept": "application/json, text/event-stream"})[0]
 
     with open(Path(temporary) / "server.log", "w+") as log:
-        server = subprocess.Popen([PHP, "-S", f"localhost:{port}", "-t", str(ROOT / "demo/public"), str(ROOT / "demo/public/index.php")], env=env, stdout=log, stderr=log)
+        # In a process group of its own, so that stopping it also stops any workers it forks.
+        server = subprocess.Popen([PHP, "-S", f"localhost:{port}", "-t", str(ROOT / "demo/public"), str(ROOT / "demo/public/index.php")], env=env, stdout=log, stderr=log, start_new_session=True)
         try:
             for _ in range(100):
                 try:
@@ -189,9 +191,9 @@ with tempfile.TemporaryDirectory(prefix="verified-human-approval-oauth-http-") a
                 assert database.execute("SELECT COUNT(*) FROM verified_human_approval_executions").fetchone()[0] == 0
             print(json.dumps({"passed": True, "checks": ["real HTTP metadata and session login", "consent shows only the validated request", "redirect URIs only in plain form, on https or back to this computer", "Don't allow keeps the person here for a client that registered itself and returns to another computer", "Don't allow returns access_denied with state and issuer to a client on this computer", "consent with issuer and state", "S256 verifier rejection", "single-use code exchange", "real SDK calls using issued access token", "publication remains pending", "refresh rotation and old access revocation", "browser connection revocation ends access and refresh", "zero protected mutations without passkey approval"], "issuer": "League OAuth2 server + omouren MCP OAuth bundle", "external_accounts_used": False, "physical_passkey_tested": False}, indent=2))
         finally:
-            server.terminate()
+            os.killpg(server.pid, signal.SIGTERM)
             try:
                 server.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                server.kill()
+                os.killpg(server.pid, signal.SIGKILL)
                 server.wait()

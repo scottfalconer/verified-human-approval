@@ -18,7 +18,8 @@ const origin=`http://localhost:${port}`;
 const fixture=spawnSync(php,['tests/browser_fixture.php',runtime,origin],{cwd:root,encoding:'utf8'});
 if(fixture.status!==0)throw new Error(fixture.stderr+fixture.stdout);
 const state=JSON.parse(readFileSync(resolve(runtime,'fixture.json'),'utf8'));
-const server=spawn(php,['-S',`localhost:${port}`,'-t','public','public/router.php'],{cwd:root,env:{...process.env,...state.env},stdio:['ignore','ignore','pipe']});
+// Without workers the server is one process, so stopping it stops all of it.
+const server=spawn(php,['-S',`localhost:${port}`,'-t','public','public/router.php'],{cwd:root,env:{...process.env,...state.env,PHP_CLI_SERVER_WORKERS:undefined},stdio:['ignore','ignore','pipe']});
 let serverErrors='';server.stderr.on('data',data=>{serverErrors+=data.toString();});
 let browser;
 const checks=[];const pageErrors=[];const completePosts=[];

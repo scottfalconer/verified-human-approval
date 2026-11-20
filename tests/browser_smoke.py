@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import socket
 import sqlite3
 import subprocess
@@ -38,7 +39,8 @@ def main():
         subprocess.run([PHP, str(ROOT / "demo/bin/console"), "assets:install", str(ROOT / "demo/public"), "--symlink", "--relative"], env=env, capture_output=True, check=True)
         env.update({"VERIFIED_HUMAN_APPROVAL_MCP_URL": origin + "/mcp", "VERIFIED_HUMAN_APPROVAL_TOKEN": credentials["editor"]["personal_token"]})
         log = open(Path(temporary) / "server.log", "w+")
-        server = subprocess.Popen([PHP, "-S", f"localhost:{port}", "-t", str(ROOT / "demo/public"), str(ROOT / "demo/public/index.php")], env=env, stdout=log, stderr=log)
+        # In a process group of its own, so that stopping it also stops any workers it forks.
+        server = subprocess.Popen([PHP, "-S", f"localhost:{port}", "-t", str(ROOT / "demo/public"), str(ROOT / "demo/public/index.php")], env=env, stdout=log, stderr=log, start_new_session=True)
         try:
             for _ in range(100):
                 try:
@@ -205,11 +207,11 @@ def main():
                 "live_model_calls": 0,
             }, indent=2))
         finally:
-            server.terminate()
+            os.killpg(server.pid, signal.SIGTERM)
             try:
                 server.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                server.kill()
+                os.killpg(server.pid, signal.SIGKILL)
                 server.wait()
             log.close()
 

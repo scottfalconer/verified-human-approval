@@ -141,6 +141,20 @@ final class ApprovalEvidenceTest extends TestCase
                 $other = new SodiumEvidenceSigner($this->signer->keyId(), sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
                 $bundle['receipt']->signature = $other->sign($bundle['receipt']->manifest);
                 break;
+            case 'signed-other-format':
+            case 'signed-added-field':
+            case 'signed-without-key-id':
+            case 'signed-other-bytes':
+                // The trusted key signs the record's digests again, in a manifest the application would not write.
+                $manifest = get_object_vars(CanonicalJson::decode($bundle['receipt']->manifest));
+                $bundle['receipt']->manifest = match ($field) {
+                    'signed-other-format' => CanonicalJson::encode(['format' => 'verified-human-approval/receipt/v1'] + $manifest),
+                    'signed-added-field' => CanonicalJson::encode($manifest + ['approvedBy' => 'the board']),
+                    'signed-without-key-id' => CanonicalJson::encode(array_diff_key($manifest, ['keyId' => true])),
+                    'signed-other-bytes' => json_encode($manifest, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_THROW_ON_ERROR),
+                };
+                $bundle['receipt']->signature = $this->signer->sign($bundle['receipt']->manifest);
+                break;
             case 'added-field':
                 $bundle['approvedBy'] = 'the board';
                 break;
@@ -177,6 +191,11 @@ final class ApprovalEvidenceTest extends TestCase
         // A changed receipt is not taken for a changed record: what its key did not sign says nothing of the record.
         yield 'manifest' => ['manifest', 'The trusted key "test-application-key" did not sign this receipt.'];
         yield 'another-key' => ['another-key', 'The trusted key "test-application-key" did not sign this receipt.'];
+        // Only a receipt as the application writes it counts: what the key signed in any other form is no receipt of
+        // the record, though it names the record's digests, nor is it taken for a receipt whose key was renamed.
+        foreach (['signed-other-format', 'signed-added-field', 'signed-without-key-id', 'signed-other-bytes'] as $case) {
+            yield $case => [$case, 'The trusted key "test-application-key" did not sign this receipt.'];
+        }
         yield 'added-field' => ['added-field', 'The evidence holds fields that nothing in it signs.'];
         yield 'added-receipt-field' => ['added-receipt-field', 'The evidence holds fields that nothing in it signs.'];
     }
