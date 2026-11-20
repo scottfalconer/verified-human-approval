@@ -59,7 +59,7 @@ Three Python scripts drive Chrome or Chromium through Playwright: two run the de
 - [`card_smoke.py`](../tests/card_smoke.py): the real approval card inside a scripted MCP Apps host. A QR decoder reads back the phone code the card draws, and the card's text must be readable on the surface it paints, under dark, light and mismatched hosts and hosts that send no styles.
 - [`phone_smoke.py`](../tests/phone_smoke.py): behind a stand-in for an HTTPS tunnel, a second browser that never signed in redeems the phone code, reaches nothing but that review, and approves with a copy of the passkey; the agent's `approval_status` then says completed, and the code is refused the second time.
 
-On 20 November 2026, all three scripts passed locally on commit `8d04a213f0cd2075429d4704f675945ff10ad02b` with Python Playwright 1.61.0 and Chromium 149.0.7827.55. The browser and phone checks used virtual authenticators.
+On 20 November 2026, all three scripts passed locally on commit `f0a5f9731c9cb3fa7456977c62bfe700ea27ec58` with Python Playwright 1.61.0 and Chromium 149.0.7827.55. The browser and phone checks used virtual authenticators.
 
 Two more checks of earlier code drove Chromium by hand through Node Playwright, with scripts that are not in this repository: lost and stopped requests on the review page and in the card, on [`0c3bb115`](https://github.com/scottfalconer/verified-human-approval/commit/0c3bb115341e9ba36d876d3f76da38e947b15db4), and a receipt downloaded and verified offline, on [`4ea04eb1`](https://github.com/scottfalconer/verified-human-approval/commit/4ea04eb1487cc59a77687f8a4753dcc690957f48).
 
