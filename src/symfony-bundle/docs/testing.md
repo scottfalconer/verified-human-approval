@@ -30,8 +30,19 @@ Keep the test's state independent:
 
 - Use a new database or schema per test, including accounts, delegation grants, credential anchors, approval rows and the business entity. All approval-related writes still share one connection inside that test.
 - Use a test-only cache and session directory. For parallel runs, partition the database, cache and sessions by worker. A rebooted kernel must reconnect to that test's same database so the browser and MCP client see the same request.
-- Reset the approval limiter's backing cache between tests, or use a unique cache namespace per test. A fresh kernel does not reset a persistent limiter's budget. Keep the limiter enabled; set a deliberately small budget only in tests of rate limiting.
-- Configure the test host as trusted and use the same origin for the browser, bearer-token destination, `public_origin`, WebAuthn configuration and `VirtualAuthenticator`. Do not change the origin to bypass a rejected signature.
+- Reset the approval limiters' backing cache (`cache.rate_limiter`) between tests, or use a unique cache namespace per test. A fresh kernel does not reset a persistent limiter's budget, and the agents' budget (`agent_requests_per_minute`) counts every call that reaches `ApprovalFlow::respond()`, except a URL prompt's retry. Keep the limiters enabled; set a deliberately small budget only in tests of rate limiting.
+- Use the same origin for the browser, bearer-token destination, `public_origin`, WebAuthn configuration and `VirtualAuthenticator`. Do not change the origin to bypass a rejected signature.
+- Allow the test host wherever your configuration lists hosts: in `framework.trusted_hosts` if you set it, and in the MCP server's `allowed_hosts`. The MCP server refuses any other host with HTTP 403 (`Forbidden: Invalid Host header.`), and without `allowed_hosts` it accepts only `localhost`, `127.0.0.1` and `[::1]`.
+
+```yaml
+# config/packages/mcp.yaml, beside the server definition from the installation guide
+when@test:
+    mcp:
+        servers:
+            application:
+                http:
+                    allowed_hosts: ['approval.test']
+```
 
 The helper runs without a listening web server. It does not contact the hostname in these example URLs.
 
@@ -85,6 +96,8 @@ $agent->connect(new HttpTransport(
 ```
 
 `$fixtureBearerToken` must come from your host's authentication fixture, with the scopes and delegation record the authorizer reads. The client passes its headers through the real firewall; it neither establishes a Symfony user nor supplies a bearer token by itself. It creates a fresh kernel per request and captures JSON or streamed SSE responses. Disconnect the SDK client in `finally` or test teardown, and shut down the BrowserKit kernel before deleting that test's own state.
+
+A kernel built with debug off, as here, reuses the container it compiled before and does not notice a configuration change. After changing configuration, clear the test cache with `php bin/console cache:clear --env=test --no-debug`.
 
 ## Prove the browser performs the action
 
@@ -147,7 +160,7 @@ use VerifiedHumanApproval\Core\Evidence\ReceiptVerifier;
 use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 
 $receipt = CanonicalJson::map(CanonicalJson::decode($rawReceipt));
-$keys = TrustedKeys::fromDocument($trustedKeyDocument);
+$keys = TrustedKeys::fromDocument(CanonicalJson::map(CanonicalJson::decode($trustedKeyJson)));
 $verified = (new ReceiptVerifier())->verify($receipt, $keys);
 self::assertTrue($verified['applicationSignatureValid']);
 self::assertSame(Receipt::COMMIT, $verified['receiptSignedAt']);
@@ -169,7 +182,7 @@ Do not read the receipt using `json_decode($rawReceipt, true)`: it loses the dis
 }
 ```
 
-`/approval/receipt-keys.json` publishes the application's public keys; assert they match the public key you configured for this fixture. A key taken from the evidence itself is not an independent trust source. `ReceiptVerifier` verifies the application's signed historical report; passkey evidence has its own verification described in the [evidence guide](https://github.com/scottfalconer/verified-human-approval/blob/main/docs/evidence.md).
+`/approval/receipt-keys.json` publishes the application's public keys; assert they match the public key you configured for this fixture. A key taken from the evidence itself is not an independent trust source. `ReceiptVerifier` verifies the application's signed historical report; passkey evidence has its own verification, described in [Verify a receipt](https://github.com/scottfalconer/verified-human-approval/blob/main/docs/evidence.md).
 
 The repository's [whole-application helper test](https://github.com/scottfalconer/verified-human-approval/blob/main/tests/Testing/DemoApplicationTest.php) is an executable reference covering enrollment, real SDK calls into the kernel, successful approval, stale drafts, cancellation, rate limiting, cross-device handoff and receipt verification. The [separate Composer consumer](https://github.com/scottfalconer/verified-human-approval/blob/main/tests/Package/check-consumer.php) also checks that these helpers work from the installed package without the monorepo autoloader or a PHPUnit dependency.
 
@@ -181,4 +194,4 @@ From the library checkout, run:
 php tests/Package/check-symfony-consumer.php
 ```
 
-This creates a fresh Symfony application from the public Doctrine publishing example under its own `App` namespace and installs copied versions of all seven packages. Its separate autoloader and database exercise the host's own Security configuration, web and MCP requests, enrollment and approval, stale content, revoked delegation, retries and receipt verification. See the [acceptance fixture](../../../tests/Adoption/symfony/README.md) for the proof's scope. It is example-derived adoption evidence; a first-time developer's independent integration remains a separate usability test.
+This creates a fresh Symfony application from the public Doctrine publishing example under its own `App` namespace and installs copied versions of all seven packages. Its separate autoloader and database exercise the host's own Security configuration, web and MCP requests, enrollment and approval, stale content, revoked delegation, retries and receipt verification. Its [README](https://github.com/scottfalconer/verified-human-approval/blob/main/tests/Adoption/symfony/README.md) states the check's scope. The application is the example's own code under another namespace, so the check shows that the installed packages work in a fresh application, not how a developer new to them would integrate them.

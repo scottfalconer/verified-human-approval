@@ -28,6 +28,7 @@ use VerifiedHumanApproval\Core\Evidence\ReceiptVerifier;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
 use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 use VerifiedHumanApproval\Core\Storage\PdoApprovalStore;
+use VerifiedHumanApproval\Core\UnreadableApproval;
 use VerifiedHumanApproval\Demo\Account\AgentConnections;
 use VerifiedHumanApproval\Demo\Account\PasskeyConfirmation;
 use VerifiedHumanApproval\Demo\Account\PasskeyLinks;
@@ -75,9 +76,15 @@ final readonly class AuditController
     {
         $admin = $this->admin();
         $actions = [];
-        foreach ($this->store->recent(200) as $state) {
-            if ($state->request->actor()->tenantId === $admin->tenantId) {
-                $actions[] = $this->describe($state);
+        foreach ($this->store->recent(200) as $listed) {
+            if ($listed instanceof UnreadableApproval) {
+                // A row that names no organization is shown to every administrator: hiding it would hide the damage,
+                // and it shows no more than its id.
+                if (\in_array($listed->tenantId, [$admin->tenantId, null], true)) {
+                    $actions[] = self::unreadable($listed);
+                }
+            } elseif ($listed->request->actor()->tenantId === $admin->tenantId) {
+                $actions[] = $this->describe($listed);
             }
         }
         $passkeys = [];
@@ -112,15 +119,33 @@ final readonly class AuditController
     public function evidence(string $id): JsonResponse
     {
         $admin = $this->admin();
-        $state = $this->store->get($id);
+        try {
+            $state = $this->store->get($id);
+        } catch (ApprovalException $error) {
+            // While its proposal reads back, a damaged record is its organization's alone, like any other. One whose
+            // proposal cannot be read shows no organization, so whoever names it is told only that it fails its check.
+            if (null !== $error->request && $error->request->actor()->tenantId !== $admin->tenantId) {
+                throw new NotFoundHttpException('No such action in your organization.');
+            }
+
+            return self::unavailable($error);
+        }
         if (null === $state || $state->request->actor()->tenantId !== $admin->tenantId) {
             throw new NotFoundHttpException('No such action in your organization.');
         }
         try {
             return new JsonResponse($this->exporter->export($state), headers: ['Content-Disposition' => 'attachment; filename="approval-evidence.json"']);
         } catch (ApprovalException $error) {
-            return new JsonResponse(['status' => 'unavailable', 'reason' => $error->reason], 409);
+            return self::unavailable($error);
         }
+    }
+
+    private static function unavailable(ApprovalException $error): JsonResponse
+    {
+        return new JsonResponse([
+            'status' => 'record_integrity_error' === $error->reason ? 'integrity_error' : 'unavailable',
+            'reason' => $error->reason, 'message' => $error->getMessage(),
+        ], 409);
     }
 
     public function revokePasskey(Request $request, string $id): Response
@@ -162,21 +187,38 @@ final readonly class AuditController
         return new RedirectResponse('/admin/audit');
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * A row for a record that cannot be read back. Nothing in it is shown as what happened: not who asked, not what,
+     * not its outcome.
+     *
+     * @return array<string, mixed>
+     */
+    private static function unreadable(UnreadableApproval $record): array
+    {
+        return ['id' => $record->requestId, 'unreadable' => true, 'status' => 'integrity error', 'integrity_problem' => $record->error->getMessage()];
+    }
+
+    /**
+     * The stored parts this page shows are read as they are, since they may have been edited: a value that is not
+     * what the application writes is left out rather than shown, so one damaged part cannot take the page down.
+     *
+     * @return array<string, mixed>
+     */
     private function describe(ApprovalState $state): array
     {
         $payload = $state->request->payload();
         $prepared = $state->request->prepared();
         $requester = $state->request->actor();
         $user = $this->database->user($requester->userId);
+        $rule = self::text($payload['policy']->version ?? null);
         $row = [
-            'id' => $state->request->id, 'title' => $prepared->display['title'] ?? $prepared->actionId, 'statement' => $payload['statement'],
-            'status' => $state->status, 'reason' => $state->reason, 'requestedAt' => $payload['createdAt'],
+            'id' => $state->request->id, 'unreadable' => false, 'title' => self::text($prepared->display['title'] ?? null) ?? $prepared->actionId, 'statement' => $state->request->statement(),
+            'status' => $state->status, 'reason' => $state->reason, 'requestedAt' => self::time($payload['createdAt'] ?? null),
             'person' => $user['display_name'] ?? $requester->userId, 'userId' => $requester->userId, 'role' => $user['role'] ?? null,
             'through' => $this->requesters->connection($requester),
-            'rule' => str_starts_with((string) $payload['policy']->version, 'fixed') ? 'Built-in rule' : 'Version '.$payload['policy']->version,
-            'verificationRequired' => $payload['policy']->required,
-            'executedAt' => $state->execution['recordedAt'] ?? null, 'approval' => null, 'receipt' => null, 'passkey' => null,
+            'rule' => null !== $rule && str_starts_with($rule, 'fixed') ? 'Built-in rule' : 'Version '.($rule ?? 'not recorded'),
+            'verificationRequired' => true === ($payload['policy']->required ?? null),
+            'executedAt' => self::time($state->execution['recordedAt'] ?? null), 'approval' => null, 'receipt' => null, 'passkey' => null,
             'integrity_problem' => null, 'stored_status' => $state->status,
         ];
         // This page reads the store directly, so it runs the check the approval service runs on every read. A
@@ -215,16 +257,31 @@ final readonly class AuditController
             $row['integrity_problem'] ??= 'The stored execution has no valid receipt signed as it committed. Its outcome cannot be trusted.';
         }
         if (null !== $state->proof) {
-            $credentialId = (string) $state->proof['credentialId'];
+            $credentialId = self::text($state->proof['credentialId'] ?? null) ?? '';
             $enrolled = $this->anchored->enrolled($credentialId);
             $row['approval'] = [
-                'credential' => $credentialId, 'verifiedAt' => $state->proof['verifiedAt'] ?? null,
+                'credential' => $credentialId, 'verifiedAt' => self::time($state->proof['verifiedAt'] ?? null),
                 'label' => $enrolled?->label, 'authenticator' => Authenticators::name($enrolled?->sourceJson),
             ];
             $row['passkey'] = null === $enrolled ? ['valid' => false, 'problem' => 'no signed enrollment record vouches for this passkey'] : $this->passkeySigned($state, $requester, $enrolled);
         }
 
         return $row;
+    }
+
+    private static function text(mixed $value): ?string
+    {
+        return \is_string($value) ? $value : null;
+    }
+
+    /** A stored time to show, or null when it is not one. */
+    private static function time(mixed $value): ?\DateTimeImmutable
+    {
+        try {
+            return \is_string($value) && '' !== $value ? new \DateTimeImmutable($value) : null;
+        } catch (\Exception) {
+            return null;
+        }
     }
 
     /**
@@ -239,8 +296,8 @@ final readonly class AuditController
             return ['valid' => false, 'problem' => 'no passkey signature was recorded'];
         }
         try {
-            $challenge = ChallengeBinding::challenge($state->request->digest, ChallengeBinding::decode((string) $state->proof['nonce']));
-            $this->webauthn->verifyEvidenceAssertion($requester, $challenge, CanonicalJson::map($state->proof['assertion']), $enrolled);
+            $challenge = ChallengeBinding::challenge($state->request->digest, ChallengeBinding::decode((string) ($state->proof['nonce'] ?? '')));
+            $this->webauthn->verifyEvidenceAssertion($requester, $challenge, CanonicalJson::map($state->proof['assertion'] ?? null), $enrolled);
 
             return ['valid' => true, 'problem' => null];
         } catch (\Throwable) {

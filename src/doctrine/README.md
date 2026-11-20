@@ -35,7 +35,9 @@ Leave `store` out: `persistence` wires it. The bundle registers, and aliases for
 
 ## Create the tables
 
-With Doctrine Migrations, the schema listener adds the approval tables to the schema the ORM generates for the approval connection, so `doctrine:migrations:diff` (and `doctrine:schema:update`) create them and never propose to drop them. Review and run the migration as usual. The small lock table's rows are inserted when the first approval transaction starts, so a migration need not insert them.
+With Doctrine Migrations, the schema listener adds the approval tables to the schema the ORM generates for the approval connection, so `doctrine:migrations:diff` (and `doctrine:schema:update`) create them and never propose to drop them. Review and run the migration as usual.
+
+On PostgreSQL, MySQL and MariaDB, the first `DbalTransaction::run()` seeds the lock rows before opening its transaction. If you enroll or revoke passkeys in your own DBAL transaction before that first run, call `ApprovalSchema::seed($connection)` on the approval connection after the migration and before opening the transaction. The signed audit append needs these rows to lock the log.
 
 Without migrations, run the installation once, or call `ApprovalSchema::install($connection)` from your own installer:
 
@@ -56,6 +58,7 @@ The tables keep canonical JSON in plain text columns, **never `JSON` or `JSONB`*
 - on SQLite, takes the database's write reservation before anything is read, as `BEGIN IMMEDIATE` does, so no other writer can change what the approval reads until it commits;
 - on PostgreSQL, MySQL and MariaDB, runs at `READ COMMITTED` whatever the session's default, so each statement after a lock reads what committed before it;
 - runs its callback once, never retries it, and rolls back on any `Throwable`, rethrowing the original error even if the rollback fails too;
+- refuses the approval store's writes, and the update of the passkey's counter, once the root is closed, even when code ended it past DBAL, through the driver's own connection or in SQL, or the database rolled it back after an error. Before each of these writes it releases the savepoint that marks the root and sets it again, so the write fails instead of committing on its own. It refuses them while a nested transaction is open too, since releasing that savepoint would end the nested one: the approval's own writes run only at the root. So an action that ends the transaction itself gets no outcome recorded. The audit log's appends and the passkey repository's `add()` and `revoke()` are not checked this way, since they also run in your own transactions: once the root has ended past DBAL, they can commit on their own;
 - before commit, checks that the root is still the one it began: a callback that committed it, rolled it back and began another, left a nested transaction open, or swallowed a failed statement (PostgreSQL would then answer `COMMIT` with a silent rollback) fails instead of reporting a commit. On MySQL a schema change commits implicitly: never run DDL inside an approval.
 
 Use the one connection for every protected write: your entity manager, your queries and the stores. A second connection, an external API call or an email is not part of the transaction.
@@ -88,12 +91,13 @@ With a `PrimaryReadReplicaConnection`, every read the stores make, inside or out
 
 ## Actions on ORM entities
 
-Use `currentApproval()->requestId` from `apply()` to associate the written revision with its approval in the same transaction. `currentApproval()` also reports `userVerified()` and refuses use outside execution; subclasses need not inject or store another `ExecutionGuard`.
-
 Extend `Orm\EntityAction`. Its `execute()` is final: it clears the entity manager, so nothing loaded or changed earlier is read as current or flushed with the approved change; loads the targets you name, locked for writing; lets your `apply()` change them; and flushes inside the approval transaction, so your postconditions read the written rows and the receipt is signed after them. If the transaction rolls back, the entity manager is reset.
 
 ```php
-use Doctrine\Persistence\ManagerRegistry;
+use App\Entity\Article;
+use VerifiedHumanApproval\Core\Actor;
+use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\PreparedAction;
 use VerifiedHumanApproval\Doctrine\Orm\EntityAction;
 
 final class PublishArticle extends EntityAction
@@ -135,6 +139,8 @@ final class PublishArticle extends EntityAction
 
 Its constructor takes the `ManagerRegistry`, the `ExecutionGuard`, the `DbalTransaction`, the `ProtectedEntityListener` and, optionally, the entity manager's name; with autowiring they are all found.
 
+From `apply()`, `currentApproval()->requestId` links the written revision to its approval in the same transaction. `currentApproval()` also reports `userVerified()` and refuses use outside execution, so a subclass needs no `ExecutionGuard` of its own.
+
 ## Protected entities
 
 Mark the entities, or the fields, that only an approved action may change:
@@ -151,9 +157,9 @@ class Article
 }
 ```
 
-`ProtectedEntityListener` then refuses, on every flush of that connection's entity manager, a change to a marked entity or field, with `ApprovalException('approval_required')`, unless the flush happens while an approved action executes and that action permitted the entity. An `EntityAction` permits the targets it locks and the entities it creates with `persist()`; another adapter calls `permit()` itself. On a field, inserting or deleting the entity while the field holds a value other than null counts as a change too, so keep the approved state in nullable fields beside the draft, as above. The `protected_entities` setting does the same as the attribute, for entities you cannot annotate.
+`ProtectedEntityListener` then refuses, on every flush of that connection's entity manager, a change to a marked entity or field, with `ApprovalException('approval_required')`, unless the flush happens while an approved action executes and that action permitted the entity. An `EntityAction` permits the targets it locks and the entities it creates with `persist()`; another adapter calls `permit()` itself. On a field, inserting or deleting the entity while the field holds a value other than null counts as a change too, so keep the approved state in nullable fields beside the draft, as above. An embedded object (`#[ORM\Embedded]`) can hold it as well: mark the embedded property to protect each of its fields, or mark a field or an embedded object inside the embeddable to protect it wherever the embeddable is used. The `protected_entities` setting does the same as the attribute, for entities you cannot annotate, and takes an embedded property's name (`published`) or one of its fields (`published.title`).
 
-For an existing non-null `draft`/`published`/`archived` column, keep status protected and use a constrained, explicitly policy-exempt draft-creation action through `ApprovalService`. The [adoption cookbook](../symfony-bundle/docs/adoption.md#a-non-null-draftpublishedarchived-column) includes the executable adapter and regression tests; a draft value is not an automatic exemption from the guard.
+For an existing non-null `draft`/`published`/`archived` column, keep status protected and use a constrained, explicitly policy-exempt draft-creation action through `ApprovalService`. The [adoption cookbook](https://github.com/scottfalconer/verified-human-approval/blob/main/src/symfony-bundle/docs/adoption.md#a-non-null-draftpublishedarchived-column) includes the executable adapter and regression tests; a draft value is not an automatic exemption from the guard.
 
 The check covers the unit of work. DQL `UPDATE` and `DELETE`, and plain SQL, do not pass through it: keep those away from protected rows, as you keep every other write path behind the approval service.
 
@@ -161,6 +167,7 @@ The check covers the unit of work. DQL `UPDATE` and `DELETE`, and plain SQL, do 
 
 ```php
 use VerifiedHumanApproval\Core\Audit\AuditLog;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 use VerifiedHumanApproval\Doctrine\DbalApprovalStore;
 use VerifiedHumanApproval\Doctrine\DbalAuditStore;
 use VerifiedHumanApproval\Doctrine\DbalCredentialRepository;
@@ -169,13 +176,16 @@ use VerifiedHumanApproval\WebAuthn\AnchoredCredentialRepository;
 
 $transaction = new DbalTransaction($connection);    // the application's own connection
 $store = new DbalApprovalStore($transaction);
-$audit = new AuditLog(new DbalAuditStore($transaction), $signer, $trustedPublicKey, $clock);
+// Every key the application has signed with: the signer's, open since it began, and any it replaced.
+$audit = new AuditLog(new DbalAuditStore($transaction), $signer, TrustedKeys::forSigner($signer, $signingSince, $retiredKeys), $clock);
 $credentials = new AnchoredCredentialRepository(new DbalCredentialRepository($transaction), $audit);
 // $store and $credentials go to ApprovalService and WebAuthnVerifier; the transaction's lock clauses to your Authorizer.
 ```
 
-Add or revoke a passkey inside a transaction on the connection (`$transaction->run()`, or your own begun through DBAL), so its signed audit entry commits with it.
+Add or revoke a passkey inside `$transaction->run()` or in your own transaction begun through DBAL so its signed audit entry commits with it. On PostgreSQL, MySQL and MariaDB, make sure the [lock rows are seeded](#create-the-tables) before opening your own transaction.
 
 ## Checking an adapter
 
 The same contract tests run on this package's stores and on the SQLite reference stores, on every database: `verified-human-approval/store-contracts` ships them, with the fixture application, fault injection and the process race, for checking your own adapter.
+
+This package is developed in the [Verified Human Approval repository](https://github.com/scottfalconer/verified-human-approval). Open issues and pull requests there.

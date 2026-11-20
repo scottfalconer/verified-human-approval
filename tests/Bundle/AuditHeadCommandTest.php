@@ -24,6 +24,7 @@ final class AuditHeadCommandTest extends TestCase
     private const OPENED = '2026-11-01T00:00:00Z';
     private const ROTATED = '2026-11-09T12:00:00Z';
 
+    private \PDO $database;
     private PdoAuditStore $store;
     private MockClock $clock;
     private SodiumEvidenceSigner $old;
@@ -31,13 +32,25 @@ final class AuditHeadCommandTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->store = new PdoAuditStore(new \PDO('sqlite::memory:', options: [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]));
+        $this->database = new \PDO('sqlite::memory:', options: [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
+        $this->store = new PdoAuditStore($this->database);
         $this->store->initialize();
         $this->clock = new MockClock('2026-11-05T09:00:00Z');
         $this->old = new SodiumEvidenceSigner('application-1', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
         $this->new = new SodiumEvidenceSigner('application-2', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
-        (new AuditLog($this->store, $this->old, new TrustedKeys([new TrustedKey('application-1', $this->old->publicKey(), TrustedKey::time(self::OPENED))]), $this->clock))
-            ->append('tenant-a', 'passkey.enrolled', 'cred-1', ['userId' => 'alice']);
+        $this->opened()->append('tenant-a', 'passkey.enrolled', 'cred-1', ['userId' => 'alice']);
+    }
+
+    public function testItsJsonIsTheHeadAsStoredEvenWhereAValueLooksLikeFormatting(): void
+    {
+        // The stored key id is not signed: whoever can write the table can put anything in it.
+        $this->database->exec("UPDATE verified_human_approval_audit SET key_id = '<fg=green>application-1</>' WHERE seq = 1");
+
+        $head = $this->auditHead($this->opened(), ['--json' => true]);
+
+        self::assertSame(Command::FAILURE, $head->getStatusCode());
+        $json = json_decode(trim($head->getDisplay()), true, 4, \JSON_THROW_ON_ERROR);
+        self::assertSame(['<fg=green>application-1</>', false], [$json['keyId'] ?? null, $json['intact'] ?? null]);
     }
 
     public function testItNamesTheFailingEntryAndTheRotationToRecordAfterAKeyChange(): void
@@ -48,16 +61,17 @@ final class AuditHeadCommandTest extends TestCase
 
         $head = $this->auditHead($log);
         self::assertSame(Command::FAILURE, $head->getStatusCode());
-        $display = $head->getDisplay();
-        self::assertStringContainsString('The chain does not verify, so this is no checkpoint to keep.', $display);
+        $display = self::said($head);
+        self::assertStringContainsString('[ERROR] The chain does not verify, so this is no checkpoint to keep.', $display);
         self::assertStringContainsString('Entry 1: it is signed with key "application-1", whose window has closed, and no later entry signed with a key in use vouches for it.', $display);
         self::assertStringContainsString('Record the rotation away from it: verified-human-approval:record-key-rotation application-1', $display);
         self::assertStringNotContainsString('does not record the rotation', $display, 'One key is named once.');
+        self::assertDoesNotMatchRegularExpression('/^\d+:[0-9a-f]{64}$/m', $head->getDisplay(), 'A chain that does not verify gives no checkpoint to keep.');
 
         $check = $this->auditHead($log, ['--check' => '1:'.$log->verify()['entries'][0]['hash']]);
         self::assertSame(Command::FAILURE, $check->getStatusCode());
-        self::assertStringContainsString('Entry 1 is unchanged, but the chain does not verify: some entry fails its signature, key window or chain check.', $check->getDisplay());
-        self::assertStringContainsString('Entry 1: it is signed with key "application-1"', $check->getDisplay());
+        self::assertStringContainsString('[ERROR] Entry 1 is unchanged, but the chain does not verify: some entry fails its signature, key window or chain check.', self::said($check));
+        self::assertStringContainsString('Entry 1: it is signed with key "application-1"', self::said($check));
     }
 
     public function testItNamesARotationThatIsDueButNotRecordedOnceTheChainVerifiesAgain(): void
@@ -71,12 +85,18 @@ final class AuditHeadCommandTest extends TestCase
         $head = $this->auditHead($log);
         self::assertSame(Command::SUCCESS, $head->getStatusCode(), $head->getDisplay());
         self::assertStringContainsString('All 2 entries verify in an unbroken chain.', $head->getDisplay());
-        self::assertStringContainsString('Key "application-1" has closed, and the log does not record the rotation away from it. Record it: verified-human-approval:record-key-rotation application-1', $head->getDisplay());
+        self::assertStringContainsString('[WARNING] Key "application-1" has closed, and the log does not record the rotation away from it. Record it: verified-human-approval:record-key-rotation application-1', self::said($head));
 
         $log->recordRotation('application-1');
         $after = $this->auditHead($log);
         self::assertSame(Command::SUCCESS, $after->getStatusCode());
         self::assertStringNotContainsString('application-1', $after->getDisplay());
+    }
+
+    /** The log as the application kept it before the rotation: the old key signs, and it is trusted from OPENED on. */
+    private function opened(): AuditLog
+    {
+        return new AuditLog($this->store, $this->old, new TrustedKeys([new TrustedKey('application-1', $this->old->publicKey(), TrustedKey::time(self::OPENED))]), $this->clock);
     }
 
     private function rotated(): AuditLog
@@ -94,5 +114,11 @@ final class AuditHeadCommandTest extends TestCase
         $tester->execute($input);
 
         return $tester;
+    }
+
+    /** What the command printed, its lines joined: SymfonyStyle wraps a message at the terminal's width. */
+    private static function said(CommandTester $tester): string
+    {
+        return (string) preg_replace('/\s+/', ' ', $tester->getDisplay());
     }
 }

@@ -12,14 +12,13 @@ The packages are developed together in this repository and released together, un
 
 ## Making a release
 
-Some of these steps are the maintainer's, because they publish: making the repository public, creating repositories, and claiming the package names.
+[The split workflow](../.github/workflows/split.yml) publishes each package under `src/` to a repository of its own, which Packagist reads: `main` on every push to `main`, and every `v*` tag as the same tag. It does nothing until the repository variable `SPLIT_OWNER` is set.
 
-1. **Once, before the first release:**
-   - Make this repository public, and enable private vulnerability reporting (Settings → Code security), which [SECURITY.md](../SECURITY.md) points to.
-   - Create one empty repository per package under one account or organization. [The split workflow](../.github/workflows/split.yml) names them `verified-human-approval-core`, `-webauthn`, `-mcp`, `-symfony-bundle`, `-doctrine`, `-store-contracts` and `-testing`; change the names there if you choose others.
-   - Create a token that can push to those repositories only (a fine-grained token with Contents: read and write). Save it as the secret `SPLIT_TOKEN` of this repository, and set the repository variable `SPLIT_OWNER` to that account or organization. From then on, every push to `main` updates each package repository.
+1. **Set up publishing once:**
+   - Create one empty repository per package under one account or organization. The split workflow names them `verified-human-approval-core`, `-webauthn`, `-mcp`, `-symfony-bundle`, `-doctrine`, `-store-contracts` and `-testing`; change the names there if you choose others.
+   - Create a token that can push to those repositories only (a fine-grained token with Contents: read and write). Save it as the secret `SPLIT_TOKEN` of this repository, and set the repository variable `SPLIT_OWNER` to that account or organization.
    - Submit each package repository to Packagist under the `verified-human-approval` vendor name, and turn on its update hook.
 2. **Each release:**
    - Check that `main` passes CI, and move the changelog's "Unreleased" section under the new version and date.
    - Tag `main` as `vX.Y.Z` and push the tag. The split workflow pushes the same tag to every package repository, and Packagist picks it up.
-   - The first time, replace the path-repository instructions in [the integration guide](../src/symfony-bundle/docs/index.md) with `composer require verified-human-approval/symfony-bundle:^0.1`.
+   - For the first release only, replace the path-repository instructions in [the integration guide](../src/symfony-bundle/docs/index.md) with `composer require verified-human-approval/symfony-bundle:^0.1`.

@@ -16,12 +16,17 @@ use VerifiedHumanApproval\Bundle\ActorProvider;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalHistory;
 use VerifiedHumanApproval\Core\ApprovalService;
+use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
+use VerifiedHumanApproval\Core\Evidence\Receipt;
+use VerifiedHumanApproval\Core\Evidence\ReceiptVerifier;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
+use VerifiedHumanApproval\Core\UnreadableApproval;
 
 final class DeskController extends AbstractController
 {
     public function __construct(private readonly ActorProvider $actors, private readonly CurrentAuthority $authority,
         private readonly Drafts $drafts, private readonly EntityManagerInterface $entities,
-        private readonly ApprovalService $approvals, private readonly ApprovalHistory $history)
+        private readonly ApprovalService $approvals, private readonly ApprovalHistory $history, private readonly TrustedKeys $keys)
     {
     }
 
@@ -100,13 +105,22 @@ final class DeskController extends AbstractController
         $this->authority->assertReader($actor);
         $rows = [];
         foreach ($this->history->forResource($actor->tenantId, $id) as $state) {
+            if ($state instanceof UnreadableApproval) {
+                // Nothing in it is shown as what was asked or how it ended. While its proposal reads back, it still
+                // shows whose it is; otherwise only its id is known (owned is null).
+                $rows[] = ['unreadable' => true, 'id' => $state->requestId, 'owned' => $state->error->request?->actor()->samePerson($actor)];
+                continue;
+            }
+            // Someone who can edit every stored part can keep them in agreement, so a completed request is trusted
+            // only while it carries the receipt signed as it committed and that receipt verifies.
             try {
                 $state->assertConsistent();
-                $integrity = true;
+                $integrity = 'completed' !== $state->status
+                    || Receipt::COMMIT === (new ReceiptVerifier())->verify((new EvidenceExporter())->export($state), $this->keys)['receiptSignedAt'];
             } catch (ApprovalException) {
                 $integrity = false;
             }
-            $rows[] = ['state' => $state, 'integrity' => $integrity, 'owned' => $state->request->actor()->samePerson($actor)];
+            $rows[] = ['unreadable' => false, 'state' => $state, 'integrity' => $integrity, 'owned' => $state->request->actor()->samePerson($actor)];
         }
 
         return $this->render('desk/history.html.twig', ['resource_id' => $id, 'rows' => $rows]);
@@ -121,6 +135,11 @@ final class DeskController extends AbstractController
 
     private function problem(ApprovalException $error): Response
     {
+        // A request that reuses a stored record failing its integrity check was not refused: nothing in that record
+        // says whether the change ran, so the page is the one the review page shows for it.
+        if ('record_integrity_error' === $error->reason) {
+            return $this->render('@VerifiedHumanApproval/integrity_error.html.twig', ['id' => $error->request?->id], new Response('', 409));
+        }
         $status = match ($error->reason) {
             'permission_denied','delegation_denied','scope_denied' => 403,
             'not_found','missing_resource' => 404,

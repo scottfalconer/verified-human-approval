@@ -9,6 +9,8 @@ use Mcp\Client\Transport\HttpTransport;
 use Mcp\Exception\RequestException;
 use Mcp\Schema\Extension\Apps\McpApps;
 use Nyholm\Psr7\Factory\Psr17Factory;
+use PHPUnit\Framework\Attributes\BackupGlobals;
+use PHPUnit\Framework\Attributes\TestWith;
 use PHPUnit\Framework\TestCase;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
@@ -18,6 +20,7 @@ use Symfony\Component\Filesystem\Filesystem;
 use VerifiedHumanApproval\Bundle\Event\ApprovalCompleted;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
+use VerifiedHumanApproval\Core\ApprovalService;
 use VerifiedHumanApproval\Core\CanonicalJson;
 use VerifiedHumanApproval\Core\ChallengeBinding;
 use VerifiedHumanApproval\Core\Evidence\Receipt;
@@ -30,6 +33,7 @@ use VerifiedHumanApproval\Demo\DemoDatabase;
 use VerifiedHumanApproval\Demo\DemoKernel;
 use VerifiedHumanApproval\Demo\DemoSetup;
 use VerifiedHumanApproval\Mcp\ApprovalCard;
+use VerifiedHumanApproval\Mcp\ApprovalFlow;
 use VerifiedHumanApproval\Mcp\UrlPrompt;
 use VerifiedHumanApproval\Testing\VirtualAuthenticator;
 
@@ -71,9 +75,12 @@ final class SymfonyApprovalTest extends TestCase
         }
         self::assertEqualsCanonicalizing(['approval_handoff', 'approval_status', 'publish_alert', 'read_alert'], array_keys($tools));
         self::assertSame(['app'], json_decode(json_encode($tools['approval_handoff'], \JSON_THROW_ON_ERROR), true)['_meta']['ui']['visibility'], 'Only the card can ask for a phone code.');
+        self::assertStringStartsWith('Used by the approval card:', (string) $tools['approval_handoff']->description, 'A host that shows every tool to the model says whose tool it is.');
         self::assertArrayNotHasKey('actor', $tools['publish_alert']->inputSchema['properties']);
         self::assertArrayNotHasKey('user_id', $tools['publish_alert']->inputSchema['properties']);
-        self::assertNotEmpty($tools['publish_alert']->inputSchema['properties']['request_key']['description'] ?? null, 'Parameters are described.');
+        self::assertSame(ApprovalFlow::REQUEST_KEY_DESCRIPTION, $tools['publish_alert']->inputSchema['properties']['request_key']['description'] ?? null, 'The request key is described so that an agent leaves it out.');
+        self::assertNotContains('request_key', $tools['publish_alert']->inputSchema['required'] ?? []);
+        self::assertStringNotContainsString('request_key', (string) $tools['publish_alert']->description, 'The tool does not tell an agent to send a key.');
         foreach ($tools as $name => $tool) {
             $declared = json_decode(json_encode($tool, \JSON_THROW_ON_ERROR), true);
             self::assertNotEmpty($declared['title'] ?? null, $name.' has a title.');
@@ -108,6 +115,8 @@ final class SymfonyApprovalTest extends TestCase
         $retry = $client->callTool('publish_alert', ['alert_id' => 'riverside-evacuation', 'request_key' => 'same-request']);
         self::assertSame($id, $retry->structuredContent['requestId']);
         self::assertSame('completed', $retry->structuredContent['status']);
+        self::assertTrue($retry->structuredContent['approval']['earlier'], 'A retry after it ran gets the recorded outcome, marked as earlier.');
+        self::assertStringContainsString('nothing ran now', $retry->structuredContent['message']);
         self::assertSame(1, $this->mutationCount());
 
         // The completed page offers the person their receipt to keep.
@@ -138,7 +147,7 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame(200, $anyone->getResponse()->getStatusCode());
         $key = json_decode((string) $anyone->getResponse()->getContent(), true, 8, \JSON_THROW_ON_ERROR);
         self::assertSame(['format' => 'verified-human-approval/receipt-key/v1', 'keyId' => $evidence['receipt']['keyId'], 'publicKey' => $key['publicKey'], 'rpId' => 'localhost', 'origin' => self::ORIGIN], $key);
-        $verified = (new ReceiptVerifier())->verify(CanonicalJson::map(CanonicalJson::decode($content)), $key['keyId'], $key['publicKey']);
+        $verified = (new ReceiptVerifier())->verify(CanonicalJson::map(CanonicalJson::decode($content)), TrustedKeys::single($key['keyId'], $key['publicKey']));
         self::assertSame(Receipt::COMMIT, $verified['receiptSignedAt'], 'Signed as it ran, not when downloaded.');
 
         // The page links the key set, every key the site signs with and when, which checks the same file.
@@ -241,17 +250,29 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame(['credential_required', 'pending'], [$refused['reason'], $refused['request_status'] ?? null]);
     }
 
-    public function testCurrentDelegationRevocationPreventsExecutionAfterReview(): void
+    /** @param list<string>|null $remainingScopes null means the connection was revoked */
+    #[TestWith([null], 'connection revoked')]
+    #[TestWith([['alert.read', 'approval.read']], 'publish scope removed')]
+    #[TestWith([['alert.read', 'alert.publish']], 'approval read scope removed')]
+    public function testChangesToTheStoredGrantPreventExecutionAfterReview(?array $remainingScopes): void
     {
         $id = $this->requestAction();
         $browser = $this->browser('editor');
         $authenticator = $this->enroll($browser);
         [$csrf, $ceremony] = $this->begin($browser, $id);
-        $this->database->pdo->exec("UPDATE demo_grants SET active = 0 WHERE id = 'editor-personal'");
+        if (null === $remainingScopes) {
+            $this->database->pdo->exec("UPDATE demo_grants SET active = 0 WHERE id = 'editor-personal'");
+        } else {
+            $this->database->pdo->prepare("UPDATE demo_grants SET scopes = ? WHERE id = 'editor-personal'")
+                ->execute([json_encode($remainingScopes, \JSON_THROW_ON_ERROR)]);
+        }
         $result = $this->post($browser, '/approval/'.$id.'/complete', $csrf, ['ceremony_id' => $ceremony['ceremony_id'], 'credential' => $authenticator->assertion($ceremony['publicKey'])]);
         self::assertContains($result['status'], ['denied', 'invalidated']);
         self::assertSame('delegation_denied', $result['reason']);
         self::assertSame(0, $this->mutationCount());
+        // The account may still do this; its agent connection may not. The page blames neither more than the record does.
+        $stopped = $browser->request('GET', self::ORIGIN.'/approval/'.$id)->filter('.approval-sheet .notice')->text();
+        self::assertStringStartsWith('Blocked: nothing changed. This request is no longer allowed. The agent connection that made this request is not allowed to do this.', $stopped);
     }
 
     public function testAReadOnlyPersonsMcpCredentialCannotRequestPublication(): void
@@ -281,9 +302,19 @@ final class SymfonyApprovalTest extends TestCase
         $id = $this->requestAction();
         foreach (['reader', 'other'] as $user) {
             $browser = $this->browser($user);
-            $browser->request('GET', self::ORIGIN.'/approval/'.$id);
-            self::assertSame(404, $browser->getResponse()->getStatusCode());
-            self::assertStringNotContainsString('Use the Hill Street route', (string) $browser->getResponse()->getContent());
+            foreach ([$id, 'unknown-approval'] as $requestId) {
+                $page = $browser->request('GET', self::ORIGIN.'/approval/'.$requestId);
+                self::assertSame(404, $browser->getResponse()->getStatusCode());
+                self::assertSame('Approval unavailable', $page->filter('main h1')->text());
+                self::assertStringContainsString('sign in with the account that requested the approval', $page->filter('main')->text());
+                self::assertStringContainsString("frame-ancestors 'none'", (string) $browser->getResponse()->headers->get('Content-Security-Policy'));
+                self::assertCount(1, $page->filter('link[href$="/approval.css"]'));
+                self::assertCount(1, $page->selectButton('Sign out'));
+                self::assertStringNotContainsString('Use the Hill Street route', (string) $browser->getResponse()->getContent());
+            }
+            $browser->request('GET', self::ORIGIN.'/approval/'.$id.'/status', server: ['HTTP_ACCEPT' => 'application/json']);
+            self::assertSame(404, $browser->getResponse()->getStatusCode(), 'The JSON status of a request that is not theirs is not found either.');
+            self::assertSame('not_found', json_decode((string) $browser->getResponse()->getContent(), true)['reason'] ?? null);
         }
         self::assertSame(0, $this->mutationCount());
     }
@@ -325,6 +356,29 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame(0, $this->mutationCount());
     }
 
+    public function testTheSameApprovalSentTwiceIssuesTheAlertOnce(): void
+    {
+        $id = $this->requestAction();
+        $browser = $this->browser('editor');
+        $authenticator = $this->enroll($browser);
+        [$csrf, $ceremony] = $this->begin($browser, $id);
+        $approval = ['ceremony_id' => $ceremony['ceremony_id'], 'credential' => $authenticator->assertion($ceremony['publicKey'])];
+        self::assertSame('completed', $this->post($browser, '/approval/'.$id.'/complete', $csrf, $approval)['status']);
+        self::assertSame(1, $this->mutationCount());
+
+        // Sent again, as a second click or a replay would send it: the page's ceremony ended with the approval.
+        $again = $this->post($browser, '/approval/'.$id.'/complete', $csrf, $approval);
+        self::assertSame(403, $browser->getResponse()->getStatusCode());
+        self::assertSame('ceremony_mismatch', $again['reason'] ?? null);
+        // Had both passed the page's check, as two sent at once can, the second gets the recorded outcome.
+        $approvals = $browser->getContainer()->get(ApprovalService::class);
+        self::assertInstanceOf(ApprovalService::class, $approvals);
+        $recorded = $approvals->complete(new Actor('editor', 'campaigns'), $approval['ceremony_id'], $approval['credential']);
+        self::assertSame(['completed', 'published'], [$recorded->status, $recorded->result['disposition'] ?? null]);
+        self::assertSame(1, $this->mutationCount(), 'The alert was issued once.');
+        self::assertStringContainsString('Approved with your passkey', $browser->request('GET', self::ORIGIN.'/approval/'.$id)->filter('.approval-sheet')->text());
+    }
+
     public function testSecurityHeadersFollowTheRoutesThatAskForThemNotARouteNamePrefix(): void
     {
         $browser = $this->browser('manager');
@@ -347,8 +401,11 @@ final class SymfonyApprovalTest extends TestCase
         unset($review);
     }
 
-    public function testBrowserPublicationUsesSameGuardAndPolicyFormsCannotBeChangedByReadOnlyUsers(): void
+    #[BackupGlobals(true)]
+    public function testBrowserPublicationUsesSameGuardAndAdminRefusalsExplainTheDenial(): void
     {
+        // KernelBrowser runs under the CLI. Use the error renderer the browser gets in web mode.
+        $_SERVER['APP_RUNTIME_MODE'] = 'web=1';
         $browser = $this->browser('editor');
         $crawler = $browser->request('GET', self::ORIGIN.'/');
         $browser->submit($crawler->selectButton('Issue alert')->form());
@@ -360,8 +417,14 @@ final class SymfonyApprovalTest extends TestCase
         self::assertStringContainsString('Approve with your passkey', (string) $browser->getResponse()->getContent());
 
         $reader = $this->browser('reader');
-        $reader->request('GET', self::ORIGIN.'/admin/approval-policy');
-        self::assertSame(403, $reader->getResponse()->getStatusCode());
+        foreach (['/admin/approval-policy', '/admin/audit'] as $path) {
+            $page = $reader->request('GET', self::ORIGIN.$path);
+            self::assertSame(403, $reader->getResponse()->getStatusCode());
+            self::assertSame('Access denied', $page->filter('main h1')->text());
+            self::assertStringContainsString("frame-ancestors 'none'", (string) $reader->getResponse()->headers->get('Content-Security-Policy'));
+            self::assertCount(1, $page->filter('link[href$="/approval.css"]'));
+            self::assertCount(1, $page->selectButton('Sign out'));
+        }
     }
 
     public function testARequestMadeOnTheSiteLeadsBackToTheSiteNotToClaude(): void
@@ -688,6 +751,8 @@ final class SymfonyApprovalTest extends TestCase
         $issued = $this->mcp('manager')->callTool('publish_alert', ['alert_id' => 'riverside-evacuation']);
         self::assertSame('completed', $issued->structuredContent['status'], 'The emergency manager issues directly.');
         self::assertFalse($issued->structuredContent['approval']['approvedWithPasskey']);
+        self::assertFalse($issued->structuredContent['approval']['earlier'], 'It ran for this call.');
+        self::assertArrayNotHasKey('message', $issued->structuredContent);
         $sheet = $this->browser('manager')->request('GET', self::ORIGIN.'/approval/'.$issued->structuredContent['requestId'])->filter('.approval-sheet')->text();
         self::assertStringNotContainsString('Approved with your passkey', $sheet);
         self::assertStringContainsString('Completed without a passkey', $sheet);
@@ -775,6 +840,11 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame($pending->structuredContent['review_url'], $view['reviewUrl']);
         self::assertSame('approval_status', $view['statusTool']);
         self::assertStringContainsString('I approve issuing the public alert', $view['statement']);
+        // The card is written for the review pages' origin and the site's tools: it opens and calls nothing else.
+        self::assertSame(1, preg_match('#<script type="application/json" id="card-application">(.*?)</script>#', $card['text'], $written));
+        $application = json_decode($written[1], true, 512, \JSON_THROW_ON_ERROR);
+        self::assertStringStartsWith(rtrim($application['origin'], '/').'/approval/', $view['reviewUrl']);
+        self::assertSame([$view['statusTool'], $view['handoffTool']], [$application['statusTool'], $application['handoffTool']]);
         $status = $client->callTool('approval_status', ['request_id' => $view['requestId']]);
         self::assertSame('pending', $status->structuredContent['approval']['status']);
         self::assertSame(0, $this->mutationCount());
@@ -845,6 +915,16 @@ final class SymfonyApprovalTest extends TestCase
             self::assertSame('completed', $after['structuredContent']['approval']['status']);
         }
         self::assertSame(1, $this->mutationCount());
+    }
+
+    public function testAnEmptyRequestKeyIsNoKey(): void
+    {
+        $client = $this->mcp();
+        $first = $client->callTool('publish_alert', ['alert_id' => 'riverside-evacuation', 'request_key' => '']);
+        self::assertFalse($first->isError, json_encode($first->structuredContent));
+        self::assertSame('pending', $first->structuredContent['status']);
+        self::assertSame($first->structuredContent['requestId'], $client->callTool('publish_alert', ['alert_id' => 'riverside-evacuation', 'request_key' => ''])->structuredContent['requestId'], 'Asked again, it is the same request, as without a key.');
+        self::assertSame(1, $this->pendingRequests());
     }
 
     public function testAClientTheApplicationHasNotListedGetsTheCardAndLinkOnly(): void

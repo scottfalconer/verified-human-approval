@@ -23,6 +23,8 @@ final class FixtureAction implements ActionAdapter
     public array $extraEffect = [];
     /** @var array<string, mixed> added to every execution's result */
     public array $extraResult = [];
+    /** Run once the action's postconditions hold, still inside the approval transaction: to end it there, say. */
+    public ?\Closure $afterPostconditions = null;
 
     private readonly FixtureDatabase $database;
 
@@ -103,6 +105,9 @@ final class FixtureAction implements ActionAdapter
             || $row['asset_version'] !== $action->effect['asset_version'] || !(bool) $row['published']
             || (int) $row['revision'] !== $result['result_revision']) {
             throw new ApprovalException('postcondition_failed', 'The application did not produce the approved effect.');
+        }
+        if (null !== $this->afterPostconditions) {
+            ($this->afterPostconditions)();
         }
     }
 

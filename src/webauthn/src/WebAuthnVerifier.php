@@ -58,10 +58,13 @@ final class WebAuthnVerifier implements ApprovalVerifier
     public function requestOptions(Actor $actor, string $challenge): array
     {
         $this->assertChallenge($challenge);
-        $credentials = $this->credentials->forActor($actor);
+        ['vouched' => $credentials, 'unvouched' => $unvouched] = $this->credentials instanceof AnchoredCredentialRepository
+            ? $this->credentials->weighed($actor)
+            : ['vouched' => $this->credentials->forActor($actor), 'unvouched' => []];
         if ([] === $credentials) {
-            // Passkeys the person enrolled, which nothing vouches for right now: enrolling another would not help.
-            if ($this->credentials instanceof AnchoredCredentialRepository && [] !== $this->credentials->unvouched($actor)) {
+            // The person has passkeys, none of which the log vouches for now: send them to the site's administrator,
+            // who can see why, rather than ask for a first passkey.
+            if ([] !== $unvouched) {
                 throw new ApprovalException('credential_unvouched', 'Your passkey cannot approve right now: the site cannot confirm its enrollment. Ask the site’s administrator.');
             }
             throw new ApprovalException('credential_required', 'Enroll an approval passkey through your trusted account settings first.');
@@ -202,7 +205,7 @@ final class WebAuthnVerifier implements ApprovalVerifier
                 throw new \UnexpectedValueException('Enrollment options do not match the trusted account and RP.');
             }
             $this->assertChallenge($options->challenge);
-            $loaded = $this->parseResponse($response);
+            $loaded = $this->read($response);
             if (!$loaded->response instanceof AuthenticatorAttestationResponse) {
                 throw new \UnexpectedValueException('Expected a credential registration response.');
             }
@@ -219,9 +222,8 @@ final class WebAuthnVerifier implements ApprovalVerifier
                 false,
                 $label,
             );
-        } catch (\Throwable) {
-            // Do not put assertion material or potentially sensitive decoder messages into application logs.
-            throw new ApprovalException('invalid_registration', 'The passkey registration could not be verified.');
+        } catch (\Throwable $error) {
+            throw self::refused('invalid_registration', 'The passkey registration could not be verified.', $error);
         }
         $this->credentials->add($credential);
 
@@ -245,17 +247,21 @@ final class WebAuthnVerifier implements ApprovalVerifier
                 $this->configuration->host,
                 $this->userHandle($actor),
             );
-        } catch (\Throwable) {
-            throw new ApprovalException('invalid_approval', 'The passkey assertion could not be verified.');
+        } catch (\Throwable $error) {
+            throw self::refused('invalid_approval', 'The passkey assertion could not be verified.', $error);
         }
     }
 
-    /** This first integration deliberately supports top-level browser ceremonies only. */
+    /**
+     * Refuses a ceremony embedded in a page of another origin, which the browser reports as crossOrigin or with a
+     * topOrigin. Passkeys are enrolled and used on the application's own pages, where the person sees what they
+     * confirm, so a ceremony run inside another site, or inside an MCP host's card, never passes.
+     */
     private function assertTopLevel(PublicKeyCredential $response): void
     {
         $data = $response->response->clientDataJSON;
         if ($data->crossOrigin || null !== $data->topOrigin) {
-            throw new \UnexpectedValueException('Cross-origin and embedded approval ceremonies are not enabled.');
+            throw new \UnexpectedValueException('A ceremony embedded in a page of another origin is refused.');
         }
     }
 
@@ -283,8 +289,8 @@ final class WebAuthnVerifier implements ApprovalVerifier
             }
 
             return $record;
-        } catch (\Throwable) {
-            throw new ApprovalException('credential_unavailable', 'No acceptable approval credential is available.');
+        } catch (\Throwable $error) {
+            throw self::refused('credential_unavailable', 'No acceptable approval credential is available.', $error);
         }
     }
 
@@ -292,10 +298,50 @@ final class WebAuthnVerifier implements ApprovalVerifier
     private function parseResponse(array $response): PublicKeyCredential
     {
         try {
-            return $this->serializer->deserialize($this->encoded($response), PublicKeyCredential::class, 'json');
-        } catch (\Throwable) {
-            throw new ApprovalException('invalid_approval', 'The passkey response could not be read.');
+            return $this->read($response);
+        } catch (\Throwable $error) {
+            throw self::refused('invalid_approval', 'The passkey response could not be read.', $error);
         }
+    }
+
+    /**
+     * The browser's response as the library reads it, for a caller that refuses whatever fails.
+     *
+     * @param array<string, mixed> $response
+     */
+    private function read(array $response): PublicKeyCredential
+    {
+        return $this->serializer->deserialize($this->encoded($response), PublicKeyCredential::class, 'json');
+    }
+
+    /**
+     * The refusal for anything that fails while the library reads or checks a response or a stored passkey. Every
+     * failure refuses, errors included: the library meets some malformed responses with a TypeError. What failed is
+     * kept for whoever debugs the refusal, as its class and where it was raised, but not its message or the failure
+     * itself, which can quote what was sent or carry it.
+     */
+    private static function refused(string $reason, string $message, \Throwable $cause): ApprovalException
+    {
+        return new ApprovalException($reason, $message, new \RuntimeException(\sprintf('%s raised at %s.', $cause::class, self::raisedAt($cause))));
+    }
+
+    /**
+     * Where a failure was raised. The library makes most of its exceptions in a static factory of their own class,
+     * whose line is the same for every check, so for those it is the line that called the factory: the check itself.
+     */
+    private static function raisedAt(\Throwable $cause): string
+    {
+        $file = $cause->getFile();
+        $line = $cause->getLine();
+        $factory = (new \ReflectionClass($cause))->getFileName();
+        foreach ($cause->getTrace() as $frame) {
+            if ($file !== $factory || !isset($frame['file'], $frame['line'])) {
+                break;
+            }
+            ['file' => $file, 'line' => $line] = $frame;
+        }
+
+        return $file.':'.$line;
     }
 
     private function userHandle(Actor $actor): string

@@ -11,6 +11,8 @@ use VerifiedHumanApproval\StoreContracts\ApprovalStoreContract;
 final class DbalSqliteWalApprovalStoreContractTest extends ApprovalStoreContract
 {
     use ApprovalHistoryContract;
+    use DbalHistoryColumnsContract;
+    use RecentApprovalsContract;
 
     protected static function harness(): string
     {

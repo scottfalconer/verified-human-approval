@@ -13,6 +13,8 @@ use VerifiedHumanApproval\Bundle\Verification\PublicVerification;
  * The public page a "verified" badge links to: what was approved, when, and the receipt this site signed as the
  * change committed, checked against the published key. Off unless `public_verification` is enabled. An unknown
  * request and one that does not verify look the same, so the page reveals nothing about other requests.
+ *
+ * @internal the bundle's route reaches it by its service id; link to the route
  */
 final readonly class VerificationController
 {

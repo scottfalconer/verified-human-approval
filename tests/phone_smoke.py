@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Approve on your phone, end to end in real Chrome.
+"""Approve on your phone, end to end in real Chromium.
 
-The demo runs behind a stand-in for a public HTTPS tunnel: Chrome asks for https://alerts.example,
+The demo runs behind a stand-in for a public HTTPS tunnel: the browser asks for https://alerts.example,
 and each request reaches the local server with the forwarding headers a tunnel adds. One browser
 context is the computer, where the person signs in and adds a passkey. A second, separate context is
 the phone: it never signs in, and it holds a copy of the same passkey, the way a synced passkey
 (iCloud Keychain, Google Password Manager) reaches a phone. The phone opens the one-time link the
 card would show as a QR code, approves with the passkey, and the agent's status call sees the result.
-It needs Python Playwright and CHROMIUM_BIN.
+It needs Python Playwright, and PHP with this repository's Composer dependencies. It runs the browser
+CHROMIUM_BIN names, else a chromium on the path, else Playwright's own Chromium.
 """
 import html
 import http.client
@@ -175,7 +176,7 @@ def main():
                 phone.goto(f"{ORIGIN}/approval/{request_id}#return=handoff")
                 phone.locator("[data-approve]").click()
                 expect(phone.locator(".notice")).to_contain_text("completed", timeout=15000)
-                expect(phone.locator("[data-return-hint]")).to_contain_text("Claude on your computer")
+                expect(phone.locator("[data-return-hint]")).to_contain_text("on your computer to see the result")
                 if SHOTS:
                     phone.screenshot(path=str(SHOTS / "phone-2-approved.png"))
                 assert row()["mutation_count"] == 1 and row()["published_revision"] == 1

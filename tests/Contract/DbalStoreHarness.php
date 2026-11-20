@@ -87,6 +87,11 @@ abstract class DbalStoreHarness extends StoreHarness
         return new static($location);
     }
 
+    public function close(): void
+    {
+        $this->connection->close();
+    }
+
     public function service(): ApprovalService
     {
         return $this->service;
@@ -150,6 +155,31 @@ abstract class DbalStoreHarness extends StoreHarness
     {
         $this->action->failAfterWrite = 'after_write' === $how;
         $this->action->alterAfterWrite = 'postcondition' === $how;
+        // Past DBAL, which still counts the transaction afterwards: through the driver's own connection, or in SQL.
+        $connection = $this->connection;
+        $native = static function () use ($connection): \PDO {
+            $pdo = $connection->getNativeConnection();
+            \assert($pdo instanceof \PDO);
+
+            return $pdo;
+        };
+        $this->action->afterPostconditions = match ($how) {
+            'commit' => static fn () => $native()->commit(),
+            'roll_back' => static fn () => $native()->rollBack(),
+            'begin_again' => static fn () => $native()->rollBack() && $native()->beginTransaction(),
+            'sql_roll_back' => static fn () => $connection->executeStatement('ROLLBACK'),
+            // DBAL cannot roll the nested transaction back once the root under it has ended, and still counts it.
+            'nested_roll_back' => static function () use ($connection, $native): void {
+                try {
+                    $connection->transactional(static function () use ($native): void {
+                        $native()->rollBack();
+                        throw new \RuntimeException('The best-effort work failed.');
+                    });
+                } catch (\Throwable) {
+                }
+            },
+            default => null,
+        };
     }
 
     public function attempt(string $change, int $milliseconds): bool
@@ -176,6 +206,52 @@ abstract class DbalStoreHarness extends StoreHarness
     {
         $writer = $this->observer();
         $writer->executeStatement('UPDATE test_articles SET title = ?, body = ?, revision = revision + 1 WHERE id = ?', [$title, $body, $id]);
+        $writer->close();
+    }
+
+    public function editRecord(string $requestId, string $part, \Closure $edit): void
+    {
+        [$table, $column, $key] = match ($part) {
+            'proposal', 'digest', 'status', 'result', 'proof' => [ApprovalSchema::REQUESTS, $part, 'id'],
+            'execution' => [ApprovalSchema::EXECUTIONS, 'record', 'request_id'],
+            'signature' => [ApprovalSchema::RECEIPTS, 'signature', 'request_id'],
+            default => throw new \InvalidArgumentException('Unknown part: '.$part),
+        };
+        $writer = $this->observer();
+        try {
+            $stored = $writer->fetchOne('SELECT '.$column.' FROM '.$table.' WHERE '.$key.' = ?', [$requestId]);
+            if (!\is_string($stored)) {
+                throw new \RuntimeException('Nothing is stored there.');
+            }
+            $writer->executeStatement('UPDATE '.$table.' SET '.$column.' = ? WHERE '.$key.' = ?', [$edit($stored), $requestId]);
+        } finally {
+            $writer->close();
+        }
+    }
+
+    public function editCeremony(string $ceremonyId, string $part, \Closure $edit): void
+    {
+        $column = match ($part) {
+            'options', 'nonce', 'expires_at' => $part,
+            default => throw new \InvalidArgumentException('Unknown part: '.$part),
+        };
+        $writer = $this->observer();
+        try {
+            $stored = $writer->fetchOne('SELECT '.$column.' FROM '.ApprovalSchema::CEREMONIES.' WHERE id = ?', [$ceremonyId]);
+            if (!\is_string($stored)) {
+                throw new \RuntimeException('Nothing is stored there.');
+            }
+            $writer->executeStatement('UPDATE '.ApprovalSchema::CEREMONIES.' SET '.$column.' = ? WHERE id = ?', [$edit($stored), $ceremonyId]);
+        } finally {
+            $writer->close();
+        }
+    }
+
+    /** Files a request under another tenant and resource in the columns a history is read by, from a connection of its own. */
+    public function refile(string $requestId, string $tenantId, string $resource): void
+    {
+        $writer = $this->observer();
+        $writer->executeStatement('UPDATE '.ApprovalSchema::REQUESTS.' SET tenant_id = ?, resource_key = ? WHERE id = ?', [$tenantId, hash('sha256', $resource), $requestId]);
         $writer->close();
     }
 

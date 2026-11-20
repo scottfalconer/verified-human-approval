@@ -442,6 +442,59 @@ final class ApplicationIntegrationTest extends TestCase
         }
     }
 
+    public function testAPublicationRetryIsRefusedOnceItsWorkingDraftIsSavedWithOtherText(): void
+    {
+        $id = $this->createDraft('mcp', 'Opening hours', 'The library opens at nine.');
+        $arguments = ['page_id' => $id, 'request_key' => 'publication-retry'];
+        $requestId = $this->tool('editor', 'publish_page', $arguments)->structuredContent['requestId'];
+        $this->assertApproved($requestId);
+
+        $this->saveDraft('mcp', $id, 'Opening hours', 'The library opens at nine.');
+        $retry = $this->tool('editor', 'publish_page', $arguments);
+        self::assertFalse($retry->isError, json_encode($retry->structuredContent));
+        self::assertSame(['completed', $requestId, true], [$retry->structuredContent['status'], $retry->structuredContent['requestId'], $retry->structuredContent['approval']['earlier']], 'The draft saved again with the same text is what the key published.');
+
+        $this->saveDraft('mcp', $id, 'Opening hours', 'The library opens at ten.');
+        $refused = $this->tool('editor', 'publish_page', $arguments);
+        self::assertTrue($refused->isError, json_encode($refused->structuredContent));
+        self::assertSame(['rejected', 'idempotency_conflict'], [$refused->structuredContent['status'], $refused->structuredContent['reason']], 'The key names the text it published, not the draft saved since.');
+        self::assertSame('The library opens at nine.', $this->row($id)['live_body']);
+        self::assertSame(1, $this->executionsFor($requestId));
+    }
+
+    public function testAnArchiveRetryReturnsItsOutcomeUntilThePageIsPublishedAgain(): void
+    {
+        $id = $this->published('mcp', 'Road closure', 'The bridge is closed.');
+        $arguments = ['page_id' => $id, 'request_key' => 'archive-retry'];
+        $archive = $this->tool('editor', 'archive_page', $arguments)->structuredContent['requestId'];
+        $this->assertApproved($archive);
+        $retry = $this->tool('editor', 'archive_page', $arguments);
+        self::assertFalse($retry->isError, json_encode($retry->structuredContent));
+        self::assertSame(['completed', $archive, true], [$retry->structuredContent['status'], $retry->structuredContent['requestId'], $retry->structuredContent['approval']['earlier']], 'An archived page cannot be archived again, so the recorded outcome stands.');
+
+        $this->assertApproved($this->ask('mcp', 'publish', $id));
+        $refused = $this->tool('editor', 'archive_page', $arguments);
+        self::assertTrue($refused->isError, json_encode($refused->structuredContent));
+        self::assertSame(['rejected', 'idempotency_conflict'], [$refused->structuredContent['status'], $refused->structuredContent['reason']], 'Archiving the page again would move it to a later revision than the one the old key names.');
+        self::assertSame(Page::PUBLISHED, $this->row($id)['status']);
+        self::assertSame(1, $this->executionsFor($archive));
+    }
+
+    public function testALiveEditRetryReturnsItsOutcomeAfterALaterLiveEdit(): void
+    {
+        $id = $this->published('mcp', 'Timetable', 'The service runs hourly.');
+        $first = ['page_id' => $id, 'request_key' => 'first-live-edit', 'title' => 'Timetable', 'body' => 'The service runs every 30 minutes.'];
+        $edit = $this->tool('editor', 'edit_live_page', $first)->structuredContent['requestId'];
+        $this->assertApproved($edit);
+        $this->assertApproved($this->ask('mcp', 'edit-live', $id, ['title' => 'Timetable', 'body' => 'The service runs every 15 minutes.']));
+
+        $retry = $this->tool('editor', 'edit_live_page', $first);
+        self::assertFalse($retry->isError, json_encode($retry->structuredContent));
+        self::assertSame(['completed', $edit, true], [$retry->structuredContent['status'], $retry->structuredContent['requestId'], $retry->structuredContent['approval']['earlier']], 'Its effect holds the text it asked for, not the revision, so the later edit leaves its key matching.');
+        self::assertSame('The service runs every 15 minutes.', $this->row($id)['live_body'], 'Nothing ran again.');
+        self::assertSame(1, $this->executionsFor($edit));
+    }
+
     /** @return iterable<string, array{string}> */
     public static function unguardedWrites(): iterable
     {
@@ -501,6 +554,100 @@ final class ApplicationIntegrationTest extends TestCase
         self::assertNotSame($proposal, $corrupt);
         $this->database->executeStatement('UPDATE '.ApprovalSchema::REQUESTS.' SET proposal = ? WHERE id = ?', [$corrupt, $requestId]);
         $this->assertPublic($id, 'Verified story', 'A visible article with signed approval.', false);
+    }
+
+    /** @return iterable<string, array{string, bool}> an edit that leaves a stored record unreadable, and whether its proposal still shows whose it is */
+    public static function editsPastReading(): iterable
+    {
+        yield 'one character of the proposal' => ["proposal = substr(proposal, 1, 20) || 'X' || substr(proposal, 22)", false];
+        yield 'the result, to text that is not JSON' => ["result = 'published'", true];
+    }
+
+    /** A record edited so far that it cannot be read back keeps its place in the history, and nothing in it is shown as what happened. */
+    #[DataProvider('editsPastReading')]
+    public function testARecordEditedPastReadingStaysInTheHistoryAsOneThatCannotBeRead(string $edit, bool $showsOwner): void
+    {
+        $id = $this->published('web', 'Recorded change', 'A page with an approval history.');
+        $damaged = $this->row($id)['live_request_id'];
+        $this->ask('web', 'archive', $id);
+        $this->database->executeStatement('UPDATE '.ApprovalSchema::REQUESTS.' SET '.$edit.' WHERE id = ?', [$damaged]);
+
+        foreach ($showsOwner ? ['editor' => 'View request', 'reader' => 'Another account’s request'] : ['editor' => $damaged, 'reader' => $damaged] as $account => $record) {
+            $browser = $this->browser($account);
+            $rows = $browser->request('GET', self::ORIGIN.'/desk/history/'.$id)->filter('tbody tr');
+            self::assertSame(200, $browser->getResponse()->getStatusCode(), $account.': a damaged record does not take the history down.');
+            self::assertCount(2, $rows, $account);
+            self::assertStringContainsString('Archive published page: Recorded change', $rows->eq(0)->text(), $account.': the records that read back are listed as before.');
+            self::assertSame(['This record cannot be read', 'Integrity error', 'Cannot be confirmed', $record], $rows->eq(1)->filter('td')->each(static fn (Crawler $cell): string => $cell->text()), $account);
+        }
+        if ($showsOwner) {
+            $editor = $this->browser();
+            $editor->request('GET', self::ORIGIN.(string) $editor->getCrawler()->filter('tbody tr')->eq(1)->filter('a')->attr('href'));
+            self::assertSame(409, $editor->getResponse()->getStatusCode(), 'Its owner’s link opens the page that says its outcome cannot be confirmed.');
+        }
+    }
+
+    /** @return iterable<string, array{string, bool}> an edit that keeps a record's stored parts in agreement, and whether it is to the waiting request */
+    public static function editsThatAgree(): iterable
+    {
+        yield 'a waiting request, made out to have completed' => ['forge', true];
+        yield 'the receipt of a completed request, deleted' => ['delete receipt', false];
+        yield 'the result of a completed request, changed in both places it is stored' => ['change result', false];
+    }
+
+    /** Edited parts that agree pass assertConsistent(); only the receipt signed as the change committed shows the edit. */
+    #[DataProvider('editsThatAgree')]
+    public function testTheHistoryShowsACompletedOutcomeOnlyWhileItsReceiptVerifies(string $edit, bool $waiting): void
+    {
+        $id = $this->published('web', 'Recorded change', 'A page with an approval history.');
+        $publication = $this->row($id)['live_request_id'];
+        $archive = $this->ask('web', 'archive', $id);
+        $damaged = $waiting ? $archive : $publication;
+        if ('forge' === $edit) {
+            $result = (object) ['page_id' => $id, 'status' => Page::ARCHIVED, 'revision' => 2];
+            $digest = (string) $this->database->fetchOne('SELECT digest FROM '.ApprovalSchema::REQUESTS.' WHERE id = ?', [$damaged]);
+            $this->database->executeStatement('UPDATE '.ApprovalSchema::REQUESTS." SET status = 'completed', result = ? WHERE id = ?", [CanonicalJson::encode($result), $damaged]);
+            $this->database->insert(ApprovalSchema::EXECUTIONS, ['request_id' => $damaged, 'record' => CanonicalJson::encode((object) ['requestId' => $damaged, 'proposalDigest' => $digest, 'result' => $result])]);
+        } elseif ('delete receipt' === $edit) {
+            $this->database->executeStatement('DELETE FROM '.ApprovalSchema::RECEIPTS.' WHERE request_id = ?', [$damaged]);
+        } else {
+            $record = CanonicalJson::map(CanonicalJson::decode((string) $this->database->fetchOne('SELECT record FROM '.ApprovalSchema::EXECUTIONS.' WHERE request_id = ?', [$damaged])));
+            $record['result']->revision = 99;
+            $this->database->executeStatement('UPDATE '.ApprovalSchema::EXECUTIONS.' SET record = ? WHERE request_id = ?', [CanonicalJson::encode((object) $record), $damaged]);
+            $this->database->executeStatement('UPDATE '.ApprovalSchema::REQUESTS.' SET result = ? WHERE id = ?', [CanonicalJson::encode($record['result']), $damaged]);
+        }
+        foreach ($this->container()->get(ApprovalHistory::class)->forResource('editorial', $id) as $state) {
+            self::assertInstanceOf(ApprovalState::class, $state);
+            $state->assertConsistent();
+        }
+
+        $browser = $this->browser();
+        $rows = $browser->request('GET', self::ORIGIN.'/desk/history/'.$id)->filter('tbody tr');
+        self::assertSame(200, $browser->getResponse()->getStatusCode());
+        $cells = $rows->each(static fn (Crawler $row): array => $row->filter('td')->each(static fn (Crawler $cell): string => $cell->text()));
+        $untrusted = ['Integrity error', 'Cannot be confirmed', 'View request'];
+        self::assertSame([
+            ['Archive published page: Recorded change', ...($waiting ? $untrusted : ['pending', 'No passkey recorded', 'View request'])],
+            ['Publish working draft: Recorded change', ...($waiting ? ['completed', 'Passkey recorded', 'View request'] : $untrusted)],
+        ], $cells, 'The edited record is not shown with the outcome it claims; the other keeps its own.');
+        $browser->request('GET', self::ORIGIN.'/approval/'.$damaged);
+        self::assertSame(409, $browser->getResponse()->getStatusCode(), 'Its review page says the same.');
+    }
+
+    public function testAskingAgainWhileTheWaitingRequestIsDamagedSaysItsOutcomeCannotBeConfirmed(): void
+    {
+        $id = $this->createDraft('web', 'Waiting change', 'A request whose record is then damaged.');
+        $waiting = $this->ask('web', 'publish', $id);
+        $this->database->executeStatement('UPDATE '.ApprovalSchema::REQUESTS." SET proposal = substr(proposal, 1, 20) || 'X' || substr(proposal, 22) WHERE id = ?", [$waiting]);
+
+        // Without a request key, asking again reuses the proposal still waiting, which no longer reads back.
+        $browser = $this->browser();
+        $page = $browser->request('POST', self::ORIGIN.'/desk/pages/'.$id.'/publish', ['_token' => $this->csrf($browser)]);
+        self::assertSame(409, $browser->getResponse()->getStatusCode());
+        self::assertCount(1, $page->filter('[data-status="integrity_error"]'));
+        self::assertStringContainsString('We cannot confirm this approval’s outcome', $page->text());
+        self::assertSame(0, $this->executionsFor($waiting));
+        $this->assertPublicMissing($id);
     }
 
     private function kernel(): Kernel

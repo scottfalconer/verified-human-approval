@@ -75,13 +75,13 @@ final class ReceiptKeyRotationTest extends TestCase
             self::assertSame([$keyId, 'commit', true], [$result['applicationKeyId'], $result['applicationReportSignedAt'], $result['applicationSignedExecutionReport']]);
         }
 
-        // The earlier one-key file still checks what its key signed, and vouches for nothing else.
+        // The one-key file checks what its key signed, and vouches for nothing else.
         $oneKey = $this->file('receipt-key.json', ['format' => TrustedKeys::SINGLE_KEY_FORMAT, 'keyId' => 'application-1', 'publicKey' => $this->old->publicKey()] + self::site());
         [$exit, , $stderr] = $this->check($before, $oneKey);
         self::assertSame(0, $exit, $stderr);
         [$exit, $stdout, $stderr] = $this->check($after, $oneKey);
         self::assertSame([1, ''], [$exit, $stdout]);
-        self::assertStringContainsString('The receipt is signed with key "application-2", which the trusted keys do not list.', $stderr);
+        self::assertSame("Verification failed: The receipt is signed with key \"application-2\", which the trusted keys do not list.\n", $stderr);
     }
 
     public function testAReceiptClaimingATimeOutsideItsKeysWindowFails(): void
@@ -98,11 +98,11 @@ final class ReceiptKeyRotationTest extends TestCase
             $this->assertRefused($evidence, $this->keys, \sprintf('The receipt claims a time outside the window of its key "%s".', $keyId));
             [$exit, , $stderr] = $this->check($evidence, $keySet);
             self::assertSame(1, $exit);
-            self::assertStringContainsString(\sprintf('outside the window of its key "%s"', $keyId), $stderr);
+            self::assertSame(\sprintf("Verification failed: The receipt claims a time outside the window of its key \"%s\".\n", $keyId), $stderr);
         }
-        // The signatures themselves are genuine: checked against the lone key without a window, as before, each verifies.
-        self::assertSame('application-1', (new ReceiptVerifier())->verify($late, 'application-1', $this->old->publicKey())['keyId']);
-        self::assertSame('application-2', (new ReceiptVerifier())->verify($early, 'application-2', $this->new->publicKey())['keyId']);
+        // The signatures themselves are genuine: checked against the lone key without a window, each verifies.
+        self::assertSame('application-1', (new ReceiptVerifier())->verify($late, TrustedKeys::single('application-1', $this->old->publicKey()))['keyId']);
+        self::assertSame('application-2', (new ReceiptVerifier())->verify($early, TrustedKeys::single('application-2', $this->new->publicKey()))['keyId']);
     }
 
     public function testEvidenceReadAsArraysIsRefusedWithHowToReadIt(): void
@@ -120,7 +120,14 @@ final class ReceiptKeyRotationTest extends TestCase
 
         // Renaming the key in the receipt to a trusted one breaks what it signed.
         $evidence['receipt']->keyId = 'application-1';
-        $this->assertRefused($evidence, $this->keys, 'Evidence components do not describe the same action.');
+        $this->assertRefused($evidence, $this->keys, 'The trusted key "application-1" did not sign this receipt.');
+
+        // A key set can list one public key under two names, each with a window of its own: the receipt keeps the one it signed.
+        $twice = new TrustedKeys([new TrustedKey('application-9', $stranger->publicKey()), new TrustedKey('application-9-copy', $stranger->publicKey())]);
+        $evidence['receipt']->keyId = 'application-9';
+        self::assertSame('application-9', (new ReceiptVerifier())->verify($evidence, $twice)['keyId']);
+        $evidence['receipt']->keyId = 'application-9-copy';
+        $this->assertRefused($evidence, $twice, 'The receipt names key "application-9-copy", but it was signed as key "application-9".');
     }
 
     public function testAReceiptSignedAtExportIsRefusedOnlyWhenItsKeyRetiredBeforeTheActionWasRecorded(): void
@@ -164,6 +171,44 @@ final class ReceiptKeyRotationTest extends TestCase
         $this->assertNotRead($this->service($this->new, $this->keys), $id, 'The receipt claims a time outside the window of its key "application-2".');
         // Without recorded windows the same service takes its current key's signature at any time, as before a first rotation.
         self::assertSame('completed', $this->service($this->new)->get($this->fixture->actor, $id)->status);
+    }
+
+    public function testTheServiceCommitsNothingWhoseReceiptItsOwnKeysWouldRefuse(): void
+    {
+        $why = static fn (string $keyId): string => \sprintf('The receipt signing key "%s" is not one of the trusted keys at this time, so its receipt would not verify. List it in the trusted keys with a window that includes now.', $keyId);
+        // A host whose clock runs a second behind the new key's window, then a worker still signing with the
+        // retired key after its window closed.
+        foreach (['2026-11-09T11:59:59Z' => $this->new, '2026-11-09T13:00:00Z' => $this->old] as $now => $signer) {
+            $this->fixture->clock->modify($now);
+            $service = $this->service($signer, $this->keys);
+            $pending = $service->request($this->fixture->actor, 'article.publish', ['id' => 1]);
+            $ceremony = $service->begin($this->fixture->reviewer, $pending->request->id);
+            try {
+                $service->complete($this->fixture->reviewer, $ceremony->id, $this->fixture->proof($ceremony));
+                self::fail('An action committed with a receipt its own keys refuse.');
+            } catch (ApprovalException $error) {
+                self::assertSame('execution_failed', $error->reason);
+                self::assertSame($why($signer->keyId()), $error->getPrevious()?->getMessage());
+            }
+            self::assertSame(0, $this->fixture->effectCount());
+            self::assertSame('pending', $service->get($this->fixture->actor, $pending->request->id)->status, 'Nothing was recorded either.');
+        }
+
+        // Where the policy lets the action run without approval, the request itself refuses the same way.
+        $this->fixture->pdo->exec("UPDATE test_policies SET required = 0 WHERE action_id = 'article.publish'");
+        try {
+            $this->service($this->old, $this->keys)->request($this->fixture->actor, 'article.publish', ['id' => 2]);
+            self::fail('An action ran with a receipt its own keys refuse.');
+        } catch (\LogicException $error) {
+            self::assertSame($why('application-1'), $error->getMessage());
+        }
+        self::assertSame(0, $this->fixture->effectCount());
+
+        // With the key whose window covers now, the action runs once and its outcome reads back.
+        $current = $this->service($this->new, $this->keys);
+        $state = $current->request($this->fixture->actor, 'article.publish', ['id' => 2]);
+        self::assertSame(['completed', 'completed'], [$state->status, $current->get($this->fixture->actor, $state->request->id)->status]);
+        self::assertSame(1, $this->fixture->effectCount());
     }
 
     /** One approved action, signed at commit when a signer is given; the clock says when. */

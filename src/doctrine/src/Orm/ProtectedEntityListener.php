@@ -115,6 +115,11 @@ final class ProtectedEntityListener
     }
 
     /**
+     * The entity's protection, with its protected fields named as Doctrine names them in a change set: a field of
+     * an embedded object by its path, such as published.title. Marking the embedded property, or naming it in the
+     * configuration, protects each of its fields; a mark on a property of an embeddable, a field or an embedded
+     * object of its own, protects it wherever the embeddable is used.
+     *
      * @param ClassMetadata<object> $metadata
      *
      * @return array{entity: bool, fields: list<string>}
@@ -126,21 +131,66 @@ final class ProtectedEntityListener
             return $this->rules[$class];
         }
         $entity = false;
-        $fields = [];
+        $marked = [];
         for ($reflection = $metadata->getReflectionClass(); false !== $reflection; $reflection = $reflection->getParentClass()) {
             $entity = $entity || [] !== $reflection->getAttributes(RequiresApproval::class);
             foreach ($reflection->getProperties() as $property) {
                 if ([] !== $property->getAttributes(RequiresApproval::class)) {
-                    $fields[] = $property->getName();
+                    $marked[] = $property->getName();
                 }
             }
             if (\array_key_exists($reflection->getName(), $this->protected)) {
                 $configured = $this->protected[$reflection->getName()];
+                foreach ($configured ?? [] as $name) {
+                    if (!$metadata->hasField($name) && !$metadata->hasAssociation($name) && !isset($metadata->embeddedClasses[$name])) {
+                        throw new \LogicException(\sprintf('persistence.protected_entities lists %s::$%s, which Doctrine does not map.', $reflection->getName(), $name));
+                    }
+                }
                 $entity = $entity || null === $configured;
-                $fields = [...$fields, ...($configured ?? [])];
+                $marked = [...$marked, ...($configured ?? [])];
+            }
+        }
+        // An embedded object inside another, such as published.meta, is declared on the outer one's embeddable.
+        foreach ($metadata->embeddedClasses as $path => $embedded) {
+            $outer = null === $embedded->declaredField ? null : ($metadata->embeddedClasses[$embedded->declaredField] ?? null);
+            if (null !== $outer && null !== $embedded->originalField && self::marked($outer->class, $embedded->originalField)) {
+                $marked[] = $path;
+            }
+        }
+        $fields = [];
+        foreach ($marked as $name) {
+            if (!isset($metadata->embeddedClasses[$name])) {
+                $fields[] = $name;
+                continue;
+            }
+            foreach (array_keys($metadata->fieldMappings) as $field) {
+                if (str_starts_with($field, $name.'.')) {
+                    $fields[] = $field;
+                }
+            }
+        }
+        foreach ($metadata->fieldMappings as $field => $mapping) {
+            if (null !== $mapping->originalClass && null !== $mapping->originalField && self::marked($mapping->originalClass, $mapping->originalField)) {
+                $fields[] = $field;
             }
         }
 
         return $this->rules[$class] = ['entity' => $entity, 'fields' => array_values(array_unique($fields))];
+    }
+
+    /**
+     * Whether the property $name of $class, or of the class that declares it, is marked #[RequiresApproval].
+     *
+     * @param class-string $class
+     */
+    private static function marked(string $class, string $name): bool
+    {
+        for ($reflection = new \ReflectionClass($class); false !== $reflection; $reflection = $reflection->getParentClass()) {
+            if ($reflection->hasProperty($name)) {
+                return [] !== $reflection->getProperty($name)->getAttributes(RequiresApproval::class);
+            }
+        }
+
+        return false;
     }
 }

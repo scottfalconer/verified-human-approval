@@ -12,10 +12,10 @@ use Mcp\Schema\Result\InputRequiredResult;
 use Mcp\Server\RequestContext;
 use Mcp\Server\Stateless\InputContext;
 use Mcp\Server\Stateless\RequestMeta;
+use Mcp\Server\Stateless\RequestStateCodec;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalState;
-use VerifiedHumanApproval\Core\CanonicalJson;
 
 /**
  * An optional URL-mode elicitation (MCP 2026-07-28 multi round-trip) for a pending approval.
@@ -77,13 +77,41 @@ final readonly class UrlPrompt
     }
 
     /**
+     * Whether this server can carry a prompt's state to its retry. The SDK signs that state with the key the server
+     * was built with (Builder::setRequestState(), or request_state.key in the MCP bundle), and mintRequestState()
+     * finds it in the session, as this does.
+     */
+    public static function canContinue(RequestContext $context): bool
+    {
+        return $context->getSession()->get(RequestStateCodec::class) instanceof RequestStateCodec;
+    }
+
+    /**
      * Binds a continuation to who called which tool with which arguments.
+     *
+     * The binding is not evidence, so it takes whatever JSON the client sent, decimals included: every object's
+     * keys are put in order, so the order a client sent them in does not matter, and 1 and 1.0 bind alike.
      *
      * @param array<string, mixed> $arguments
      */
     public static function binding(Actor $actor, string $tool, array $arguments): string
     {
-        return hash('sha256', CanonicalJson::encode([self::FORMAT, (object) $actor->toArray(), $tool, (object) $arguments]));
+        return hash('sha256', json_encode([self::FORMAT, $actor->toArray(), $tool, self::sorted($arguments)], \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE));
+    }
+
+    private static function sorted(mixed $value): mixed
+    {
+        if ($value instanceof \stdClass) {
+            $value = get_object_vars($value);
+        }
+        if (!\is_array($value)) {
+            return $value;
+        }
+        if (!array_is_list($value)) {
+            ksort($value, \SORT_STRING);
+        }
+
+        return array_map(self::sorted(...), $value);
     }
 
     /**
@@ -153,6 +181,7 @@ final readonly class UrlPrompt
             'completed' === $state->status => 'The stored action ran once without a passkey: the application\'s rule did not require one. This is its recorded result.',
             'pending' !== $state->status => 'This request is '.$state->status.'. It did not change anything. Request the action again if it is still wanted.',
             'accept' === $answer => 'The person opened the approval page. That is not an approval: the site acts only after its own passkey check. Call '.$statusTool.' with this requestId to read the outcome.',
+            'none' === $answer => 'The client sent no answer to the approval prompt, so nothing was approved or changed. The request is still open: the person can use the review URL to approve or cancel it on the site.',
             default => 'The approval prompt was dismissed, so nothing was approved or changed. The request is still open: the person can use the review URL to approve or cancel it on the site.',
         };
     }

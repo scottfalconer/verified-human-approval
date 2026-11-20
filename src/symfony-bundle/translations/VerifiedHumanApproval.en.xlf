@@ -146,8 +146,8 @@
                 <target>This request can no longer be approved: something it depends on changed after it was made.</target>
             </trans-unit>
             <trans-unit id="review.stopped.denied_detail">
-                <source>This account is no longer allowed to do this.</source>
-                <target>This account is no longer allowed to do this.</target>
+                <source>This request is no longer allowed.</source>
+                <target>This request is no longer allowed.</target>
             </trans-unit>
             <trans-unit id="review.stopped.other">
                 <source>Stopped: nothing changed.</source>
@@ -353,18 +353,18 @@
                 <target>The connection dropped before the site answered, so we can’t confirm whether the request was cancelled. Reload this page to see where it stands.</target>
             </trans-unit>
             <trans-unit id="script.return.app">
-                <source>Claude already shows the result. This tab can be closed.</source>
-                <target>Claude already shows the result. This tab can be closed.</target>
+                <source>Return to Claude to see the result. You can close this tab.</source>
+                <target>Return to Claude to see the result. You can close this tab.</target>
                 <note>Shown after approval when Claude's approval card in its desktop or mobile app opened the page.</note>
             </trans-unit>
             <trans-unit id="script.return.handoff">
-                <source>Done. %agent% on your computer already shows the result.</source>
-                <target>Done. %agent% on your computer already shows the result.</target>
+                <source>Done. Return to %agent% on your computer to see the result.</source>
+                <target>Done. Return to %agent% on your computer to see the result.</target>
                 <note>Shown on a phone that opened the approval with a one-time code from the computer.</note>
             </trans-unit>
             <trans-unit id="script.return.tab">
-                <source>Switch back to your Claude tab: it already shows the result.</source>
-                <target>Switch back to your Claude tab: it already shows the result.</target>
+                <source>Switch back to your Claude tab to see the result.</source>
+                <target>Switch back to your Claude tab to see the result.</target>
                 <note>Shown when Claude's approval card on the web opened the page.</note>
             </trans-unit>
 
@@ -395,6 +395,15 @@
             <trans-unit id="handoff.expired.explanation">
                 <source>Each phone code works once, for two minutes. Show a new code in %agent% and scan it again.</source>
                 <target>Each phone code works once, for two minutes. Show a new code in %agent% and scan it again.</target>
+            </trans-unit>
+
+            <trans-unit id="review.unavailable.title">
+                <source>Approval unavailable</source>
+                <target>Approval unavailable</target>
+            </trans-unit>
+            <trans-unit id="review.unavailable.next">
+                <source>Check the review link and sign in with the account that requested the approval.</source>
+                <target>Check the review link and sign in with the account that requested the approval.</target>
             </trans-unit>
 
             <trans-unit id="integrity.title">

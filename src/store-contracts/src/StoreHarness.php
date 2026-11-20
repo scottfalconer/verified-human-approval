@@ -30,7 +30,7 @@ use VerifiedHumanApproval\StoreContracts\Fixture\TestProofVerifier;
  */
 abstract class StoreHarness
 {
-    /** The ordinary writers' changes a test can make: what attempt() and the named methods below perform. */
+    /** The ordinary writers' changes a test can make with attempt(). editArticle() and revokeGrant() make the first two, and must succeed. */
     public const CHANGES = ['edit_article', 'revoke_grant', 'revoke_permission', 'revoke_credential', 'change_policy'];
 
     public readonly Faults $faults;
@@ -48,6 +48,17 @@ abstract class StoreHarness
 
     /** A new connection to prepared data. It runs no DDL, so concurrent workers can use it. */
     abstract public static function connect(string $location): static;
+
+    /**
+     * Closes the connection connect() opened. The contract closes every harness a test connected when the test ends,
+     * before destroy(), rather than wait for PHP to free it: the authorizer's afterCheck closure over the harness puts
+     * it in a reference cycle, which PHP frees only when it next collects cycles, and until then its connection stays
+     * open and counts against the database server's limit. The default does nothing, for a store with no connection
+     * to close.
+     */
+    public function close(): void
+    {
+    }
 
     /** The service, over the adapter wrapped with this harness's faults. */
     abstract public function service(): ApprovalService;
@@ -71,7 +82,15 @@ abstract class StoreHarness
     /** @return array{revision: int, body: string, published: bool} the article as durably stored */
     abstract public function article(int $id = 1): array;
 
-    /** Makes the protected action fail after its write ('after_write'), or break its postcondition ('postcondition'); null mends it. */
+    /**
+     * Makes the protected action fail after its write ('after_write'), or break its postcondition ('postcondition'),
+     * or end the approval transaction itself once its postconditions hold, as code on the adapter's connection could
+     * without the adapter: commit it ('commit'), roll it back ('roll_back'), roll it back and begin another
+     * ('begin_again'), roll it back in SQL ('sql_roll_back'), as some databases do by themselves after an error, or
+     * roll it back from inside a nested transaction of the action's own, a savepoint, and carry on as if that
+     * best-effort work had merely failed ('nested_roll_back'), which can leave the adapter counting it as open.
+     * Null mends it.
+     */
     abstract public function breakAction(?string $how): void;
 
     /**
@@ -82,6 +101,23 @@ abstract class StoreHarness
 
     /** Replaces an article's title and body, as an editor would, from a connection of its own. */
     abstract public function writeArticle(int $id, string $title, string $body): void;
+
+    /**
+     * Rewrites one stored part of a request's record from a connection of its own, as someone with write access to
+     * the database could: its 'proposal', 'digest', 'status', 'result' or 'proof', its 'execution' record, or its
+     * receipt's 'signature'. $edit is given the text stored there and returns the text that replaces it.
+     *
+     * @param \Closure(string): string $edit
+     */
+    abstract public function editRecord(string $requestId, string $part, \Closure $edit): void;
+
+    /**
+     * Rewrites one stored part of a passkey ceremony from a connection of its own, as editRecord() does for a
+     * request: its 'options', its 'nonce' or its expiry ('expires_at').
+     *
+     * @param \Closure(string): string $edit
+     */
+    abstract public function editCeremony(string $ceremonyId, string $part, \Closure $edit): void;
 
     /** Makes the next insert of an execution record or a receipt fail inside the storage itself. */
     abstract public function failInserts(string $what): void;
@@ -111,21 +147,6 @@ abstract class StoreHarness
     public function revokeGrant(): void
     {
         $this->mustCommit('revoke_grant');
-    }
-
-    public function revokePermission(): void
-    {
-        $this->mustCommit('revoke_permission');
-    }
-
-    public function changePolicy(): void
-    {
-        $this->mustCommit('change_policy');
-    }
-
-    public function revokeCredential(): void
-    {
-        $this->mustCommit('revoke_credential');
     }
 
     public function actor(): Actor

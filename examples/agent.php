@@ -7,6 +7,7 @@ use Symfony\AI\Agent\Bridge\Mcp\McpToolbox;
 use Symfony\AI\Platform\Bridge\OpenAi\Factory;
 use Symfony\AI\Platform\Message\Message;
 use Symfony\AI\Platform\Message\MessageBag;
+use Symfony\AI\Platform\Message\ToolCallMessage;
 use Symfony\AI\Platform\Result\TextResult;
 use Symfony\AI\Platform\Result\ToolCall;
 use Symfony\AI\Platform\Result\ToolCallResult;
@@ -47,11 +48,19 @@ try {
     );
     $execution = $agent->call($messages);
     echo $execution->getContent(), "\n";
-    if ($scripted) {
-        foreach ($execution->getMessages()->getMessages() as $message) {
-            if ($message instanceof Symfony\AI\Platform\Message\ToolCallMessage) {
-                echo $message->asText(), "\n";
-            }
+    foreach ($execution->getMessages()->getMessages() as $message) {
+        if (!$message instanceof ToolCallMessage) {
+            continue;
+        }
+        // Read as objects, so that an empty object prints as {}, not [].
+        $text = (string) $message->asText();
+        $result = json_decode($text);
+        if ($scripted) {
+            echo null === $result ? $text : json_encode($result, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE | \JSON_THROW_ON_ERROR), "\n";
+        }
+        // The link the application returned, whatever the model made of it.
+        if ($result instanceof stdClass && is_string($result->review_url ?? null)) {
+            echo "\nReview and approve: ", $result->review_url, "\n";
         }
     }
     $tools->disconnect();

@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Symfony\Component\Clock\MockClock;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 use VerifiedHumanApproval\Tests\Support\InMemoryAuditStore;
 
 /**
@@ -21,7 +22,7 @@ final class AuditStoreTest extends TestCase
     {
         $signer = new SodiumEvidenceSigner('app-key', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
         $store = new InMemoryAuditStore();
-        $log = new AuditLog($store, $signer, $signer->publicKey(), new MockClock('2026-11-09 10:00:00 UTC'));
+        $log = new AuditLog($store, $signer, TrustedKeys::single($signer->keyId(), $signer->publicKey()), new MockClock('2026-11-09 10:00:00 UTC'));
         $log->append('tenant-a', 'passkey.enrolled', 'key-1', ['userId' => 'alice']);
         $log->append('tenant-b', 'passkey.enrolled', 'key-2', ['userId' => 'bob']);
         $log->append('tenant-a', 'alert.taken_down', 'alert-1', []);

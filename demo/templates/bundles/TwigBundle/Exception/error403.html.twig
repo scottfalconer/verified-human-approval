@@ -1,0 +1,9 @@
+{% extends '@VerifiedHumanApproval/base.html.twig' %}
+{% block title %}Access denied{% endblock %}
+{% block body %}
+<section class="card">
+    <h1>Access denied</h1>
+    <p>Your account or session does not have access to this page or action.</p>
+    <p><a href="{{ path('demo_home') }}">Back to public alerts</a></p>
+</section>
+{% endblock %}

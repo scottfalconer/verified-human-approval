@@ -12,6 +12,8 @@ use VerifiedHumanApproval\Bundle\ContentSecurityPolicy;
 /**
  * verified_human_approval_csp_nonce(): the nonce the review pages' Content-Security-Policy allows on this response,
  * for an inline script or style in your layout, such as {{ importmap('app', {nonce: verified_human_approval_csp_nonce()}) }}.
+ *
+ * @internal the bundle registers it; call its Twig function
  */
 final class ContentSecurityPolicyExtension extends AbstractExtension
 {

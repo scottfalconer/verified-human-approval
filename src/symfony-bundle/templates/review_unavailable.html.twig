@@ -1,0 +1,9 @@
+{% extends '@VerifiedHumanApproval/base.html.twig' %}
+{% trans_default_domain 'VerifiedHumanApproval' %}
+{% block title %}{{ 'Approval unavailable'|trans }}{% endblock %}
+{% block body %}
+<section class="card">
+    <h1>{{ 'Approval unavailable'|trans }}</h1>
+    <p>{{ 'Check the review link and sign in with the account that requested the approval.'|trans }}</p>
+</section>
+{% endblock %}

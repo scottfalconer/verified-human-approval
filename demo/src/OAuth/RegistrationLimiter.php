@@ -12,8 +12,8 @@ use Symfony\Component\HttpKernel\KernelEvents;
 use Symfony\Component\RateLimiter\RateLimiterFactoryInterface;
 
 /**
- * Open client registration (omouren/mcp-oauth-bundle's /oauth/register) has a budget per address, so nobody
- * can fill the client table. It runs after routing, before the registration controller.
+ * Open client registration (omouren/mcp-oauth-bundle's /oauth/register), where a runtime offers it, has a budget
+ * per address, so nobody can fill the client table. It runs after routing, before the registration controller.
  */
 #[AsEventListener(event: KernelEvents::REQUEST, priority: 4)]
 final readonly class RegistrationLimiter

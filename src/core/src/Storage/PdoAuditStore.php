@@ -9,8 +9,8 @@ use VerifiedHumanApproval\Core\Audit\AuditStore;
 /**
  * The signed security log's rows in SQLite, on the application's own PDO connection.
  *
- * A host transaction it joins must be started with PDO::beginTransaction(), so that PDO reports it; this
- * store then never commits or rolls it back.
+ * A host transaction it joins must be started with PDO::beginTransaction(), so that PDO reports it, as
+ * PdoApprovalStore starts the approval transaction; this store then never commits or rolls it back.
  *
  * @phpstan-import-type AuditHead from AuditStore
  * @phpstan-import-type AuditRecord from AuditStore
@@ -19,12 +19,15 @@ final readonly class PdoAuditStore implements AuditStore
 {
     private const TABLE = 'verified_human_approval_audit';
 
+    /** Works on the connection as it is, as PdoApprovalStore does, and refuses one that does not throw on errors. */
     public function __construct(private \PDO $pdo)
     {
         if ('sqlite' !== $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME)) {
             throw new \InvalidArgumentException('This audit adapter supports SQLite only; supply an AuditStore for other databases.');
         }
-        $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+        if (\PDO::ERRMODE_EXCEPTION !== $pdo->getAttribute(\PDO::ATTR_ERRMODE)) {
+            throw new \InvalidArgumentException('This adapter needs a connection that throws on errors: set PDO::ATTR_ERRMODE to PDO::ERRMODE_EXCEPTION.');
+        }
     }
 
     /** Creates the table and its index. An installation step: never part of an append. */

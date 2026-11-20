@@ -38,8 +38,8 @@ final readonly class ConnectionOpeningCodeManager implements AuthorizationCodeMa
                 throw new \LogicException('A new authorization code needs an enabled person.');
             }
             $client = $authCode->getClient();
-            // A client that names no scope gets the default ones, all of them, as the consent page told the person.
-            $scopes = array_map('strval', $authCode->getScopes()) ?: array_keys(ConsentExtension::SCOPE_DESCRIPTIONS);
+            // A client that names no scope gets its own, as its token will and as the consent page told the person.
+            $scopes = ConsentRequest::grantedScopes(array_map(strval(...), $authCode->getScopes()), array_map(strval(...), $client->getScopes()));
             // Retire old credentials first. Saving this code first would revoke it along with the old ones.
             $grantId = $this->connections->open((string) $user['id'], (string) $user['tenant_id'], $client->getIdentifier(), $client->getName(), $scopes);
             $this->codes->insert($authCode, $grantId);

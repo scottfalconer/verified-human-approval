@@ -11,8 +11,8 @@ use VerifiedHumanApproval\Demo\DemoDatabase;
 use VerifiedHumanApproval\Demo\Security\DemoUser;
 
 /**
- * What the consent page (omouren/mcp-oauth-bundle's, with the demo's template) tells the person: what the
- * client asks to do, and what their role's rule means for its requests. Connecting never approves anything.
+ * What the consent page tells the person: what the client asks to do, and what their role's rule means for its
+ * requests. Connecting never approves anything.
  */
 final class ConsentExtension extends AbstractExtension
 {
@@ -34,12 +34,15 @@ final class ConsentExtension extends AbstractExtension
         ];
     }
 
-    /** @return list<string> what each requested scope lets the client do; all of them when none is named */
-    public static function scopes(?string $requested): array
+    /**
+     * @param list<string> $scopes
+     *
+     * @return list<string> what each of these scopes lets the client do
+     */
+    public static function scopes(array $scopes): array
     {
-        $names = null === $requested || '' === trim($requested) ? array_keys(self::SCOPE_DESCRIPTIONS) : (preg_split('/\s+/', trim($requested)) ?: []);
-
-        return array_values(array_intersect_key(self::SCOPE_DESCRIPTIONS, array_flip($names)));
+        // A scope the page cannot describe is never left off it: the person would allow more than they were told.
+        return array_map(static fn (string $scope): string => self::SCOPE_DESCRIPTIONS[$scope] ?? throw new \LogicException('The consent page has no description of the scope "'.$scope.'".'), $scopes);
     }
 
     /** The signed-in person's rule for issuing alerts: approval, direct or denied. */

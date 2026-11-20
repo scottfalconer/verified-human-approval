@@ -13,6 +13,7 @@ use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
 use VerifiedHumanApproval\Core\Evidence\Receipt;
 use VerifiedHumanApproval\Core\Evidence\ReceiptVerifier;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 use VerifiedHumanApproval\Doctrine\ApprovalSchema;
 use VerifiedHumanApproval\Tests\Doctrine\Fixture\Document;
 use VerifiedHumanApproval\Tests\Doctrine\Fixture\Memo;
@@ -39,6 +40,11 @@ abstract class EntityActionTestCase extends TestCase
 
     protected function tearDown(): void
     {
+        // The fixture and its entity manager hold the connection in reference cycles, which PHP frees only when it
+        // collects them.
+        if (isset($this->fixture)) {
+            $this->fixture->connection->close();
+        }
         if (null !== $this->location) {
             TestDatabase::drop(static::KIND, $this->location);
         }
@@ -53,7 +59,7 @@ abstract class EntityActionTestCase extends TestCase
 
         $stored = $this->fixture->stored();
         self::assertSame(['Spring notice', 'Approved words.', 3, $request->request->id], [$stored['published_title'], $stored['published_body'], (int) $stored['published_revision'], $stored['approval_request_id']]);
-        $receipt = (new ReceiptVerifier())->verify((new EvidenceExporter())->export($completed), $this->fixture->signer->keyId(), $this->fixture->signer->publicKey());
+        $receipt = (new ReceiptVerifier())->verify((new EvidenceExporter())->export($completed), TrustedKeys::single($this->fixture->signer->keyId(), $this->fixture->signer->publicKey()));
         self::assertSame(Receipt::COMMIT, $receipt['receiptSignedAt'], 'The receipt was signed after the flush, in the same transaction.');
         self::assertFalse($this->fixture->connection->isTransactionActive());
     }

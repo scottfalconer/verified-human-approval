@@ -20,7 +20,6 @@
     "omouren/mcp-oauth-bundle": "^1.2",
     "psr/clock": "^1.0",
     "psr/log": "^1.1 || ^2.0 || ^3.0",
-    "root23/php-json-canonicalization": "^1.0",
     "symfony/ai-agent": "^1.0@beta",
     "symfony/ai-mcp-tool": "^1.0@beta",
     "symfony/ai-open-ai-platform": "^1.0@beta",
@@ -89,7 +88,10 @@
     }
   },
   "scripts": {
-    "test": "@php vendor/bin/phpunit",
+    "test": [
+      "Composer\\Config::disableProcessTimeout",
+      "@php vendor/bin/phpunit"
+    ],
     "analyse": "@php vendor/bin/phpstan analyse --memory-limit=512M",
     "cs": "@php vendor/bin/php-cs-fixer fix --dry-run --diff",
     "cs:fix": "@php vendor/bin/php-cs-fixer fix"

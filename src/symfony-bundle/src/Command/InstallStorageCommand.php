@@ -9,6 +9,7 @@ use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Style\SymfonyStyle;
 use VerifiedHumanApproval\Doctrine\ApprovalSchema;
 
 /**
@@ -27,7 +28,7 @@ final class InstallStorageCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         ApprovalSchema::install($this->connection);
-        $output->writeln('Approval storage is ready.');
+        (new SymfonyStyle($input, $output))->success('Approval storage is ready.');
 
         return Command::SUCCESS;
     }

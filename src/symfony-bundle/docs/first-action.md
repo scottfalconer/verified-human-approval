@@ -70,7 +70,9 @@ final class Database
 }
 ```
 
-Do not create another PDO in the action or credential repository. Do not wrap `ApprovalService` calls in a transaction: `PdoApprovalStore` owns the outer `BEGIN IMMEDIATE` transaction.
+The PDO stores (`verified-human-approval/core`) and `PdoCredentialRepository` (`verified-human-approval/webauthn`) use this connection as it is and change none of its settings. They refuse one that does not throw on errors, and an approval waits for another writer for as long as the busy timeout set here allows: ten seconds.
+
+Do not create another PDO in the action or credential repository. Do not wrap `ApprovalService` calls in a transaction: `PdoApprovalStore` begins the outer transaction itself, with `PDO::beginTransaction()`, and refuses to begin inside another one. Its first statement is a write that changes nothing, which takes SQLite's write reservation before anything is read, as `BEGIN IMMEDIATE` would, and holds it until the transaction ends. Your action must not end that transaction either: once code on the connection commits or rolls it back, the store refuses every later write, so the approval records no outcome and the request stays pending, even when the action's own commit has already made its change.
 
 This example uses the SQLite PDO store. On Doctrine (SQLite, PostgreSQL, MySQL or MariaDB), use your DoctrineBundle connection instead of this PDO, let the bundle wire the storage with `persistence: { driver: doctrine }` as [Storage on Doctrine](index.md#storage-on-doctrine) describes, and lock what your authorizer and action read with `DbalTransaction::forShare()` and `forUpdate()`.
 
@@ -166,7 +168,7 @@ services:
         arguments:
             $store: '@VerifiedHumanApproval\Core\Storage\PdoAuditStore'
             $signer: '@VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner'
-            $trustedPublicKey: '@VerifiedHumanApproval\Core\Evidence\TrustedKeys'
+            $keys: '@VerifiedHumanApproval\Core\Evidence\TrustedKeys'
             $clock: '@verified_human_approval.clock'
 
     # Verification reads passkeys through the anchored wrapper, and the wrapper reads the raw rows.
@@ -268,7 +270,7 @@ Your existing authentication layer supplies these values from validated server-s
 | Trusted browser login | Stable user and tenant IDs; `approvalDelegationId()` returns `null`; `hasInteractiveSession()` returns `true` |
 | Personal MCP bearer | Same account/tenant; the stored grant ID; `hasInteractiveSession()` returns `false` |
 
-`hasInteractiveSession()` describes how this request was authenticated. It is not a role the client can choose. The MCP authenticator validates the bearer, current account, grant and expiry on each request, then sets a validated `AccessToken` at the request attribute `AccessToken::class`. This example expects its `sub` claim to equal the principal's user ID and `grant_id` to equal its delegation ID. The SDK exposes that same token through `RequestContext::getAccessToken()`.
+`hasInteractiveSession()` describes how this request was authenticated. It is not a role the client can choose. The MCP authenticator validates the bearer, current account, grant and expiry on each request, then sets a validated `AccessToken` at the request attribute `AccessToken::class`. This example expects its `sub` claim to equal the principal's user ID and `grant_id` to equal its delegation ID: `$request->attributes->set(AccessToken::class, new AccessToken($scopes, ['sub' => $userId, 'grant_id' => $grantId]))`, where `$scopes` are the grant's stored scopes. The SDK exposes that same token through `RequestContext::getAccessToken()`.
 
 Use the application's existing authentication code for that step. The demo's [resource-server authenticator](https://github.com/scottfalconer/verified-human-approval/blob/main/demo/src/Security/AgentTokenAuthenticator.php) illustrates the SDK handoff; its token issuance and account model are demo-specific.
 
@@ -625,7 +627,7 @@ final readonly class PublishDocumentTool
     #[McpTool(
         name: 'publish_document',
         title: 'Publish a document',
-        description: 'Request publication of a draft. When pending, show the review URL and wait for the person to approve. Reuse request_key for retries. Read approval_status afterwards; pending does not mean published.',
+        description: 'Request publication of a draft. When pending, show the review URL and wait for the person to approve. Read approval_status afterwards; pending does not mean published. To retry, call again with the same arguments.',
         annotations: new ToolAnnotations(readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false),
         meta: ApprovalCard::TOOL_META,
         outputSchema: ApprovalFlow::OUTPUT_SCHEMA,
@@ -633,8 +635,10 @@ final readonly class PublishDocumentTool
     public function publish(
         RequestContext $context,
         #[Schema(description: 'The existing document ID in the authenticated tenant.')] string $document_id,
-        #[Schema(description: 'Reuse this value when retrying the same request.')] ?string $request_key = null,
+        #[Schema(description: ApprovalFlow::REQUEST_KEY_DESCRIPTION)] ?string $request_key = null,
     ): CallToolResult|InputRequiredResult {
+        // A model that fills in every argument may send an empty key: that is no key.
+        $request_key = '' === $request_key ? null : $request_key;
         try {
             $actor = $this->actors->current();
             $token = $context->getAccessToken()
@@ -667,7 +671,9 @@ final readonly class PublishDocumentTool
 }
 ```
 
-`ApprovalFlow::errorResult()` builds the error result every tool should return: `status`, `reason` and `message`, as text and as structured content that fits `ApprovalFlow::OUTPUT_SCHEMA`. A refusal is `rejected`. A stored request that fails the [integrity check](index.md#stored-receipts-and-later-verification) is `integrity_error`: the site cannot vouch for its outcome, so the agent must not report it as refused or as not having happened.
+`ApprovalFlow::errorResult()` builds the error result a protected tool returns: `status`, `reason` and `message`, as text and as structured content that fits `ApprovalFlow::OUTPUT_SCHEMA`. A refusal is `rejected`. A stored request that fails the [integrity check](index.md#stored-receipts-and-later-verification) is `integrity_error`: the site cannot vouch for its outcome, so the agent must not report it as refused or as not having happened.
+
+Describe the request key argument with `ApprovalFlow::REQUEST_KEY_DESCRIPTION`. A request key suits a client that generates a unique id for each new request. Asked for one in the demo, Claude models built it from the alert's id, its revision and sometimes the date, and often built the same key again in a later conversation. The application then returns the earlier request and its outcome, and the person is not asked again. With the description, those models left the argument out. Without a key, a repeated call returns the same pending request, and a new request once the earlier one has finished.
 
 Register this class with the MCP configuration in the [integration guide](index.md#4-register-the-mcp-tools-and-card). Ask the tool to publish a real document belonging to the signed-in tenant. The caller needs an active account with publication permission and a personal grant containing `document.publish` and `approval.read`.
 
@@ -705,6 +711,8 @@ On Doctrine, use `php bin/console verified-human-approval:install` for the packa
 
 Apply your application schema through your normal migration process before making a request. The package installation command creates only the approval, credential and audit tables. Keep those tables, the document tables and the signing key persistent.
 
+Serve the application so that every request for a path that is not a file in `public/` reaches `public/index.php`, as the Symfony CLI's `symfony serve` does. PHP's built-in server started with only `-t public` treats any path with an extension as a file, so `/approval/receipt-keys.json` answers 404 there.
+
 Use a real test account in your application, enroll its passkey through your trusted process, and create a draft through your normal application flow. Check these outcomes:
 
 | Check | Expected result |
@@ -718,8 +726,8 @@ Use a real test account in your application, enroll its passkey through your tru
 | Revoke the initiating grant or publication permission before completing | Approval stops; nothing is published |
 | Call `PublishDocument::execute()` directly | `approval_required`; no business write |
 | Cause a postcondition or signing failure | The business write, credential update and receipt commit all roll back |
-| Download the receipt from the completed review page, then check it and an edited copy against `/approval/receipt-keys.json` | The original verifies; the edited copy fails. See the evidence guide |
+| Download the receipt from the completed review page, then check it and an edited copy against `/approval/receipt-keys.json` | The original verifies; the edited copy fails |
 | Open `/approval/receipt-keys.json` while signed out | The public keys, readable only if the bundle's access-control rule from the integration guide is in place |
 | Run `php bin/console verified-human-approval:audit-head` | The audit log's newest sequence and hash, and that every entry verifies |
 
-The [evidence guide](https://github.com/scottfalconer/verified-human-approval/blob/main/docs/evidence.md) explains how to download the original receipt and verify it against the application's published keys, and against the trusted enrollment record to check the passkey signature too. Reading `approval_status` alone is not that verification step.
+[Verify a receipt](https://github.com/scottfalconer/verified-human-approval/blob/main/docs/evidence.md) explains how to download the original receipt and verify it against the application's published keys, and against the trusted enrollment record to check the passkey signature too. Reading `approval_status` alone is not that verification step.

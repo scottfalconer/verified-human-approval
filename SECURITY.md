@@ -26,11 +26,12 @@ This is maintained by one person. Expect an acknowledgement within a week, and a
 - authority, policy and preconditions are checked again when it runs;
 - the change, the proof and the receipt commit together, or not at all;
 - receipts and the signed audit log reveal later edits;
-- the review pages resist the browser-side attacks that model lists.
+- the review pages enforce the browser controls that model lists, such as CSRF protection, session-to-ceremony pairing and frame blocking.
 
-**Also welcome:** anything in the demo that would mislead someone copying it. The demo is reference code, not a hardened product: its own security notes, and the [conformance review](docs/conformance-review.md), say what it simplifies.
+**Also welcome:** anything in the demo that would mislead someone copying it. The demo is reference code, not a hardened product: [its guide](demo/README.md) and [Authentication ownership](demo/authentication.md) say which parts are reference code.
 
 **Out of scope:**
 
-- the limits the documentation already states, such as a host that writes outside the approval service, a stolen signing key backdating records, or a compromised device or authenticator;
+- the limits the security model already states, such as a write that does not go through the guarded mutation service, a stolen signing key backdating records into its window, or the two audit-log edits that only a checkpoint kept elsewhere shows: cutting the newest entries off, and rewriting them with a retired key's private half;
+- a compromised device, browser or authenticator;
 - denial of service through volume alone.

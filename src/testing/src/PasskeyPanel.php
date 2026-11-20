@@ -384,7 +384,7 @@ final readonly class PasskeyPanel
     }
 
     /**
-     * The policy a browser applies: the last word it recognises across the page's Referrer-Policy headers.
+     * The policy a browser applies: the last word it recognizes across the page's Referrer-Policy headers.
      *
      * @param array<mixed>|string|null $headers
      */

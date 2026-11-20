@@ -1,7 +1,8 @@
 {# The demo's frame around every page, the bundle's review pages included: its name and, for a signed-in person, the
    site's pages, who they are and a way to sign out. A phone holding only a one-request approval session sees none of it. #}
 {% extends '@!VerifiedHumanApproval/base.html.twig' %}
-{% block stylesheets %}<link rel="stylesheet" href="{{ path('demo_styles') }}">{% endblock %}
+{# The only block the bundle's layout opens in the head, so the site's icon goes here with its styles. #}
+{% block stylesheets %}<link rel="icon" href="{{ asset('favicon.svg') }}" type="image/svg+xml"><link rel="stylesheet" href="{{ path('demo_styles') }}">{% endblock %}
 {% block header %}
 <header class="site">
     <a href="{{ path('demo_home') }}">Verified Human Approval</a>

@@ -49,6 +49,8 @@ final class LayoutAndLanguageTest extends TestCase
             $browser->getKernel()->shutdown();
         }
         (new Filesystem())->remove($this->runtime);
+        // ReviewKernel trusts app.example only, and Symfony keeps that for the whole process.
+        Request::setTrustedHosts([]);
     }
 
     public function testEachResponseHasANonceThatThePolicyAndTheLayoutShare(): void
@@ -236,9 +238,9 @@ final class LayoutAndLanguageTest extends TestCase
         self::assertSame('Back to your Claude tab', $done->filter('[data-return-tab]')->text());
         self::assertSame('You can close this tab and return to Aria.', $done->filter('[data-return-hint]')->text());
         self::assertSame([
-            'returnApp' => 'Claude already shows the result. This tab can be closed.',
-            'returnHandoff' => 'Done. Aria on your computer already shows the result.',
-            'returnTab' => 'Switch back to your Claude tab: it already shows the result.',
+            'returnApp' => 'Return to Claude to see the result. You can close this tab.',
+            'returnHandoff' => 'Done. Return to Aria on your computer to see the result.',
+            'returnTab' => 'Switch back to your Claude tab to see the result.',
         ], $this->messages($done, '[data-return]'));
         self::assertNotNull($done->filter('[data-return]')->attr('hidden'), 'The ways back stay hidden until the card asks for one.');
         self::assertCount(0, $done->filterXPath("//body//text()[contains(., 'Claude')][not(ancestor::*[@hidden])]"), 'Nothing a person sees by default names Claude.');
@@ -306,7 +308,8 @@ final class LayoutAndLanguageTest extends TestCase
         self::assertSame('Approved with your passkey. This request is completed.', $done->filter('.notice.outcome')->text());
         self::assertSame('Back to Claude', $done->filter('[data-return-app]')->text());
         self::assertSame('Back to your Claude tab', $done->filter('[data-return-tab]')->text());
-        self::assertSame('You can close this tab and return to Claude.', $done->filter('[data-return-hint]')->text());
+        // Unless the application names its agent, the page names none: any agent's host can open it.
+        self::assertSame('You can close this tab and return to your AI assistant.', $done->filter('[data-return-hint]')->text());
         $return = $this->messages($done, '[data-return]');
         self::assertSame(array_intersect_key(self::english(), $return), $return);
         self::assertCount(3, $return);
@@ -316,7 +319,7 @@ final class LayoutAndLanguageTest extends TestCase
 
         $expired = $browser->request('GET', self::ORIGIN.self::NO_CODE);
         self::assertSame('Link expired', $expired->filter('title')->text());
-        self::assertSame('Each phone code works once, for two minutes. Show a new code in Claude and scan it again.', $expired->filter('main p')->text());
+        self::assertSame('Each phone code works once, for two minutes. Show a new code in your AI assistant and scan it again.', $expired->filter('main p')->text());
     }
 
     public function testTheEnglishCatalogueHoldsExactlyTheStringsThePagesTranslate(): void
@@ -346,10 +349,38 @@ final class LayoutAndLanguageTest extends TestCase
         // The script's own English is the catalogue's, so a page that hands over no wording reads the same.
         foreach (self::english() as $key => $english) {
             if (!\in_array($key, ['registered', 'unconfirmedRegistration', 'unconfirmedConfirm'], true)) {
-                // The ways back that open Claude name Claude; the rest name the configured agent.
-                self::assertArrayHasKey(\in_array($key, ['returnApp', 'returnTab'], true) ? $english : str_replace('Claude', '%agent%', $english), $catalogue, $key);
+                // The ways back that open Claude name Claude; the rest name the configured agent, by default this one.
+                self::assertArrayHasKey(\in_array($key, ['returnApp', 'returnTab'], true) ? $english : str_replace('your AI assistant', '%agent%', $english), $catalogue, $key);
             }
         }
+    }
+
+    /** @return iterable<string, array{array<string, mixed>, string}> what a host page passes, and the line under the page */
+    public static function integrityPageContexts(): iterable
+    {
+        yield 'the request' => [['id' => 'apr_'.str_repeat('a', 32)], 'Request apr_'.str_repeat('a', 32).' · Reason code: record_integrity_error'];
+        yield 'a null id' => [['id' => null], 'Reason code: record_integrity_error'];
+        yield 'no id' => [[], 'Reason code: record_integrity_error'];
+    }
+
+    /**
+     * A host page renders the integrity page itself when a request it made meets a damaged record, with the request
+     * or without one, also with strict variables on, as they are in debug mode.
+     *
+     * @param array<string, mixed> $context
+     */
+    #[DataProvider('integrityPageContexts')]
+    public function testAHostPageRendersTheIntegrityPageWithOrWithoutTheRequest(array $context, string $line): void
+    {
+        $browser = $this->browser();
+        $browser->getKernel()->boot();
+        $twig = $browser->getContainer()->get('twig');
+        self::assertInstanceOf(Environment::class, $twig);
+        self::assertTrue($twig->isStrictVariables());
+
+        $page = new Crawler($twig->render('@VerifiedHumanApproval/integrity_error.html.twig', $context));
+        self::assertSame('We cannot confirm this approval’s outcome', $page->filter('[data-status="integrity_error"] h1')->text());
+        self::assertSame($line, $page->filter('[data-status="integrity_error"] p.small')->text());
     }
 
     /**

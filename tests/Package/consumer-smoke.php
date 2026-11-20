@@ -20,6 +20,7 @@ use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalService;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 use VerifiedHumanApproval\Doctrine\ApprovalSchema;
 use VerifiedHumanApproval\Doctrine\DbalApprovalStore;
 use VerifiedHumanApproval\Doctrine\DbalAuditStore;
@@ -69,7 +70,7 @@ $check('consumer.test' === ($options['rp']['id'] ?? null) && is_string($options[
 
 if ('mcp' === $variant) {
     $check(str_starts_with($from(ApprovalCard::class), $vendor.'/verified-human-approval/mcp/'), 'mcp loads from the consumer’s own vendor directory');
-    $resource = ApprovalCard::resource();
+    $resource = ApprovalCard::resource('https://consumer.test', 'approval_status');
     $check(ApprovalCard::URI === $resource->uri && str_contains((string) $resource->text, 'ui/initialize'), 'the MCP card resource loads from the installed package');
 } else {
     $check(!InstalledVersions::isInstalled('verified-human-approval/mcp'), 'mcp is not pulled in when it is not asked for');
@@ -83,7 +84,7 @@ if ('doctrine' === $variant) {
     ApprovalSchema::install($connection);
     $transaction = new DbalTransaction($connection);
     $signer = new SodiumEvidenceSigner('consumer-key', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
-    $log = new AuditLog(new DbalAuditStore($transaction), $signer, $signer->publicKey(), new class implements Psr\Clock\ClockInterface {
+    $log = new AuditLog(new DbalAuditStore($transaction), $signer, TrustedKeys::single($signer->keyId(), $signer->publicKey()), new class implements Psr\Clock\ClockInterface {
         public function now(): DateTimeImmutable
         {
             return new DateTimeImmutable('2026-11-09T10:00:00Z');

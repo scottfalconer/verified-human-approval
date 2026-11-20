@@ -7,17 +7,19 @@ import vm from 'node:vm';
 const card = new URL('../src/mcp/resources/approval-card.html', import.meta.url);
 const script = readFileSync(card, 'utf8').match(/<script>([\s\S]*?)<\/script>/)[1];
 const flush = async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); };
-const approval = (status = 'pending', requestId = 'r1') => ({ content: [], structuredContent: { approval: {
+const approval = (status = 'pending', requestId = 'r1', extra = {}) => ({ content: [], structuredContent: { approval: {
   requestId, status, approvedWithPasskey: status === 'completed', reviewUrl: `https://alerts.example/approval/${requestId}`,
-  statusTool: 'approval_status', handoffTool: 'approval_handoff', statement: 'I approve this exact public alert.',
+  statusTool: 'approval_status', handoffTool: 'approval_handoff', statement: 'I approve this exact public alert.', ...extra,
 } } });
 const phoneReply = (requestId = 'r1') => ({ content: [], structuredContent: {
   requestId, modules: Array(21).fill('0'.repeat(21)), expiresIn: 120,
 } });
+// What the server writes into the card (ApprovalCard::html()): the application's origin and its tools.
+const ALERTS = { origin: 'https://alerts.example', statusTool: 'approval_status', handoffTool: 'approval_handoff' };
 
-function host() {
+function host(application = ALERTS) {
   let now = 0, sequence = 0;
-  const timers = new Map(), messages = [], listeners = {}, elements = new Map(), answered = new Set();
+  const timers = new Map(), messages = [], listeners = {}, elements = new Map(), answered = new Set(), applied = new Map(), resized = [];
   function element(id) {
     if (!elements.has(id)) elements.set(id, {
       hidden: true, disabled: false, textContent: id === 'status' ? 'Waiting for the request…' : '', children: [], handlers: {},
@@ -26,14 +28,19 @@ function host() {
     });
     return elements.get(id);
   }
+  // As the template leaves it when the server writes nothing in: {}.
+  element('card-application').textContent = JSON.stringify(application);
   const parent = { postMessage(message) { messages.push(structuredClone(message)); } };
   const document = {
-    hidden: false, body: { dataset: {} }, documentElement: { scrollHeight: 300, dataset: {}, style: { setProperty() {} } },
+    hidden: false, body: { dataset: {} },
+    documentElement: { scrollHeight: 300, dataset: {}, style: { setProperty(name, value) { applied.set(name, value); }, removeProperty(name) { applied.delete(name); } } },
     getElementById: element, createElementNS: (_ns, name) => element(`svg-${name}-${++sequence}`),
     addEventListener(name, handler) { listeners[`document-${name}`] = handler; },
   };
   const context = vm.createContext({
     parent, URL, Map, Promise, Error, navigator: { userAgent: 'card-lifecycle-test' }, document,
+    // Records what the card watches; a test calls it back as the browser would after a reflow.
+    ResizeObserver: class { constructor(callback) { this.callback = callback; } observe(target) { resized.push(() => this.callback([{ target }])); } },
     Date: class extends Date { static now() { return now; } },
     addEventListener(name, handler) { listeners[name] = handler; },
     setTimeout(callback, delay) { const id = ++sequence; timers.set(id, { callback, at: now + delay }); return id; },
@@ -44,11 +51,16 @@ function host() {
   return {
     element, messages, dispatch,
     status: () => element('status').textContent,
-    // The status the card's colour follows (body[data-status]).
+    // The status the card's color follows (body[data-status]).
     shade: () => document.body.dataset.status,
+    // The theme and the style variables the card has put on its root element.
+    theme: () => document.documentElement.dataset.theme,
+    variables: () => Object.fromEntries(applied),
     call: name => messages.findLast(m => m.method === 'tools/call' && m.params.name === name),
     calls: name => messages.filter(m => m.method === 'tools/call' && m.params.name === name).length,
     opened: () => messages.findLast(m => m.method === 'ui/open-link'),
+    sizes: () => messages.filter(m => m.method === 'ui/notifications/size-changed').length,
+    reflow() { for (const observer of resized) observer(); },
     async visible(value) { document.hidden = !value; listeners['document-visibilitychange'](); await flush(); },
     // Lets time pass a second at a time while the site answers every status check with "pending".
     async pendingFor(milliseconds) {
@@ -58,8 +70,9 @@ function host() {
         if (check && !answered.has(check.id)) { answered.add(check.id); await this.reply(check, approval()); }
       }
     },
-    async initialize(capabilities = { openLinks: {}, serverTools: {} }) {
-      dispatch({ id: messages[0].id, result: { protocolVersion: '2026-01-26', hostCapabilities: capabilities, hostContext: { platform: 'web' } } });
+    // The host's answer to ui/initialize. Unless a test says, the host does not name itself.
+    async initialize(capabilities = { openLinks: {}, serverTools: {} }, context = { platform: 'web' }, info = undefined) {
+      dispatch({ id: messages[0].id, result: { protocolVersion: '2026-01-26', hostCapabilities: capabilities, hostInfo: info, hostContext: context } });
       await flush();
     },
     show(result = approval()) { dispatch({ method: 'ui/notifications/tool-result', params: result }); },
@@ -137,6 +150,108 @@ test('an old handoff cannot populate a replacement approval', async () => {
   assert.equal(h.element('phone-show').disabled, false);
   h.element('phone-show').handlers.click(); await flush();
   assert.equal(h.call('approval_handoff').params.arguments.request_id, 'r2');
+});
+
+test('a host that also announces the card’s own calls, as the specification draws them, changes nothing the card shows', async () => {
+  const echo = (call, result) => {
+    h.dispatch({ method: 'ui/notifications/tool-input', params: { arguments: call.params.arguments } });
+    h.dispatch({ method: 'ui/notifications/tool-result', params: result });
+  };
+  const h = host(); await h.initialize(); h.show();
+  // Announced before the reply, for the phone code.
+  let click = h.element('phone-show').handlers.click(); await flush();
+  let held = h.call('approval_handoff');
+  echo(held, phoneReply());
+  await h.reply(held, phoneReply()); await click;
+  assert.equal(h.element('phone-code').hidden, false);
+  assert.equal(h.element('open').hidden, false);
+  assert.equal(h.status(), 'Waiting for your approval on your phone. Nothing has changed yet.');
+  // After the reply, and a refusal the card's call met.
+  click = h.element('phone-show').handlers.click(); await flush();
+  held = h.call('approval_handoff');
+  const refusal = { isError: true, content: [], structuredContent: { status: 'rejected', reason: 'rate_limited', message: 'Too many phone codes.' } };
+  await h.reply(held, refusal); await click;
+  echo(held, refusal);
+  assert.match(h.status(), /^The phone code could not be made\./);
+  assert.equal(h.shade(), 'pending');
+  // A status check's result comes with its reply, not with the announcement.
+  await h.advance(3000);
+  const check = h.call('approval_status');
+  echo(check, approval('completed'));
+  assert.match(h.status(), /^The phone code could not be made\./);
+  await h.reply(check, approval('completed'));
+  assert.equal(h.status(), 'Approved with a passkey. The site recorded the change.');
+  // A call the host makes itself is still a new request.
+  h.dispatch({ method: 'ui/notifications/tool-input', params: { arguments: { alert_id: 'riverside-evacuation' } } });
+  assert.equal(h.status(), 'Waiting for the request…');
+  h.show(approval('pending', 'r2'));
+  assert.equal(h.status(), 'Waiting for approval on the site. Nothing has changed yet.');
+});
+
+for (const order of ['in the order they were made', 'in the other order']) {
+  test(`two of the card’s calls that overlap, announced together and answered ${order}, change nothing the card shows`, async () => {
+    const h = host(); await h.initialize(); h.show();
+    // The phone code is asked for, and a status check goes out before it is answered: the same arguments, twice.
+    const click = h.element('phone-show').handlers.click(); await flush();
+    const phone = h.call('approval_handoff');
+    await h.advance(3000);
+    const check = h.call('approval_status');
+    assert.deepEqual(check.params.arguments, phone.params.arguments);
+    for (const call of [phone, check]) h.dispatch({ method: 'ui/notifications/tool-input', params: { arguments: call.params.arguments } });
+    const results = [phoneReply(), approval()];
+    for (const result of order === 'in the order they were made' ? results : results.reverse()) h.dispatch({ method: 'ui/notifications/tool-result', params: result });
+    await h.reply(phone, phoneReply()); await click;
+    await h.reply(check, approval());
+    assert.equal(h.element('phone-code').hidden, false);
+    assert.equal(h.element('open').hidden, false);
+    assert.equal(h.status(), 'Waiting for your approval on your phone. Nothing has changed yet.');
+    await h.advance(3000);
+    await h.reply(h.call('approval_status'), approval('completed'));
+    assert.equal(h.status(), 'Approved with a passkey. The site recorded the change.');
+  });
+}
+
+test('a host that announces one of the card’s calls twice changes nothing the card shows', async () => {
+  const announce = (call) => h.dispatch({ method: 'ui/notifications/tool-input', params: { arguments: call.params.arguments } });
+  const h = host(); await h.initialize(); h.show();
+  // The phone code's call, announced twice before its one result.
+  const click = h.element('phone-show').handlers.click(); await flush();
+  const phone = h.call('approval_handoff');
+  announce(phone); announce(phone);
+  h.dispatch({ method: 'ui/notifications/tool-result', params: phoneReply() });
+  await h.reply(phone, phoneReply()); await click;
+  assert.equal(h.element('phone-code').hidden, false);
+  assert.equal(h.status(), 'Waiting for your approval on your phone. Nothing has changed yet.');
+  // A status check, announced twice and its result sent twice.
+  await h.advance(3000);
+  const check = h.call('approval_status');
+  announce(check); announce(check);
+  await h.reply(check, approval());
+  for (let i = 0; i < 2; i++) h.dispatch({ method: 'ui/notifications/tool-result', params: approval() });
+  assert.equal(h.element('phone-code').hidden, false);
+  assert.equal(h.status(), 'Waiting for your approval on your phone. Nothing has changed yet.');
+  // The card still checks, and shows what the site records.
+  await h.advance(3000);
+  await h.reply(h.call('approval_status'), approval('completed'));
+  assert.equal(h.status(), 'Approved with a passkey. The site recorded the change.');
+  // A call the host makes itself is still a new request.
+  h.dispatch({ method: 'ui/notifications/tool-input', params: { arguments: { alert_id: 'riverside-evacuation' } } });
+  assert.equal(h.status(), 'Waiting for the request…');
+});
+
+test('a call the host announced without its result does not hide the next request’s refusal', async () => {
+  const h = host(); await h.initialize(); h.show();
+  await h.advance(3000);
+  const check = h.call('approval_status');
+  // The host announces the status check and answers it, but never sends its tool-result.
+  h.dispatch({ method: 'ui/notifications/tool-input', params: { arguments: check.params.arguments } });
+  await h.reply(check, approval());
+  // The model asks again, and the site refuses that call without naming a request.
+  h.dispatch({ method: 'ui/notifications/tool-input', params: { arguments: { alert_id: 'riverside-evacuation' } } });
+  assert.equal(h.status(), 'Waiting for the request…');
+  h.show({ isError: true, content: [], structuredContent: { status: 'rejected', reason: 'rate_limited', message: 'Too many requests for approval from this account.' } });
+  assert.equal(h.status(), 'The site refused this request. Nothing changed.');
+  assert.equal(h.shade(), 'rejected');
 });
 
 test('teardown retires outstanding UI work and acknowledges the host', async () => {
@@ -242,7 +357,135 @@ test('a phone code that cannot be made points at a way the person still has', as
   }
 });
 
-test('a new request does not inherit the colour of the one before it', async () => {
+test('a result that links to another site is not shown, and the card opens and calls nothing for it', async () => {
+  const elsewhere = 'This result names a page on another site, so this card does not show it.';
+  for (const reviewUrl of ['https://alerts.example.evil.test/approval/r1', 'https://alerts.example:8443/approval/r1', 'http://localhost/approval/r1', 'not a link']) {
+    const h = host(); await h.initialize();
+    h.show(approval('pending', 'r1', { reviewUrl, statusTool: 'read_alert', handoffTool: 'publish_alert' }));
+    assert.equal(h.status(), elsewhere, reviewUrl);
+    assert.equal(h.element('site').textContent, 'Approval');
+    assert.equal(h.element('statement').hidden, true);
+    assert.equal(h.element('open').hidden, true);
+    assert.equal(h.element('phone-show').hidden, true);
+    await h.element('open').handlers.click(); await h.element('phone-show').handlers.click();
+    await h.advance(60000);
+    assert.equal(h.messages.some(m => m.method === 'tools/call' || m.method === 'ui/open-link'), false, reviewUrl);
+  }
+  // A status check that answers with another site's link confirms nothing, and the request stays the one shown.
+  const h = host(); await h.initialize(); h.show();
+  await h.advance(3000);
+  await h.reply(h.call('approval_status'), approval('completed', 'r1', { reviewUrl: 'https://alerts.example.evil.test/approval/r1' }));
+  assert.equal(h.status(), 'This card can’t confirm the current status. Check the site before trying again.');
+  assert.equal(h.element('site').textContent, 'Approval needed on alerts.example');
+  // A card its server wrote nothing into opens and calls nothing.
+  const unwritten = host({}); await unwritten.initialize(); unwritten.show();
+  assert.equal(unwritten.status(), elsewhere);
+  await unwritten.advance(60000);
+  assert.equal(unwritten.messages.some(m => m.method === 'tools/call' || m.method === 'ui/open-link'), false);
+});
+
+test('the card calls only the tools its server wrote in, and a result can leave the phone out but not name another', async () => {
+  const h = host(); await h.initialize();
+  h.show(approval('pending', 'r1', { statusTool: 'read_alert', handoffTool: 'publish_alert' }));
+  assert.equal(h.element('open').hidden, false, 'The link is the site’s own.');
+  assert.equal(h.element('phone-show').hidden, true);
+  assert.match(h.status(), /can’t check the result in this app/);
+  await h.element('phone-show').handlers.click();
+  await h.advance(60000);
+  assert.equal(h.messages.some(m => m.method === 'tools/call'), false);
+  // A server without the phone tool writes none in: a result that names one is not offered the phone.
+  const unoffered = host({ ...ALERTS, handoffTool: null }); await unoffered.initialize(); unoffered.show();
+  assert.equal(unoffered.element('phone-show').hidden, true);
+  await unoffered.element('phone-show').handlers.click();
+  assert.equal(unoffered.calls('approval_handoff'), 0);
+  await unoffered.advance(3000);
+  assert.equal(unoffered.calls('approval_status'), 1, 'The status tool is still the site’s.');
+  // And a result for one request can go without it.
+  const left = host(); await left.initialize(); left.show(approval('pending', 'r1', { handoffTool: null }));
+  assert.equal(left.element('phone-show').hidden, true);
+});
+
+test('a request key that named a finished request shows its earlier outcome, not a new approval', async () => {
+  const h = host(); await h.initialize();
+  h.show(approval('completed', 'r1', { earlier: true, completedAt: '2026-11-08T10:01:00Z' }));
+  const when = new Date('2026-11-08T10:01:00Z').toLocaleString('en', { dateStyle: 'medium', timeStyle: 'short' });
+  assert.equal(h.status(), `Completed earlier, on ${when}. Nothing ran now.`);
+  assert.equal(h.element('site').textContent, 'Earlier request on alerts.example');
+  assert.equal(h.shade(), 'completed');
+  // A stopped one says what it always says, under the same heading, and neither is checked again.
+  const stopped = host(); await stopped.initialize();
+  stopped.show(approval('cancelled', 'r2', { earlier: true, completedAt: null }));
+  assert.equal(stopped.status(), 'Cancelled on the site. Nothing changed.');
+  assert.equal(stopped.element('site').textContent, 'Earlier request on alerts.example');
+  await h.advance(60000); await stopped.advance(60000);
+  assert.equal(h.calls('approval_status') + stopped.calls('approval_status'), 0);
+  // A completion this call made reads as it always has.
+  const fresh = host(); await fresh.initialize(); fresh.show(approval('completed', 'r3', { earlier: false, completedAt: '2026-11-08T10:01:00Z' }));
+  assert.equal(fresh.status(), 'Approved with a passkey. The site recorded the change.');
+  assert.equal(fresh.element('site').textContent, 'alerts.example');
+});
+
+test('a stopped request is told in the review page’s words, with no cause the site did not record', async () => {
+  const invalidated = 'This request can no longer be approved: something it depends on changed after it was made. Nothing changed.';
+  const denied = 'This request is no longer allowed. Nothing changed.';
+  for (const [status, reason, line] of [['invalidated', 'policy_changed', invalidated], ['invalidated', 'stale_resource', invalidated],
+    ['denied', 'delegation_revoked', denied], ['denied', 'permission_denied', denied]]) {
+    const h = host(); await h.initialize(); h.show();
+    await h.advance(3000);
+    await h.reply(h.call('approval_status'), approval(status, 'r1', { reason }));
+    assert.equal(h.status(), line, `${status} / ${reason}`);
+  }
+});
+
+test('only a host that names itself Claude is sent back by Claude’s links; any other host gets the page’s own line', async () => {
+  const opens = async (info, context) => {
+    const h = host(); await h.initialize(undefined, context, info); h.show();
+    const click = h.element('open').handlers.click(); await flush();
+    const url = h.opened().params.url;
+    await h.reply(h.opened(), {}); await click;
+    return url.slice('https://alerts.example/approval/r1'.length);
+  };
+  assert.equal(await opens({ name: 'claude-desktop', version: '1.0.0' }, { platform: 'desktop' }), '#return=claude-desktop');
+  assert.equal(await opens({ name: 'Claude', version: '1.0.0' }, { platform: 'mobile' }), '#return=claude-mobile');
+  assert.equal(await opens(undefined, { platform: 'web', userAgent: 'claude.ai/1.0' }), '#return=claude-web');
+  for (const [info, context] of [[{ name: 'vscode', version: '1.110' }, { platform: 'desktop' }], [{ name: 'chatgpt', version: '1' }, { platform: 'web' }],
+    [{ name: 'basic-host', version: '1' }, {}], [undefined, { platform: 'mobile' }], [undefined, {}]]) {
+    assert.equal(await opens(info, context), '#return=agent', JSON.stringify([info, context]));
+  }
+});
+
+test('a host on a phone is offered no phone code, whoever it is', async () => {
+  for (const info of [{ name: 'claude-ios', version: '1' }, { name: 'another-host', version: '1' }, undefined]) {
+    const h = host(); await h.initialize(undefined, { platform: 'mobile' }, info); h.show();
+    assert.equal(h.element('phone-show').hidden, true, JSON.stringify(info));
+  }
+  const h = host(); await h.initialize(undefined, { platform: 'desktop' }, { name: 'vscode', version: '1.110' }); h.show();
+  assert.equal(h.element('phone-show').hidden, false);
+});
+
+test('a refusal that names no request is shown as a refusal, and an unknown status as it is', async () => {
+  const h = host(); await h.initialize();
+  h.show({ isError: true, content: [], structuredContent: { status: 'rejected', reason: 'permission_denied', message: 'This account may not issue alerts.' } });
+  assert.equal(h.status(), 'The site refused this request. Nothing changed.');
+  assert.equal(h.shade(), 'rejected');
+  assert.equal(h.element('open').hidden, true);
+  for (const status of ['constructor', '__proto__', 'toString', 'completedDirect', 'interrupted']) {
+    const g = host(); await g.initialize(); g.show(approval(status));
+    assert.equal(g.status(), `Status: ${status}.`, status);
+  }
+});
+
+test('the card declares that it is drawn inline, and reports its size when the host restyles it', async () => {
+  const h = host();
+  assert.deepEqual(h.messages[0].params.appCapabilities, { availableDisplayModes: ['inline'] });
+  await h.initialize(); h.show();
+  const before = h.sizes();
+  h.dispatch({ method: 'ui/notifications/host-context-changed', params: { styles: { variables: { '--font-text-md-size': '22px' } } } });
+  h.reflow();
+  assert.equal(h.sizes(), before + 1);
+});
+
+test('a new request does not inherit the color of the one before it', async () => {
   const h = host(); await h.initialize(); h.show(approval('completed'));
   assert.equal(h.shade(), 'completed');
   h.dispatch({ method: 'ui/notifications/tool-input', params: { arguments: {} } });
@@ -250,6 +493,25 @@ test('a new request does not inherit the colour of the one before it', async () 
   assert.equal(h.status(), 'Waiting for the request…');
   h.show(approval('pending', 'r2'));
   assert.equal(h.shade(), 'pending');
+});
+
+test('where the card cannot see its colors it starts all the same, with its own colors and the host’s font', async () => {
+  // This shim computes no styles, like a browser that will not report them or read a canvas back.
+  const h = host();
+  await h.initialize(undefined, { theme: 'dark', styles: { variables: {
+    '--color-text-primary': '#141413', '--color-background-primary': '#ffffff', '--font-sans': 'Georgia, serif', 'border-radius-md': '3px',
+    '--font-weight-semibold': undefined, '--fg': '#141413',
+  } } });
+  assert.equal(h.status(), 'Waiting for the request…');
+  assert.equal(h.theme(), 'dark');
+  // The host's colors are not used unseen, and a variable outside the specification cannot replace one of the card's own.
+  assert.deepEqual(h.variables(), { '--font-sans': 'Georgia, serif', '--border-radius-md': '3px' });
+  h.show();
+  assert.equal(h.element('open').hidden, false);
+  // A change of theme alone is taken, and the colors sent earlier are still not used unseen.
+  h.dispatch({ method: 'ui/notifications/host-context-changed', params: { theme: 'light' } });
+  assert.equal(h.theme(), 'light');
+  assert.deepEqual(h.variables(), { '--font-sans': 'Georgia, serif', '--border-radius-md': '3px' });
 });
 
 test('an unanswered open-link request is not reported as a refusal, and a refusal is', async () => {

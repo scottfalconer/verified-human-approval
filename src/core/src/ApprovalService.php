@@ -50,7 +50,11 @@ final class ApprovalService
         if (!preg_match('/^[A-Za-z0-9_-]{1,32}$/D', $locale)) {
             throw new ApprovalException('invalid_locale', 'Invalid approval locale.');
         }
-        $inputJson = CanonicalJson::encode((object) $input);
+        try {
+            $inputJson = CanonicalJson::encode((object) $input);
+        } catch (\InvalidArgumentException|\JsonException $error) {
+            throw new ApprovalException('invalid_input', 'The action input cannot be approved as it is. '.$error->getMessage(), $error);
+        }
         if (\strlen($inputJson) > 262144) {
             throw new ApprovalException('input_too_large', 'The action input exceeds 256 KiB.');
         }
@@ -58,7 +62,7 @@ final class ApprovalService
 
         $executed = false;
         $state = $this->store->transaction(function () use ($actor, $actionId, $input, $idempotencyKey, $locale, $fingerprint, &$executed): ApprovalState {
-            if (null !== $idempotencyKey && ($existing = $this->store->findByKey($actor, $idempotencyKey)) !== null) {
+            if (null !== $idempotencyKey && ($existing = $this->read($actor, fn (): ?array => $this->store->findByKey($actor, $idempotencyKey))) !== null) {
                 if (!hash_equals($existing['fingerprint'], $fingerprint)) {
                     throw new ApprovalException('idempotency_conflict', 'This request key already belongs to different arguments. Use a new key for a new action.');
                 }
@@ -69,7 +73,7 @@ final class ApprovalService
             }
             // A retry without a key (a client re-sending the call, or MCP re-entering the handler
             // after an elicitation) gets the same pending proposal instead of a second review URL.
-            if (null === $idempotencyKey && ($pending = $this->store->findPending($actor, $fingerprint)) !== null) {
+            if (null === $idempotencyKey && ($pending = $this->read($actor, fn (): ?ApprovalState => $this->store->findPending($actor, $fingerprint))) !== null) {
                 $this->assertOwnedRecord($actor, $pending);
                 $pending = $this->eligible($pending);
                 if ('pending' === $pending->status) {
@@ -138,7 +142,12 @@ final class ApprovalService
     /** @param array<string, mixed> $assertion the browser's WebAuthn response */
     public function complete(Actor $reviewer, string $ceremonyId, array $assertion): ApprovalState
     {
-        if (\strlen(CanonicalJson::encode((object) $assertion)) > 65536) {
+        try {
+            $size = \strlen(CanonicalJson::encode((object) $assertion));
+        } catch (\InvalidArgumentException|\JsonException $error) {
+            throw new ApprovalException('invalid_approval', 'The passkey response could not be read.', $error);
+        }
+        if ($size > 65536) {
             throw new ApprovalException('assertion_too_large', 'The passkey response exceeds the allowed size.');
         }
         $executionStarted = false;
@@ -264,19 +273,30 @@ final class ApprovalService
         } else {
             $this->assertCurrent($request);
         }
+        $recordedAt = $this->clock->now();
         $execution = [
             'format' => 'verified-human-approval/execution/v1', 'requestId' => $request->id, 'proposalDigest' => $request->digest,
             'actor' => (object) $actor->toArray(), 'actionId' => $action->actionId, 'actionVersion' => $action->version,
             'target' => (object) $action->target, 'result' => (object) $result,
-            'recordedAt' => ApprovalRequest::timestamp($this->clock->now()),
+            'recordedAt' => ApprovalRequest::timestamp($recordedAt),
             'approval' => null === $proof ? 'not_required' : 'user_verified',
         ];
-        // Signed before commit: if signing fails, nothing executes, so no action goes unrecorded.
+        // Signed before commit: if signing fails, nothing executes, so no action goes unrecorded. Nor does an
+        // action commit with a receipt that this service's own keys would refuse when it reads the outcome back.
+        if (null !== $this->receipts && !$this->receiptKeys($this->receipts)->trusts($this->receipts, $recordedAt)) {
+            throw new \LogicException(\sprintf('The receipt signing key "%s" is not one of the trusted keys at this time, so its receipt would not verify. List it in the trusted keys with a window that includes now.', $this->receipts->keyId()));
+        }
         $receipt = null === $this->receipts ? null : Receipt::sign($this->receipts, $request->digest, $proof, $execution, Receipt::COMMIT);
         $completed = new ApprovalState($request, 'completed', null, $result, $execution, $proof, $receipt);
         $this->store->save($completed);
 
         return $completed;
+    }
+
+    /** The keys this service's receipts are checked against: those it was given, or else its signer's own key alone. */
+    private function receiptKeys(EvidenceSigner $receipts): TrustedKeys
+    {
+        return $this->trustedKeys ?? TrustedKeys::single($receipts->keyId(), $receipts->publicKey());
     }
 
     /** After commit: tell each observer, and never let one change the result the caller gets. */
@@ -350,10 +370,34 @@ final class ApprovalService
 
     private function owned(Actor $actor, string $requestId): ApprovalState
     {
-        $state = $this->store->get($requestId) ?? throw new ApprovalException('not_found', 'The approval request was not found.');
+        $state = $this->read($actor, fn (): ?ApprovalState => $this->store->get($requestId)) ?? throw new ApprovalException('not_found', 'The approval request was not found.');
         $this->assertOwnedRecord($actor, $state);
 
         return $state;
+    }
+
+    /**
+     * Runs one of the store's reads. While a record's proposal reads back it shows whose the record is, so a failure
+     * to read the rest is told to that person alone, and anyone else is told the record was not found. A record whose
+     * proposal does not read back shows no owner: whoever names its id is told that its proposal fails its check, and
+     * nothing about the rest.
+     *
+     * @template T
+     *
+     * @param \Closure(): T $read
+     *
+     * @return T
+     */
+    private function read(Actor $actor, \Closure $read): mixed
+    {
+        try {
+            return $read();
+        } catch (ApprovalException $error) {
+            if (null !== $error->request && !$error->request->actor()->samePerson($actor)) {
+                throw new ApprovalException('not_found', 'The approval request was not found.');
+            }
+            throw $error;
+        }
     }
 
     /**
@@ -382,9 +426,8 @@ final class ApprovalService
             return;
         }
         try {
-            $keys = $this->trustedKeys ?? TrustedKeys::single($this->receipts->keyId(), $this->receipts->publicKey());
             // The exporter without a signer returns the stored receipt or nothing: it never signs one now.
-            $verified = (new ReceiptVerifier())->verify((new EvidenceExporter())->export($state), $keys);
+            $verified = (new ReceiptVerifier())->verify((new EvidenceExporter())->export($state), $this->receiptKeys($this->receipts));
             // A receipt signed at export vouches for the record as it stood then, which may be after an edit.
             if (Receipt::COMMIT !== $verified['receiptSignedAt']) {
                 throw new \UnexpectedValueException('The stored receipt was not signed as the action committed.');

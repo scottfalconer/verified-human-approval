@@ -23,11 +23,17 @@ final class DemoSetup
     public const SCHEMA = 6;
     private const LINK_SECONDS = 7 * 86400;
 
-    /** Returns credentials once. No plaintext account password or token is stored. */
-    public static function initialize(string $directory, string $origin = 'http://localhost:8080'): array
+    /**
+     * Returns credentials once. No plaintext account password or token is stored.
+     *
+     * @param bool|null $dynamicClientRegistration whether OAuth clients may register themselves (RFC 7591), for those
+     *                                             that do not publish a client ID metadata document; by default only
+     *                                             at an origin on this computer
+     */
+    public static function initialize(string $directory, string $origin = 'http://localhost:8080', ?bool $dynamicClientRegistration = null): array
     {
         if (is_file($directory.'/settings.json')) {
-            throw new \RuntimeException('This demo is already initialized; existing accounts were not replaced.');
+            throw new \RuntimeException('This demo is already initialized; existing accounts were not replaced. To replace it with a fresh demo, run setup again with --reset.');
         }
         $rpId = parse_url($origin, \PHP_URL_HOST);
         if (!\is_string($rpId)) {
@@ -98,6 +104,7 @@ final class DemoSetup
             'oauth_private_key' => $oauthPrivateKey,
             'oauth_public_key' => $oauthDetails['key'],
             'oauth_encryption_key' => ChallengeBinding::encode(random_bytes(32)),
+            'dynamic_client_registration' => $dynamicClientRegistration ?? self::isLocal($origin),
             // When that key began signing, and the public keys it replaced, each with the window it signed in.
             'receipt_key_valid_from' => $validFrom,
             'retired_receipt_keys' => [],
@@ -107,5 +114,11 @@ final class DemoSetup
         chmod($directory.'/application.sqlite', 0600);
 
         return ['origin' => $origin, 'accounts' => $credentials, 'receipt_key_id' => $settings['receipt_key_id'], 'receipt_public_key' => $settings['receipt_public_key']];
+    }
+
+    /** Whether the origin is one that only this computer reaches, as a local demo's is. */
+    public static function isLocal(string $origin): bool
+    {
+        return \in_array(parse_url($origin, \PHP_URL_HOST), ['localhost', '127.0.0.1', '[::1]'], true);
     }
 }

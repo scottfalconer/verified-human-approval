@@ -2,10 +2,11 @@
 
 declare(strict_types=1);
 
-// The PHP development server sends every request here. Let it serve the assets assets:install published.
+// The PHP development server sends every request here. Let it serve the site's icon and the assets assets:install published.
 if (\PHP_SAPI === 'cli-server') {
     $path = (string) parse_url($_SERVER['REQUEST_URI'] ?? '/', \PHP_URL_PATH);
-    if (str_starts_with($path, '/bundles/') && !str_contains($path, '..') && is_file(__DIR__.$path)) {
+    $static = '/favicon.svg' === $path || (str_starts_with($path, '/bundles/') && !str_contains($path, '..'));
+    if ($static && is_file(__DIR__.$path)) {
         return false;
     }
 }

@@ -11,6 +11,7 @@ use Symfony\Component\Clock\MockClock;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\Audit\AuditLog;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 use VerifiedHumanApproval\Doctrine\ApprovalSchema;
 use VerifiedHumanApproval\Doctrine\DbalApprovalStore;
 use VerifiedHumanApproval\Doctrine\DbalAuditStore;
@@ -48,7 +49,7 @@ final class PrimaryReplicaTest extends TestCase
         $transaction = new DbalTransaction($connection);
         $store = new DbalApprovalStore($transaction);
         $signer = new SodiumEvidenceSigner('key', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
-        $log = new AuditLog(new DbalAuditStore($transaction), $signer, $signer->publicKey(), new MockClock());
+        $log = new AuditLog(new DbalAuditStore($transaction), $signer, TrustedKeys::single($signer->keyId(), $signer->publicKey()), new MockClock());
         $credentials = new DbalCredentialRepository($transaction);
 
         $request = (new CoreFixture())->service->request(new Actor('alice', 'tenant-a', 'agent-1'), 'article.publish', ['id' => 1]);

@@ -47,6 +47,26 @@ final class BindingTest extends TestCase
         self::assertNotSame(CanonicalJson::encode('é'), CanonicalJson::encode("e\u{301}"), 'Approval text is not Unicode-normalized after review.');
     }
 
+    public function testPropertyOrderDoesNotDependOnMbstringsInternalEncoding(): void
+    {
+        // By UTF-16 code units a name beyond U+FFFF sorts before U+FB01, though its code point is higher.
+        $value = ['labels' => ["\u{fb01}" => 'ligature', "\u{1f600}" => 'emoji']];
+        $expected = '{"labels":{"'."\u{1f600}".'":"emoji","'."\u{fb01}".'":"ligature"}}';
+        self::assertSame($expected, CanonicalJson::encode($value));
+        $action = new PreparedAction('notice.publish', '1', ['tenant' => 't'], $value, [], ['title' => 'Notice']);
+        $request = ApprovalRequest::create(new Actor('alice', 't'), $action, new ApprovalPolicy('notice.publish', '1', 'Publish the exact notice.'), new \DateTimeImmutable('2026-11-08T10:00:00Z'), 'en');
+
+        $encoding = mb_internal_encoding();
+        try {
+            // A legacy setting, such as mbstring.internal_encoding in php.ini.
+            mb_internal_encoding('ISO-8859-1');
+            self::assertSame($expected, CanonicalJson::encode($value));
+            self::assertSame($request->canonical, (new ApprovalRequest($request->id, $request->canonical, $request->digest))->canonical, 'A proposal frozen under one setting reads back under another.');
+        } finally {
+            mb_internal_encoding($encoding);
+        }
+    }
+
     public function testExactIntegerBoundaryAndNestedObjectRoundTrip(): void
     {
         self::assertSame('9007199254740991', CanonicalJson::encode(9007199254740991));
@@ -62,6 +82,7 @@ final class BindingTest extends TestCase
         yield 'infinity' => [\INF];
         yield 'nan' => [\NAN];
         yield 'invalid utf8' => ["\xFF"];
+        yield 'object key starting with NUL' => [["\0key" => 1]];
         yield 'arbitrary object' => [new \DateTimeImmutable('2026-11-08')];
     }
 
@@ -108,6 +129,57 @@ final class BindingTest extends TestCase
         $request = ApprovalRequest::create(new Actor('alice', 't'), $action, new ApprovalPolicy('notice.publish', '1', 'Publish the exact notice.'), new \DateTimeImmutable('2026-11-08T10:00:00Z'), 'en');
         $this->expectException(ApprovalException::class);
         new ApprovalRequest($request->id, str_replace('Approved', 'Changed!', $request->canonical), $request->digest);
+    }
+
+    /** @return iterable<string, array{\Closure(array<string, mixed>): array<string, mixed>}> */
+    public static function rewrittenProposals(): iterable
+    {
+        yield 'another format' => [static fn (array $payload): array => ['format' => 'verified-human-approval/proposal/v2'] + $payload];
+        yield 'a number for the person' => [static function (array $payload): array {
+            $payload['actor']->userId = 5;
+
+            return $payload;
+        }];
+        yield 'no action' => [static fn (array $payload): array => array_diff_key($payload, ['action' => true])];
+        yield 'a target that is not an object' => [static function (array $payload): array {
+            $payload['action']->target = 'notice';
+
+            return $payload;
+        }];
+        yield 'a number for the statement' => [static fn (array $payload): array => ['statement' => 5] + $payload];
+        yield 'an expiry that is not a time' => [static fn (array $payload): array => ['expiresAt' => 'soon'] + $payload];
+        yield 'no policy digest' => [static fn (array $payload): array => array_diff_key($payload, ['policyDigest' => true])];
+        // A key taken out of the actor or the action fails the same way, without a warning on the way.
+        foreach (['actor' => ['userId', 'tenantId', 'delegationId'], 'action' => ['actionId', 'version', 'target', 'effect', 'placeholders']] as $part => $keys) {
+            foreach ($keys as $key) {
+                yield 'no '.$key.' in the '.$part => [static function (array $payload) use ($part, $key): array {
+                    unset($payload[$part]->{$key});
+
+                    return $payload;
+                }];
+            }
+        }
+    }
+
+    /**
+     * A proposal rewritten together with its digest still has to be a proposal: one that loads can always be read,
+     * so the methods that read it never fail later, in the middle of an ownership check or a review page.
+     *
+     * @param \Closure(array<string, mixed>): array<string, mixed> $rewrite
+     */
+    #[DataProvider('rewrittenProposals')]
+    public function testAProposalRewrittenWithItsDigestMustStillBeAProposal(\Closure $rewrite): void
+    {
+        $action = new PreparedAction('notice.publish', '1', ['tenant' => 't'], ['body' => 'Approved'], [], ['title' => 'Notice']);
+        $request = ApprovalRequest::create(new Actor('alice', 't'), $action, new ApprovalPolicy('notice.publish', '1', 'Publish the exact notice.'), new \DateTimeImmutable('2026-11-08T10:00:00Z'), 'en');
+        $canonical = CanonicalJson::encode((object) $rewrite(CanonicalJson::map(CanonicalJson::decode($request->canonical))));
+        try {
+            new ApprovalRequest($request->id, $canonical, hash('sha256', $canonical));
+            self::fail('A rewritten proposal loaded.');
+        } catch (ApprovalException $error) {
+            self::assertSame('corrupt_proposal', $error->reason);
+            self::assertNotNull($error->getPrevious(), 'What failed is kept.');
+        }
     }
 
     public function testUnknownOrExecutableStatementPlaceholdersAreRejected(): void

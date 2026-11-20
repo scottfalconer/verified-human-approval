@@ -10,8 +10,17 @@ use VerifiedHumanApproval\Core\ApprovalException;
 /** SQLite reference adapter. Supply the very same PDO connection used by the approval store. */
 final readonly class PdoCredentialRepository implements RevocableCredentialRepository
 {
+    /** Works on the connection as it is, and refuses one that does not throw on errors: add() relies on that. */
     public function __construct(private \PDO $pdo)
     {
+        // update() counts an identical write-back, as a passkey whose counter stays at zero makes, as a changed row:
+        // SQLite does, and MySQL, which counts only rows whose values changed, would refuse every such passkey.
+        if ('sqlite' !== $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME)) {
+            throw new \InvalidArgumentException('This reference repository supports SQLite only; supply another RevocableCredentialRepository for other databases, such as the Doctrine storage\'s.');
+        }
+        if (\PDO::ERRMODE_EXCEPTION !== $pdo->getAttribute(\PDO::ATTR_ERRMODE)) {
+            throw new \InvalidArgumentException('This repository needs a connection that throws on errors: set PDO::ATTR_ERRMODE to PDO::ERRMODE_EXCEPTION.');
+        }
     }
 
     public function initialize(): void

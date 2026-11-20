@@ -9,6 +9,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\ResponseInterface;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\KernelEvents;
 use VerifiedHumanApproval\Bundle\Security\McpScopeChallengeSubscriber;
 use VerifiedHumanApproval\Demo\DemoDatabase;
@@ -34,6 +35,8 @@ final class ScopeAuthorizationTest extends TestCase
     protected function tearDown(): void
     {
         (new Filesystem())->remove($this->runtime);
+        // The demo trusts its own host only, and Symfony keeps that for the whole process.
+        Request::setTrustedHosts([]);
     }
 
     public static function missingScopes(): iterable
@@ -193,8 +196,8 @@ final class ScopeAuthorizationTest extends TestCase
         $retry = $unchallenged('publish_alert', self::ALERT, ['alert.read', 'alert.publish']);
         self::assertSame('result_read_denied', $retry['structuredContent']['reason']);
         self::assertArrayNotHasKey('result', $retry['structuredContent']);
-        // The tool does not look for the publishing scope itself: the authorizer reads the stored grant.
-        self::assertSame('delegation_denied', $unchallenged('publish_alert', self::ALERT, ['alert.read', 'approval.read'])['structuredContent']['reason']);
+        // The tool checks the validated token independently of the authorizer's stored grant check.
+        self::assertSame('scope_denied', $unchallenged('publish_alert', self::ALERT, ['alert.read', 'approval.read'])['structuredContent']['reason']);
 
         $status = $unchallenged('approval_status', ['request_id' => $pending['requestId']], ['alert.read', 'alert.publish']);
         self::assertArrayNotHasKey('structuredContent', $status, 'The status of the request stays with connections that may read it.');

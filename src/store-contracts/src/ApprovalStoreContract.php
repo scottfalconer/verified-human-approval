@@ -14,6 +14,7 @@ use VerifiedHumanApproval\Core\Ceremony;
 use VerifiedHumanApproval\Core\Evidence\EvidenceExporter;
 use VerifiedHumanApproval\Core\Evidence\Receipt;
 use VerifiedHumanApproval\Core\Evidence\ReceiptVerifier;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 
 /**
  * The approval storage contract (the rules on ApprovalStore), run against one adapter through its harness.
@@ -27,6 +28,9 @@ abstract class ApprovalStoreContract extends TestCase
 
     private ?string $location = null;
 
+    /** @var list<StoreHarness> every harness connect() gave this test, closed when it ends */
+    private array $harnesses = [];
+
     /** @return class-string<StoreHarness> */
     abstract protected static function harness(): string;
 
@@ -37,6 +41,10 @@ abstract class ApprovalStoreContract extends TestCase
 
     protected function tearDown(): void
     {
+        foreach ($this->harnesses as $harness) {
+            $harness->close();
+        }
+        $this->harnesses = [];
         if (null !== $this->location) {
             static::harness()::destroy($this->location);
         }
@@ -55,7 +63,7 @@ abstract class ApprovalStoreContract extends TestCase
         self::assertSame($completed->request->canonical, $stored->request->canonical, 'The proposal comes back byte for byte.');
         self::assertSame($completed->receipt, $stored->receipt);
         // The stored proof and record still match the receipt signed at commit, so their canonical JSON survived.
-        $verified = (new ReceiptVerifier())->verify(self::export($stored), $harness->receiptKeyId(), $harness->receiptPublicKey());
+        $verified = (new ReceiptVerifier())->verify(self::export($stored), TrustedKeys::single($harness->receiptKeyId(), $harness->receiptPublicKey()));
         self::assertSame(Receipt::COMMIT, $verified['receiptSignedAt']);
     }
 
@@ -126,6 +134,72 @@ abstract class ApprovalStoreContract extends TestCase
         $fresh = $harness->service()->begin($harness->reviewer(), $request->request->id);
         self::assertSame('completed', $harness->service()->complete($harness->reviewer(), $fresh->id, $harness->proof($fresh))->status);
         self::assertSame(['requests' => 1, 'effects' => 1, 'executions' => 1, 'receipts' => 1, 'credentialUses' => 1], $this->connect()->counts());
+    }
+
+    /** @return iterable<string, array{'roll_back'|'begin_again'|'sql_roll_back'|'nested_roll_back'}> */
+    public static function transactionsTheActionRollsBack(): iterable
+    {
+        yield 'it rolls the transaction back' => ['roll_back'];
+        yield 'it rolls the transaction back and begins another' => ['begin_again'];
+        yield 'it rolls the transaction back in SQL' => ['sql_roll_back'];
+        yield 'it rolls the transaction back inside a nested transaction of its own, and carries on' => ['nested_roll_back'];
+    }
+
+    /**
+     * An action that rolls the approval transaction back itself and returns as if it had succeeded leaves nothing to
+     * record: the store refuses every write after it, which would otherwise commit on its own or in a transaction
+     * that is not the approval's, so no outcome claims an effect that was undone.
+     *
+     * @param 'roll_back'|'begin_again'|'sql_roll_back'|'nested_roll_back' $how
+     */
+    #[DataProvider('transactionsTheActionRollsBack')]
+    public function testAnActionThatRollsTheTransactionBackGetsNothingRecorded(string $how): void
+    {
+        $harness = $this->connect();
+        [$request, $ceremony] = $this->pending($harness);
+        $harness->breakAction($how);
+        try {
+            $harness->service()->complete($harness->reviewer(), $ceremony->id, $harness->proof($ceremony));
+            self::fail('An approval whose action rolled its transaction back was reported as completed.');
+        } catch (ApprovalException $error) {
+            self::assertSame('execution_failed', $error->reason);
+            self::assertInstanceOf(\LogicException::class, $error->getPrevious(), 'The store refused to write outside its transaction.');
+        }
+
+        $observer = $this->connect();
+        self::assertSame(['requests' => 1, 'effects' => 0, 'executions' => 0, 'receipts' => 0, 'credentialUses' => 0], $observer->counts());
+        $stored = $observer->service()->get($harness->actor(), $request->request->id);
+        self::assertSame(['pending', null, null, null], [$stored->status, $stored->proof, $stored->execution, $stored->receipt]);
+
+        // The connection is left usable: once mended, a fresh ceremony completes the request, once.
+        $harness->breakAction(null);
+        $fresh = $harness->service()->begin($harness->reviewer(), $request->request->id);
+        self::assertSame('completed', $harness->service()->complete($harness->reviewer(), $fresh->id, $harness->proof($fresh))->status);
+        self::assertSame(['requests' => 1, 'effects' => 1, 'executions' => 1, 'receipts' => 1, 'credentialUses' => 1], $this->connect()->counts());
+    }
+
+    /**
+     * An action that commits the approval transaction itself takes its own write, and what came before it, out of
+     * the approval. The store records no outcome for it: complete() answers execution_failed, and there is no
+     * execution record, no receipt and no completed status.
+     */
+    public function testAnActionThatCommitsTheTransactionItselfGetsNoOutcomeRecorded(): void
+    {
+        $harness = $this->connect();
+        [$request, $ceremony] = $this->pending($harness);
+        $harness->breakAction('commit');
+        try {
+            $harness->service()->complete($harness->reviewer(), $ceremony->id, $harness->proof($ceremony));
+            self::fail('An approval whose action committed its transaction itself was reported as completed.');
+        } catch (ApprovalException $error) {
+            self::assertSame('execution_failed', $error->reason);
+            self::assertInstanceOf(\LogicException::class, $error->getPrevious(), 'The store refused to write outside its transaction.');
+        }
+
+        $observer = $this->connect();
+        self::assertSame(['requests' => 1, 'effects' => 1, 'executions' => 0, 'receipts' => 0, 'credentialUses' => 1], $observer->counts(), 'Only what the action committed itself is there.');
+        $stored = $observer->service()->get($harness->actor(), $request->request->id);
+        self::assertSame(['pending', null, null, null], [$stored->status, $stored->proof, $stored->execution, $stored->receipt]);
     }
 
     public function testACommitWhoseAnswerWasLostIsRecoveredNotRepeated(): void
@@ -304,7 +378,7 @@ abstract class ApprovalStoreContract extends TestCase
             self::assertSame($reviewed + 2, $observer->article()['revision']);
             self::assertSame(1, $observer->counts()['effects']);
             $stored = $observer->service()->get($harness->actor(), $request->request->id);
-            self::assertSame(Receipt::COMMIT, (new ReceiptVerifier())->verify(self::export($stored), $harness->receiptKeyId(), $harness->receiptPublicKey())['receiptSignedAt'], 'A later edit does not touch the historical receipt.');
+            self::assertSame(Receipt::COMMIT, (new ReceiptVerifier())->verify(self::export($stored), TrustedKeys::single($harness->receiptKeyId(), $harness->receiptPublicKey()))['receiptSignedAt'], 'A later edit does not touch the historical receipt.');
         } else {
             // The edit came first: what was reviewed is no longer the source, so nothing was published.
             self::assertSame('invalidated', $approval['status']);
@@ -438,7 +512,176 @@ abstract class ApprovalStoreContract extends TestCase
         self::assertStringContainsString('"context":{},"notes":[]', CanonicalJson::encode((object) $stored->result));
         self::assertSame(CanonicalJson::encode((object) $completed->execution), CanonicalJson::encode((object) $stored->execution));
         self::assertSame(CanonicalJson::encode((object) $completed->proof), CanonicalJson::encode((object) $stored->proof));
-        self::assertSame(Receipt::COMMIT, (new ReceiptVerifier())->verify(self::export($stored), $harness->receiptKeyId(), $harness->receiptPublicKey())['receiptSignedAt']);
+        self::assertSame(Receipt::COMMIT, (new ReceiptVerifier())->verify(self::export($stored), TrustedKeys::single($harness->receiptKeyId(), $harness->receiptPublicKey()))['receiptSignedAt']);
+    }
+
+    /**
+     * Edits someone with write access to the database could make to one part of a completed record, each with whether
+     * the proposal still reads back afterwards, and so still shows whose record it is.
+     *
+     * @return iterable<string, array{\Closure(StoreHarness, string): void, bool}>
+     */
+    public static function editedRecords(): iterable
+    {
+        $edit = static fn (string $part, \Closure $change): \Closure => static fn (StoreHarness $harness, string $id) => $harness->editRecord($id, $part, $change);
+        // The proposal changed, and its digest with it, so the two still match.
+        $withDigest = static fn (\Closure $change): \Closure => static function (StoreHarness $harness, string $id) use ($change): void {
+            $edited = '';
+            $harness->editRecord($id, 'proposal', static function (string $proposal) use ($change, &$edited): string {
+                return $edited = $change($proposal);
+            });
+            $harness->editRecord($id, 'digest', static fn (): string => hash('sha256', $edited));
+        };
+        $character = static fn (string $proposal): string => str_replace('Summer Campaign', 'Summer Campaigm', $proposal);
+        $cut = static fn (string $json): string => substr($json, 0, 40);
+        yield 'one character of the proposal' => [$edit('proposal', $character), false];
+        yield 'the digest' => [$edit('digest', static fn (string $digest): string => ('0' === $digest[0] ? '1' : '0').substr($digest, 1)), false];
+        yield 'the proposal and its digest, to match each other' => [$withDigest($character), true];
+        yield 'the proposal and its digest, with a number for the person' => [$withDigest(static function (string $proposal): string {
+            $payload = CanonicalJson::map(CanonicalJson::decode($proposal));
+            $payload['actor']->userId = 5;
+
+            return CanonicalJson::encode((object) $payload);
+        }), false];
+        yield 'the result, to text that is not JSON' => [$edit('result', static fn (): string => 'published'), true];
+        yield 'the result, to a JSON list' => [$edit('result', static fn (): string => '[]'), true];
+        yield 'the proof, cut short' => [$edit('proof', $cut), true];
+        yield 'the execution record, cut short' => [$edit('execution', $cut), true];
+        yield 'the status, to one that does not exist' => [$edit('status', static fn (): string => 'done'), true];
+        yield 'the status, to cancelled' => [$edit('status', static fn (): string => 'cancelled'), true];
+        yield 'the receipt signature, emptied' => [$edit('signature', static fn (): string => ''), true];
+    }
+
+    /**
+     * Whatever part of a completed record is edited, every read through the service answers record_integrity_error:
+     * never the stored outcome, never another refusal, never an exception of another kind, and nothing runs again.
+     * The store itself either reads the record back for the service to check, or refuses it with that reason, keeping
+     * what failed and, while the proposal reads back, its request. So someone else who names the record is told what
+     * they would be told of a request that does not exist; only a record whose proposal no longer shows whose it is
+     * is reported to whoever names it, and then only as a proposal that fails its check.
+     *
+     * @param \Closure(StoreHarness, string): void $edit
+     */
+    #[DataProvider('editedRecords')]
+    public function testAnEditedRecordIsAnIntegrityErrorWhereverItIsRead(\Closure $edit, bool $proposalReadsBack): void
+    {
+        $harness = $this->connect();
+        $request = $harness->service()->request($harness->actor(), 'article.publish', ['id' => 1], 'edited-record');
+        $ceremony = $harness->service()->begin($harness->reviewer(), $request->request->id);
+        $proof = $harness->proof($ceremony);
+        self::assertSame('completed', $harness->service()->complete($harness->reviewer(), $ceremony->id, $proof)->status);
+        $id = $request->request->id;
+        $edit($harness, $id);
+
+        $observer = $this->connect();
+        $service = $observer->service();
+        $reads = [
+            'the status' => static fn () => $service->get($observer->reviewer(), $id),
+            'the agent’s status read' => static fn () => $service->get($observer->actor(), $id),
+            'a retry with the same request key' => static fn () => $service->request($observer->actor(), 'article.publish', ['id' => 1], 'edited-record'),
+            'a new review' => static fn () => $service->begin($observer->reviewer(), $id),
+            'the finished ceremony' => static fn () => $service->complete($observer->reviewer(), $ceremony->id, $proof),
+            'a cancellation' => static fn () => $service->cancel($observer->reviewer(), $id),
+        ];
+        foreach ($reads as $read => $operation) {
+            try {
+                $operation();
+                self::fail($read.' presented an edited record.');
+            } catch (ApprovalException $error) {
+                self::assertSame('record_integrity_error', $error->reason, $read);
+            }
+        }
+        $unknown = self::refusal(static fn () => $service->get(new Actor('bob', 'tenant-a'), 'apr_'.str_repeat('0', 32)));
+        foreach ([new Actor('bob', 'tenant-a'), new Actor('alice', 'tenant-b', 'agent-1')] as $stranger) {
+            $refused = self::refusal(static fn () => $service->get($stranger, $id));
+            if ($proposalReadsBack) {
+                self::assertEquals([$unknown->reason, $unknown->getMessage(), null], [$refused->reason, $refused->getMessage(), $refused->getPrevious()], 'Someone else learns nothing of the record.');
+            } else {
+                self::assertSame(['record_integrity_error', 'The stored approval proposal fails its integrity check. Its outcome cannot be trusted.'], [$refused->reason, $refused->getMessage()]);
+            }
+        }
+        try {
+            self::assertSame($id, $observer->store()->get($id)?->request->id, 'A record that reads back is left to the service to check.');
+        } catch (ApprovalException $error) {
+            self::assertSame('record_integrity_error', $error->reason);
+            self::assertNotNull($error->getPrevious(), 'What failed is kept.');
+            self::assertSame($proposalReadsBack ? $id : null, $error->request?->id, 'While the proposal reads back, the error carries its request.');
+        }
+        self::assertSame(['requests' => 1, 'effects' => 1, 'executions' => 1, 'receipts' => 1, 'credentialUses' => 1], $observer->counts(), 'Nothing ran again.');
+    }
+
+    /**
+     * A pending proposal that no longer reads back is refused the same way when a retry without a request key finds
+     * it: the agent is neither sent back to a damaged proposal nor given a second one in its place.
+     */
+    public function testAPendingProposalThatCannotBeReadIsAnIntegrityErrorForARetryWithoutAKey(): void
+    {
+        $harness = $this->connect();
+        $pending = $harness->service()->request($harness->actor(), 'article.publish', ['id' => 1]);
+        $harness->editRecord($pending->request->id, 'proposal', static fn (string $proposal): string => str_replace('Summer Campaign', 'Summer Campaigm', $proposal));
+
+        $service = $this->connect()->service();
+        $reads = [
+            'a retry without a key' => static fn () => $service->request($harness->actor(), 'article.publish', ['id' => 1]),
+            'the status' => static fn () => $service->get($harness->reviewer(), $pending->request->id),
+            'a review' => static fn () => $service->begin($harness->reviewer(), $pending->request->id),
+        ];
+        foreach ($reads as $read => $operation) {
+            try {
+                $operation();
+                self::fail($read.' presented a damaged proposal.');
+            } catch (ApprovalException $error) {
+                self::assertSame('record_integrity_error', $error->reason, $read);
+            }
+        }
+        self::assertSame(['requests' => 1, 'effects' => 0, 'executions' => 0, 'receipts' => 0, 'credentialUses' => 0], $this->connect()->counts());
+    }
+
+    /** @return iterable<string, array{'options'|'nonce'|'expires_at', \Closure(string): string}> */
+    public static function editedCeremonies(): iterable
+    {
+        yield 'its options, cut short' => ['options', static fn (string $options): string => substr($options, 0, 20)];
+        yield 'its options, to a JSON list' => ['options', static fn (): string => '[]'];
+        yield 'its nonce, to text that is not base64url' => ['nonce', static fn (): string => 'not a nonce'];
+        yield 'its nonce, to base64url of three bytes' => ['nonce', static fn (): string => 'AAAA'];
+        yield 'its expiry, to text that is not a time' => ['expires_at', static fn (): string => 'soon'];
+        yield 'its expiry, cut short' => ['expires_at', static fn (string $expiry): string => substr($expiry, 0, 16)];
+        yield 'its expiry, to a time relative to when it is read' => ['expires_at', static fn (): string => '+1 day'];
+    }
+
+    /**
+     * A passkey ceremony whose stored parts no longer read back is one nobody can use. Reading it is refused as
+     * corrupt_ceremony, an approval error like any other, never an exception of another kind, keeping what failed;
+     * nothing runs, and a fresh review still completes the request.
+     *
+     * @param 'options'|'nonce'|'expires_at' $part
+     * @param \Closure(string): string       $edit
+     */
+    #[DataProvider('editedCeremonies')]
+    public function testACeremonyThatCannotBeReadBackIsRefusedAsCorrupt(string $part, \Closure $edit): void
+    {
+        $harness = $this->connect();
+        [$request, $ceremony] = $this->pending($harness);
+        $harness->editCeremony($ceremony->id, $part, $edit);
+
+        $observer = $this->connect();
+        try {
+            $observer->store()->transaction(static fn () => $observer->store()->getCeremony($ceremony->id));
+            self::fail('A damaged ceremony was read back.');
+        } catch (ApprovalException $error) {
+            self::assertSame('corrupt_ceremony', $error->reason);
+            self::assertNotNull($error->getPrevious(), 'What failed is kept.');
+        }
+        try {
+            $observer->service()->complete($observer->reviewer(), $ceremony->id, $observer->proof($ceremony));
+            self::fail('A damaged ceremony was used.');
+        } catch (ApprovalException $error) {
+            self::assertSame('corrupt_ceremony', $error->reason);
+        }
+        self::assertSame(['requests' => 1, 'effects' => 0, 'executions' => 0, 'receipts' => 0, 'credentialUses' => 0], $observer->counts());
+
+        $fresh = $observer->service()->begin($observer->reviewer(), $request->request->id);
+        self::assertSame('completed', $observer->service()->complete($observer->reviewer(), $fresh->id, $observer->proof($fresh))->status);
     }
 
     public function testALockTimeoutLeavesNothingHalfDoneAndRunsNothingTwice(): void
@@ -473,7 +716,10 @@ abstract class ApprovalStoreContract extends TestCase
 
     protected function connect(): StoreHarness
     {
-        return static::harness()::connect($this->location());
+        $harness = static::harness()::connect($this->location());
+        $this->harnesses[] = $harness;
+
+        return $harness;
     }
 
     /** @return array{ApprovalState, Ceremony} a pending request and one ceremony for it */
@@ -489,6 +735,17 @@ abstract class ApprovalStoreContract extends TestCase
     private static function export(ApprovalState $state): array
     {
         return (new EvidenceExporter())->export($state);
+    }
+
+    /** The refusal an operation must end in. */
+    private static function refusal(\Closure $operation): ApprovalException
+    {
+        try {
+            $operation();
+        } catch (ApprovalException $error) {
+            return $error;
+        }
+        self::fail('The operation was not refused.');
     }
 
     /**

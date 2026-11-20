@@ -45,7 +45,7 @@ final readonly class DemoTools
     #[McpTool(
         name: 'publish_alert',
         title: 'Issue a public alert',
-        description: 'Ask to issue a draft public alert, such as an evacuation order, as the signed-in person. The administrator decides per role whether it is issued directly or only after that person approves the exact alert on the site with their passkey; then this returns a review URL and nothing is live yet. Reuse request_key for retries, then call approval_status. If a retried call is refused, call approval_status with the request id from the prompt or the review URL instead of asking again.',
+        description: 'Ask to issue a draft public alert, such as an evacuation order, as the signed-in person. The administrator decides per role whether it is issued directly or only after that person approves the exact alert on the site with their passkey; then this returns a review URL and nothing is live yet. Then call approval_status. To retry, call again with the same arguments: while the request is pending, this returns the same request. If a retried call is refused, call approval_status with the request id from the prompt or the review URL instead of asking again.',
         annotations: new ToolAnnotations(readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false),
         meta: ApprovalCard::TOOL_META,
         outputSchema: ApprovalFlow::OUTPUT_SCHEMA,
@@ -53,13 +53,19 @@ final readonly class DemoTools
     public function publish(
         RequestContext $context,
         #[Schema(description: 'The alert’s id, as read_alert reports it.')] string $alert_id,
-        #[Schema(description: 'Your own id for this request. Reuse it to retry safely: the same key returns the same request instead of asking again.')] ?string $request_key = null,
+        #[Schema(description: ApprovalFlow::REQUEST_KEY_DESCRIPTION)] ?string $request_key = null,
     ): CallToolResult|InputRequiredResult {
+        // A model that fills in every argument may send an empty key: that is no key.
+        $request_key = '' === $request_key ? null : $request_key;
         try {
             $actor = $this->actors->current();
+            $token = self::token($context);
             // A retried request may return an existing result, so the connection needs the read scope too.
-            if (!self::token($context)->hasScope('approval.read')) {
+            if (!$token->hasScope('approval.read')) {
                 throw new ApprovalException('result_read_denied', 'This personal connection is not allowed to receive approval results.');
+            }
+            if (!$token->hasScope('alert.publish')) {
+                throw new ApprovalException('scope_denied', 'This personal connection does not have the alert.publish scope.');
             }
 
             return $this->flow->respond(

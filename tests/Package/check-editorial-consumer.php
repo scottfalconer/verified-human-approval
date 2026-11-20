@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-/* Install the independent private Editorial Desk application against the current packages. */
+/* Install the independent Editorial Desk application against the current packages. */
 $root = dirname(__DIR__, 2);
 $directory = sys_get_temp_dir().'/vha-editorial-consumer-'.bin2hex(random_bytes(6));
 mkdir($directory, 0700);
@@ -65,7 +65,7 @@ try {
     $run([\PHP_BINARY, 'tests/http_smoke.php'], 'Run real HTTP and MCP checks on fresh state');
     if ($browser) {
         $run(['npm', 'ci', '--ignore-scripts', '--no-audit', '--no-fund'], 'Install the pinned browser test dependency');
-        $run(['node', 'tests/browser_smoke.mjs'], 'Run production JavaScript and virtual WebAuthn in Chrome');
+        $run(['node', 'tests/browser_smoke.mjs'], 'Run production JavaScript and virtual WebAuthn in Chromium through Playwright');
     }
     echo "Editorial Desk consumer check passed.\n";
 } finally {

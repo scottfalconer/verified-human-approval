@@ -17,6 +17,7 @@ use VerifiedHumanApproval\Core\Evidence\EvidenceSigner;
 use VerifiedHumanApproval\Core\Evidence\Receipt;
 use VerifiedHumanApproval\Core\Evidence\ReceiptVerifier;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 use VerifiedHumanApproval\Core\ExecutionGuard;
 use VerifiedHumanApproval\StoreContracts\Fixture\FixtureAction;
 use VerifiedHumanApproval\Testing\VirtualAuthenticator;
@@ -79,7 +80,7 @@ final class ApprovalEvidenceTest extends TestCase
         self::assertSame(1, $this->fixture->effectCount());
         // Re-read the persisted evidence to exercise nested JSON object preservation.
         $bundle = $this->exportPersisted($completed);
-        $verified = (new ReceiptVerifier())->verify($bundle, $this->signer->keyId(), $this->signer->publicKey());
+        $verified = (new ReceiptVerifier())->verify($bundle, TrustedKeys::single($this->signer->keyId(), $this->signer->publicKey()));
         self::assertTrue($verified['applicationSignatureValid']);
         $this->verifyHuman($verified);
         [$exit, $stdout, $stderr] = $this->runVerifier($bundle);
@@ -93,7 +94,7 @@ final class ApprovalEvidenceTest extends TestCase
     }
 
     #[DataProvider('tamperingCases')]
-    public function testTamperedEvidenceCannotBeVerified(string $field): void
+    public function testTamperedEvidenceCannotBeVerified(string $field, string $why): void
     {
         $bundle = $this->exportPersisted($this->complete());
         switch ($field) {
@@ -116,30 +117,103 @@ final class ApprovalEvidenceTest extends TestCase
             case 'nonce':
                 $bundle['proof']->nonce = ChallengeBinding::encode(random_bytes(32));
                 break;
+            case 'every-part':
+                $proposal = CanonicalJson::decode($bundle['proposal']);
+                $proposal->statement .= '!';
+                $bundle['proposal'] = CanonicalJson::encode($proposal);
+                $bundle['proof']->nonce = ChallengeBinding::encode(random_bytes(32));
+                $bundle['execution']->result->result_revision = 999;
+                break;
             case 'key-id':
                 $bundle['receipt']->keyId = 'attacker';
                 break;
             case 'signature':
                 $bundle['receipt']->signature = ChallengeBinding::encode(random_bytes(64));
                 break;
+            case 'manifest':
+                // The record is left as it was; only the receipt's own copy of a digest changes.
+                $manifest = CanonicalJson::decode($bundle['receipt']->manifest);
+                $manifest->proposalDigest = str_repeat('0', 64);
+                $bundle['receipt']->manifest = CanonicalJson::encode($manifest);
+                break;
+            case 'another-key':
+                // Another site's key with the same name, as two installations of one application have.
+                $other = new SodiumEvidenceSigner($this->signer->keyId(), sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
+                $bundle['receipt']->signature = $other->sign($bundle['receipt']->manifest);
+                break;
+            case 'signed-other-format':
+            case 'signed-added-field':
+            case 'signed-without-key-id':
+            case 'signed-other-bytes':
+                // The trusted key signs the record's digests again, in a manifest the application would not write.
+                $manifest = get_object_vars(CanonicalJson::decode($bundle['receipt']->manifest));
+                $bundle['receipt']->manifest = match ($field) {
+                    'signed-other-format' => CanonicalJson::encode(['format' => 'verified-human-approval/receipt/v1'] + $manifest),
+                    'signed-added-field' => CanonicalJson::encode($manifest + ['approvedBy' => 'the board']),
+                    'signed-without-key-id' => CanonicalJson::encode(array_diff_key($manifest, ['keyId' => true])),
+                    'signed-other-bytes' => json_encode($manifest, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_THROW_ON_ERROR),
+                };
+                $bundle['receipt']->signature = $this->signer->sign($bundle['receipt']->manifest);
+                break;
+            case 'added-field':
+                $bundle['approvedBy'] = 'the board';
+                break;
+            case 'added-receipt-field':
+                $bundle['receipt']->verifiedBy = 'an auditor';
+                break;
         }
         try {
-            (new ReceiptVerifier())->verify($bundle, $this->signer->keyId(), $this->signer->publicKey());
+            (new ReceiptVerifier())->verify($bundle, TrustedKeys::single($this->signer->keyId(), $this->signer->publicKey()));
             self::fail('Altered evidence was accepted.');
         } catch (ApprovalException $exception) {
             self::assertSame('invalid_evidence', $exception->reason);
+            self::assertSame($why, $exception->getPrevious()?->getMessage());
         }
         [$exit, $stdout, $stderr] = $this->runVerifier($bundle);
         self::assertSame(1, $exit);
         self::assertSame('', $stdout);
-        self::assertStringContainsString('Verification failed', $stderr);
+        self::assertSame("Verification failed: $why\n", $stderr, 'The command says what did not match, and nothing else.');
         self::assertSame(1, $this->fixture->effectCount());
     }
 
     public static function tamperingCases(): iterable
     {
-        foreach (['statement', 'effect', 'execution', 'assertion', 'nonce', 'key-id', 'signature'] as $case) {
-            yield $case => [$case];
+        // A changed record says so, and does not blame the key; a key the trusted keys do not cover says that instead.
+        $changed = static fn (string $part): string => 'The record is not what the application signed: its receipt does not match its '.$part.'.';
+        yield 'statement' => ['statement', $changed('proposal')];
+        yield 'effect' => ['effect', $changed('proposal')];
+        yield 'execution' => ['execution', $changed('execution record')];
+        yield 'assertion' => ['assertion', $changed('approval proof')];
+        yield 'nonce' => ['nonce', $changed('approval proof')];
+        yield 'every-part' => ['every-part', $changed('proposal, approval proof and execution record')];
+        yield 'key-id' => ['key-id', 'The receipt is signed with key "attacker", which the trusted keys do not list.'];
+        yield 'signature' => ['signature', 'The trusted key "test-application-key" did not sign this receipt.'];
+        // A changed receipt is not taken for a changed record: what its key did not sign says nothing of the record.
+        yield 'manifest' => ['manifest', 'The trusted key "test-application-key" did not sign this receipt.'];
+        yield 'another-key' => ['another-key', 'The trusted key "test-application-key" did not sign this receipt.'];
+        // Only a receipt as the application writes it counts: what the key signed in any other form is no receipt of
+        // the record, though it names the record's digests, nor is it taken for a receipt whose key was renamed.
+        foreach (['signed-other-format', 'signed-added-field', 'signed-without-key-id', 'signed-other-bytes'] as $case) {
+            yield $case => [$case, 'The trusted key "test-application-key" did not sign this receipt.'];
+        }
+        yield 'added-field' => ['added-field', 'The evidence holds fields that nothing in it signs.'];
+        yield 'added-receipt-field' => ['added-receipt-field', 'The evidence holds fields that nothing in it signs.'];
+    }
+
+    public function testEvidenceWhosePartsDescribeDifferentActionsFailsEvenWhenTheApplicationSignedIt(): void
+    {
+        // An execution record of another request, signed at export as if it were this one's.
+        $bundle = $this->exportPersisted($this->complete());
+        $bundle['execution']->requestId = 'apr_'.str_repeat('0', 32);
+        $manifest = CanonicalJson::decode($bundle['receipt']->manifest);
+        $manifest->executionDigest = hash('sha256', CanonicalJson::encode($bundle['execution']));
+        $bundle['receipt']->manifest = CanonicalJson::encode($manifest);
+        $bundle['receipt']->signature = $this->signer->sign($bundle['receipt']->manifest);
+        try {
+            (new ReceiptVerifier())->verify($bundle, TrustedKeys::single($this->signer->keyId(), $this->signer->publicKey()));
+            self::fail('Evidence of two actions verified.');
+        } catch (ApprovalException $exception) {
+            self::assertSame('Evidence components do not describe the same action.', $exception->getPrevious()?->getMessage());
         }
     }
 
@@ -164,7 +238,7 @@ final class ApprovalEvidenceTest extends TestCase
         $bundle['receipt']->manifest = $manifest;
         $bundle['receipt']->signature = $this->signer->sign($manifest);
         // Even a newly valid application report cannot make the old user signature approve this altered statement.
-        $application = (new ReceiptVerifier())->verify($bundle, $this->signer->keyId(), $this->signer->publicKey());
+        $application = (new ReceiptVerifier())->verify($bundle, TrustedKeys::single($this->signer->keyId(), $this->signer->publicKey()));
         self::assertTrue($application['applicationSignatureValid']);
         try {
             $this->verifyHuman($application);
@@ -184,7 +258,7 @@ final class ApprovalEvidenceTest extends TestCase
         $bundle['publicKey'] = $attacker->publicKey();
         $bundle['receipt']->signature = $attacker->sign($bundle['receipt']->manifest);
         $this->expectException(ApprovalException::class);
-        (new ReceiptVerifier())->verify($bundle, $this->signer->keyId(), $this->signer->publicKey());
+        (new ReceiptVerifier())->verify($bundle, TrustedKeys::single($this->signer->keyId(), $this->signer->publicKey()));
     }
 
     public function testWrongTrustedCredentialFailsTheIndependentCli(): void
@@ -229,7 +303,7 @@ final class ApprovalEvidenceTest extends TestCase
         self::assertSame(1, $this->fixture->effectCount());
         self::assertSame(1, $this->action->executeCalls);
         $retry = $this->exportPersisted($persisted);
-        $this->verifyHuman((new ReceiptVerifier())->verify($retry, $this->signer->keyId(), $this->signer->publicKey()));
+        $this->verifyHuman((new ReceiptVerifier())->verify($retry, TrustedKeys::single($this->signer->keyId(), $this->signer->publicKey())));
         self::assertSame(1, $this->action->executeCalls);
         self::assertSame(1, $this->fixture->effectCount());
     }
@@ -274,7 +348,7 @@ final class ApprovalEvidenceTest extends TestCase
         $id = $service->complete($this->fixture->reviewer, $ceremony->id, $this->authenticator->assertion($ceremony->options))->request->id;
         $export = fn (): array => (new EvidenceExporter($this->signer))->export($service->get($actor, $id));
 
-        $verified = (new ReceiptVerifier())->verify($export(), $this->signer->keyId(), $this->signer->publicKey());
+        $verified = (new ReceiptVerifier())->verify($export(), TrustedKeys::single($this->signer->keyId(), $this->signer->publicKey()));
         self::assertSame(Receipt::COMMIT, $verified['receiptSignedAt']);
         $this->verifyHuman($verified);
 
@@ -283,7 +357,7 @@ final class ApprovalEvidenceTest extends TestCase
         $record['recordedAt'] = '2020-01-01T00:00:00.000000Z';
         $this->fixture->pdo->prepare('UPDATE verified_human_approval_executions SET record = ? WHERE request_id = ?')->execute([CanonicalJson::encode((object) $record), $id]);
         $this->expectException(ApprovalException::class);
-        (new ReceiptVerifier())->verify($export(), $this->signer->keyId(), $this->signer->publicKey());
+        (new ReceiptVerifier())->verify($export(), TrustedKeys::single($this->signer->keyId(), $this->signer->publicKey()));
     }
 
     public function testADeletedCommitReceiptIsNeverReplacedByOneSignedAtExport(): void
@@ -345,7 +419,7 @@ final class ApprovalEvidenceTest extends TestCase
         foreach ($exporters as $how => $exporter) {
             $evidence = $exporter->export($state);
             self::assertEquals((object) $state->receipt, $evidence['receipt'], $how.': the original receipt, unchanged.');
-            self::assertSame(Receipt::COMMIT, (new ReceiptVerifier())->verify($evidence, $this->signer->keyId(), $this->signer->publicKey())['receiptSignedAt'], $how);
+            self::assertSame(Receipt::COMMIT, (new ReceiptVerifier())->verify($evidence, TrustedKeys::single($this->signer->keyId(), $this->signer->publicKey()))['receiptSignedAt'], $how);
         }
 
         // A service that signs at commit refuses a completed record without its receipt, so from here the
@@ -358,7 +432,7 @@ final class ApprovalEvidenceTest extends TestCase
             self::assertSame('receipt_missing', $error->reason);
         }
         $signedNow = (new EvidenceExporter($this->signer, signAtExport: true))->export($this->fixture->store->get($id));
-        self::assertSame(Receipt::EXPORT, (new ReceiptVerifier())->verify($signedNow, $this->signer->keyId(), $this->signer->publicKey())['receiptSignedAt'], 'Only the explicit export mode signs, and its receipt says so.');
+        self::assertSame(Receipt::EXPORT, (new ReceiptVerifier())->verify($signedNow, TrustedKeys::single($this->signer->keyId(), $this->signer->publicKey()))['receiptSignedAt'], 'Only the explicit export mode signs, and its receipt says so.');
     }
 
     public function testSigningAtExportNeedsASigner(): void
@@ -378,24 +452,24 @@ final class ApprovalEvidenceTest extends TestCase
         self::assertTrue($result['applicationSignedExecutionReport']);
         self::assertStringStartsWith('Verifies the application report. The passkey signature was not checked', $result['qualification'], 'It claims only what it checked.');
 
-        // The site's key alone still catches a record edited after the receipt.
+        // The site's key alone still catches a record edited after the receipt, and says so rather than doubt the key.
         $bundle['execution']->recordedAt = '2020-01-01T00:00:00.000000Z';
         [$exit, , $stderr] = $this->runVerifier($bundle, withCredential: false);
         self::assertSame(1, $exit);
-        self::assertStringContainsString('Verification failed', $stderr);
+        self::assertSame("Verification failed: The record is not what the application signed: its receipt does not match its execution record.\n", $stderr);
     }
 
     public function testWhenAReceiptWasSignedIsPartOfWhatIsSigned(): void
     {
         $bundle = $this->exportPersisted($this->complete());
-        self::assertSame(Receipt::EXPORT, (new ReceiptVerifier())->verify($bundle, $this->signer->keyId(), $this->signer->publicKey())['receiptSignedAt']);
+        self::assertSame(Receipt::EXPORT, (new ReceiptVerifier())->verify($bundle, TrustedKeys::single($this->signer->keyId(), $this->signer->publicKey()))['receiptSignedAt']);
 
         // Claiming an export-time receipt was signed at commit breaks its signature.
         $manifest = CanonicalJson::decode($bundle['receipt']->manifest);
         $manifest->signedAt = Receipt::COMMIT;
         $bundle['receipt']->manifest = CanonicalJson::encode($manifest);
         try {
-            (new ReceiptVerifier())->verify($bundle, $this->signer->keyId(), $this->signer->publicKey());
+            (new ReceiptVerifier())->verify($bundle, TrustedKeys::single($this->signer->keyId(), $this->signer->publicKey()));
             self::fail('A receipt claimed a signing stage it was not signed with.');
         } catch (ApprovalException $error) {
             self::assertSame('invalid_evidence', $error->reason);

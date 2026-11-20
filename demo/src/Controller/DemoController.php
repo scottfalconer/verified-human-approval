@@ -60,6 +60,9 @@ final readonly class DemoController
         try {
             $state = $this->approvals->request($actor, 'alert.publish', ['alert_id' => $id]);
         } catch (ApprovalException $error) {
+            if ('record_integrity_error' === $error->reason) {
+                return $this->integrityError($error);
+            }
             throw new AccessDeniedException($error->getMessage());
         }
 
@@ -108,6 +111,9 @@ final readonly class DemoController
 
                     return new RedirectResponse($this->urls->generate('verified_human_approval_review', ['id' => $state->request->id, 'return' => $this->urls->generate('demo_policy')]));
                 } catch (ApprovalException $error) {
+                    if ('record_integrity_error' === $error->reason) {
+                        return $this->integrityError($error);
+                    }
                     $form->addError(new FormError($error->getMessage()));
                 }
             }
@@ -115,5 +121,16 @@ final readonly class DemoController
         $preview = (new ApprovalPolicy('alert.publish', (string) $row['version'], $row['statement']))->statement($this->action->prepare($actor, ['alert_id' => 'riverside-evacuation']));
 
         return new Response($this->twig->render('policy.html.twig', ['form' => $form->createView(), 'current' => $modes, 'preview' => $preview]));
+    }
+
+    /**
+     * Both forms ask without a request key, so asking again reuses the proposal still waiting with the same content.
+     * When that stored record fails its integrity check, nothing says whether it ran: the page is the one the review
+     * page shows for such a record, never a refusal. It names the request when the error carries it, and an error
+     * carries it only while the proposal still shows whose the record is.
+     */
+    private function integrityError(ApprovalException $error): Response
+    {
+        return new Response($this->twig->render('@VerifiedHumanApproval/integrity_error.html.twig', ['id' => $error->request?->id]), 409);
     }
 }

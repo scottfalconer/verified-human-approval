@@ -144,6 +144,18 @@ class SqliteStoreHarness extends StoreHarness
     {
         $this->action->failAfterWrite = 'after_write' === $how;
         $this->action->alterAfterWrite = 'postcondition' === $how;
+        $pdo = $this->pdo;
+        $this->action->afterPostconditions = match ($how) {
+            'commit' => static fn () => $pdo->commit(),
+            'roll_back' => static fn () => $pdo->rollBack(),
+            'begin_again' => static fn () => $pdo->rollBack() && $pdo->beginTransaction(),
+            'sql_roll_back' => static fn () => $pdo->exec('ROLLBACK'),
+            'nested_roll_back' => static function () use ($pdo): void {
+                $pdo->exec('SAVEPOINT best_effort');
+                $pdo->rollBack();
+            },
+            default => null,
+        };
     }
 
     public function attempt(string $change, int $milliseconds): bool
@@ -167,6 +179,40 @@ class SqliteStoreHarness extends StoreHarness
     public function writeArticle(int $id, string $title, string $body): void
     {
         self::open($this->location)->prepare('UPDATE test_articles SET title = ?, body = ?, revision = revision + 1 WHERE id = ?')->execute([$title, $body, $id]);
+    }
+
+    public function editRecord(string $requestId, string $part, \Closure $edit): void
+    {
+        [$table, $column, $key] = match ($part) {
+            'proposal', 'digest', 'status', 'result', 'proof' => ['verified_human_approval_requests', $part, 'id'],
+            'execution' => ['verified_human_approval_executions', 'record', 'request_id'],
+            'signature' => ['verified_human_approval_receipts', 'signature', 'request_id'],
+            default => throw new \InvalidArgumentException('Unknown part: '.$part),
+        };
+        $writer = self::open($this->location);
+        $read = $writer->prepare('SELECT '.$column.' FROM '.$table.' WHERE '.$key.' = ?');
+        $read->execute([$requestId]);
+        $stored = $read->fetchColumn();
+        if (!\is_string($stored)) {
+            throw new \RuntimeException('Nothing is stored there.');
+        }
+        $writer->prepare('UPDATE '.$table.' SET '.$column.' = ? WHERE '.$key.' = ?')->execute([$edit($stored), $requestId]);
+    }
+
+    public function editCeremony(string $ceremonyId, string $part, \Closure $edit): void
+    {
+        $column = match ($part) {
+            'options', 'nonce', 'expires_at' => $part,
+            default => throw new \InvalidArgumentException('Unknown part: '.$part),
+        };
+        $writer = self::open($this->location);
+        $read = $writer->prepare('SELECT '.$column.' FROM verified_human_approval_ceremonies WHERE id = ?');
+        $read->execute([$ceremonyId]);
+        $stored = $read->fetchColumn();
+        if (!\is_string($stored)) {
+            throw new \RuntimeException('Nothing is stored there.');
+        }
+        $writer->prepare('UPDATE verified_human_approval_ceremonies SET '.$column.' = ? WHERE id = ?')->execute([$edit($stored), $ceremonyId]);
     }
 
     public function failInserts(string $what): void

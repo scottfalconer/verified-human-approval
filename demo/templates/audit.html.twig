@@ -11,8 +11,16 @@
   <thead><tr><th>Requested</th><th>Action</th><th>Who, and through what</th><th>Rule</th><th>Outcome</th><th>Checks</th></tr></thead>
   <tbody>
   {% for action in actions %}
+    {% if action.unreadable %}
     <tr>
-      <td>{{ action.requestedAt|date('j M, H:i:s T') }}</td>
+      <td class="muted">–</td>
+      <td colspan="3"><strong>This record cannot be read</strong><br><span class="muted small">Who asked, for what and under which rule cannot be shown.</span></td>
+      <td>{{ action.status }}</td>
+      <td class="checks"><span class="error">✗ Record integrity: {{ action.integrity_problem }}</span><br><span class="small">Request <code>{{ action.id }}</code>.</span></td>
+    </tr>
+    {% else %}
+    <tr>
+      <td>{% if action.requestedAt %}{{ action.requestedAt|date('j M, H:i:s T') }}{% else %}<span class="muted">–</span>{% endif %}</td>
       <td><strong>{{ action.title }}</strong><br><span class="muted small">{{ action.statement }}</span></td>
       <td>{{ action.person }}{% if action.role %} ({{ action.role }}){% endif %}<br><span class="muted small">through {{ action.through }}</span></td>
       <td>{{ action.rule }}<br><span class="muted small">{{ action.verificationRequired ? 'passkey verification required' : 'issued directly, no verification required' }}</span></td>
@@ -26,6 +34,7 @@
         {% if action.status == 'completed' %}<br><a class="small" href="{{ path('demo_audit_evidence', {id: action.id}) }}">Evidence</a>{% endif %}
       </td>
     </tr>
+    {% endif %}
   {% endfor %}
   </tbody>
 </table>

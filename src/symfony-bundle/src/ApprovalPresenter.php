@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace VerifiedHumanApproval\Bundle;
 
 use Mcp\Schema\Content\TextContent;
+use Mcp\Schema\Content\TextResourceContents;
 use Mcp\Schema\Result\CallToolResult;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use VerifiedHumanApproval\Bundle\Mcp\ApprovalHandoffTool;
@@ -16,12 +17,10 @@ use VerifiedHumanApproval\Mcp\ResultPresenter;
 /** One result shape for MCP and browser status, with no assertion material. */
 final readonly class ApprovalPresenter implements ResultPresenter
 {
-    public function __construct(private UrlGeneratorInterface $urls, private string $publicOrigin)
+    /** @param bool $phoneHandoff whether the site offers the phone code, through ApprovalHandoffTool */
+    public function __construct(private UrlGeneratorInterface $urls, private string $publicOrigin, private bool $phoneHandoff)
     {
-        $parts = parse_url($publicOrigin);
-        if (!\is_array($parts) || !isset($parts['scheme'], $parts['host']) || isset($parts['user']) || isset($parts['pass'])
-            || isset($parts['query']) || isset($parts['fragment']) || (isset($parts['path']) && !\in_array($parts['path'], ['', '/'], true))
-            || !('https' === $parts['scheme'] || ('http' === $parts['scheme'] && 'localhost' === $parts['host']))) {
+        if (!ApprovalCard::isOrigin($publicOrigin)) {
             throw new \InvalidArgumentException('public_origin must be an HTTPS origin, or HTTP localhost for development.');
         }
     }
@@ -31,13 +30,23 @@ final readonly class ApprovalPresenter implements ResultPresenter
         return ApprovalStatusTool::NAME;
     }
 
+    /** The card, for this site's review pages and its tools. */
+    public function card(): TextResourceContents
+    {
+        return ApprovalCard::resource($this->publicOrigin, $this->statusTool(), $this->handoffTool());
+    }
+
     public function reviewUrl(ApprovalState $state): string
     {
         return rtrim($this->publicOrigin, '/').$this->urls->generate('verified_human_approval_review', ['id' => $state->request->id]);
     }
 
-    /** @return array<string, mixed> */
-    public function data(ApprovalState $state, ?string $message = null): array
+    /**
+     * @param bool $earlier whether a tool call's request key named this earlier request after it had finished, so nothing ran for that call
+     *
+     * @return array<string, mixed>
+     */
+    public function data(ApprovalState $state, ?string $message = null, bool $earlier = false): array
     {
         $data = $state->toArray();
         if ('pending' === $state->status) {
@@ -56,20 +65,24 @@ final readonly class ApprovalPresenter implements ResultPresenter
             $data['receipt_key_url'] = rtrim($this->publicOrigin, '/').$this->urls->generate('verified_human_approval_receipt_key');
         }
         // The MCP App card reads these fixed names; it shows only what the application recorded.
-        // It offers the phone only when a phone could reach the site: a public HTTPS address.
-        $phone = str_starts_with($this->publicOrigin, 'https://') ? ApprovalHandoffTool::NAME : null;
-        $data['approval'] = ApprovalCard::view($state, $this->reviewUrl($state), $this->statusTool(), $phone);
+        $data['approval'] = ApprovalCard::view($state, $this->reviewUrl($state), $this->statusTool(), $this->handoffTool(), $earlier);
 
         return $data;
     }
 
-    public function toolResult(ApprovalState $state, ?string $message = null): CallToolResult
+    public function toolResult(ApprovalState $state, ?string $message = null, bool $earlier = false): CallToolResult
     {
-        $data = $this->data($state, $message);
+        $data = $this->data($state, $message, $earlier);
 
         return new CallToolResult(
             [new TextContent(json_encode($data, \JSON_THROW_ON_ERROR | \JSON_UNESCAPED_SLASHES))],
             structuredContent: $data,
         );
+    }
+
+    /** The phone tool, only where the site offers it and a phone could reach the site: a public HTTPS address. */
+    private function handoffTool(): ?string
+    {
+        return $this->phoneHandoff && str_starts_with($this->publicOrigin, 'https://') ? ApprovalHandoffTool::NAME : null;
     }
 }

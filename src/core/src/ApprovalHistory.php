@@ -10,10 +10,11 @@ namespace VerifiedHumanApproval\Core;
  * a deleted item's history stays readable. It is separate from ApprovalStore, so a store need not provide it.
  *
  * A host must still decide who may see which history: this returns every request for the resource in the tenant,
- * whoever made it.
+ * whoever made it. A request whose stored record cannot be read back is listed in its place as an
+ * UnreadableApproval, so one damaged row neither hides the others nor fails the whole list.
  */
 interface ApprovalHistory
 {
-    /** @return list<ApprovalState> */
+    /** @return list<ApprovalState|UnreadableApproval> */
     public function forResource(string $tenantId, string $resource, int $limit = 50): array;
 }

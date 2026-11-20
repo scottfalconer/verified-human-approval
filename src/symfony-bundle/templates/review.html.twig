@@ -18,16 +18,17 @@
         <div class="done">
             {# Only a recorded passkey proof means a person approved it; under a rule that needs none, say so. #}
             <p class="notice outcome"><span>{% if state.proof %}<strong>{{ 'Approved with your passkey.'|trans }}</strong> {{ 'This request is completed.'|trans }}{% else %}<strong>{{ 'Completed without a passkey:'|trans }}</strong> {{ "the application's rule did not require one for this request."|trans }}{% endif %}</span></p>
-            {# The way back: to the page on this site the request came from, or to the agent that asked. The
-               approval card adds #return=claude-desktop, claude-mobile or claude-web to an agent's review link, and
-               approval.js shows the matching button and wording. Only an agent's request mentions the agent. #}
+            {# The way back: to the page on this site the request came from, or to the agent that asked. In a host
+               that names itself Claude, the approval card adds #return=claude-desktop, claude-mobile or claude-web to
+               an agent's review link, and approval.js shows the matching button and wording; any other host gets the
+               line below. Only an agent's request mentions the agent. #}
             {% block return %}
             {% if return_path %}<div class="actions sheet-back"><a class="button" href="{{ return_path }}">{{ 'Back to %application%'|trans({'%application%': application}) }}</a></div>{% endif %}
             {% if agent %}
             <div class="actions" data-return hidden data-messages="{{ {
-                returnApp: 'Claude already shows the result. This tab can be closed.'|trans,
-                returnHandoff: 'Done. %agent% on your computer already shows the result.'|trans({'%agent%': agent_name}),
-                returnTab: 'Switch back to your Claude tab: it already shows the result.'|trans,
+                returnApp: 'Return to Claude to see the result. You can close this tab.'|trans,
+                returnHandoff: 'Done. Return to %agent% on your computer to see the result.'|trans({'%agent%': agent_name}),
+                returnTab: 'Switch back to your Claude tab to see the result.'|trans,
             }|json_encode }}">
                 {# These answer the approval card in Claude, which asks for them with #return=claude-…: they open Claude, so
                    they say Claude whatever agent_name is. The visible wording below uses agent_name. #}
@@ -44,7 +45,7 @@
             cancelled: ['Cancelled: nothing changed.'|trans, 'This request was cancelled.'|trans],
             expired: ['Expired: nothing changed.'|trans, 'This request expired before it was approved.'|trans],
             invalidated: ['Blocked: nothing changed.'|trans, 'This request can no longer be approved: something it depends on changed after it was made.'|trans],
-            denied: ['Blocked: nothing changed.'|trans, 'This account is no longer allowed to do this.'|trans],
+            denied: ['Blocked: nothing changed.'|trans, 'This request is no longer allowed.'|trans],
         }[state.status] ?? ['Stopped: nothing changed.'|trans, 'This request stopped.'|trans] %}
         <div class="notice error stopped">
             <p class="stopped-title">{{ stopped[0] }}</p>

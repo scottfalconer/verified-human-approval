@@ -50,6 +50,7 @@ The account page and its authorization are yours to supply; the bundle supplies 
 `PanelAnswer::refused()` reports an HTTP status outside 200–299. Read `status` as well: HTTP 200 can contain `invalidated`, with no business mutation. The complete JSON object is in `data`; casting the answer to a string gives a useful assertion message.
 
 ```php
+$panel = PasskeyPanel::open($browser, $reviewUrl);
 $ceremony = $panel->begin();
 self::assertFalse($ceremony->refused(), (string) $ceremony);
 
@@ -77,8 +78,10 @@ $http = new KernelHttpClient(
 );
 ```
 
-Give `$http` to the MCP SDK's `HttpTransport` as `httpClient`, with `$factory` as `requestFactory` and `streamFactory`. Its requests run through your real endpoint, authentication and tool services. Your host issues the test bearer token; this package creates no accounts, sessions or access tokens.
+Give `$http` to the MCP SDK's `HttpTransport` as `httpClient`, with `$factory` as `requestFactory` and `streamFactory`. Its requests run through your real endpoint, authentication and tool services. Your host issues the test bearer token; this package creates no accounts, sessions or access tokens. A kernel built with debug off, as here, reuses the container it compiled before: clear the test cache after changing configuration.
 
 The client preserves request headers and bodies, HTTP error responses and streamed SSE content. It keeps no cookie jar. Each request obtains a new kernel; a terminable kernel is terminated after sending the response, and a Symfony kernel is shut down even when a request fails. Exceptions raised by your in-process application remain visible to the test.
 
 See the [Symfony testing guide](https://github.com/scottfalconer/verified-human-approval/blob/main/src/symfony-bundle/docs/testing.md) for test environment setup, MCP wiring, receipt verification and the cases a host integration should cover. The repository's [whole-application test](https://github.com/scottfalconer/verified-human-approval/blob/main/tests/Testing/DemoApplicationTest.php) exercises registration, MCP requests, approval, cancellation, stale data, handoff and receipt download using these public helpers.
+
+This package is developed in the [Verified Human Approval repository](https://github.com/scottfalconer/verified-human-approval). Open issues and pull requests there.

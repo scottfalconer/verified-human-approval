@@ -1,4 +1,4 @@
-# Verify a stored approval
+# Verify a receipt
 
 An action approved with a passkey and signed at commit has two signatures with different jobs:
 
@@ -9,7 +9,7 @@ An action approved with a passkey and signed at commit has two signatures with d
 
 With a receipt signer configured, the application signs inside the transaction that commits the action. Changing a signed field afterwards makes verification fail. For example, someone cannot change a recorded result from `yes` to `no` and keep a valid receipt.
 
-The application runs this check itself, every time `ApprovalService` reads a stored request: before it reports an outcome, returns one again for a request key, offers the request for approval or changes it. The status and the result are stored beside the execution record, so they must agree with it. With a receipt signer configured, a completed request must also still carry the receipt signed as it committed, and that receipt must verify against the application's [trusted keys](#rotate-the-signing-key). A request that fails is answered with `record_integrity_error`, never with its stored outcome: changing a status to `cancelled` cannot hide that the action ran, and an edited result is not reported as what happened. The bundle's review page says that the outcome cannot be confirmed, and its MCP tools answer `integrity_error`. The demo's audit page keeps such a request in its list, marked. Nothing repairs or re-signs it.
+The application runs this check itself, every time `ApprovalService` reads a stored request: before it reports an outcome, returns one again for a request key, offers the request for approval or changes it. The status and the result are stored beside the execution record, so they must agree with it. With a receipt signer configured, a completed request must also still carry the receipt signed as it committed, and that receipt must verify against the application's [trusted keys](#rotate-the-signing-key). A request that fails is answered with `record_integrity_error`, never with its stored outcome: changing a status to `cancelled` cannot hide that the action ran, and an edited result is not reported as what happened. The bundle's review page says that the outcome cannot be confirmed, and its MCP tools answer `integrity_error`. The demo's audit page keeps such a request in its list, marked. That includes a request edited so far that it can no longer be read back, such as one character changed in its stored proposal: the service answers `record_integrity_error` for it too, and the audit page lists it as a record that cannot be read. Nothing repairs or re-signs it.
 
 Verification checks the original approval and execution record. A later, legitimate edit to the live resource does not change that historical record. Verification does not compare the receipt with today's content, prove who wrote the content, or independently observe the database effect.
 
@@ -29,12 +29,13 @@ While signed in as the person who approved the request, open its review page and
 http://localhost:8080/approval/REQUEST_ID/evidence
 ```
 
-Use the actual request ID from the approval page URL or the tool result, and your own origin if the demo runs elsewhere. Only the signed-in owner can download it; a phone opened with a one-time code is sent back to the signed-in browser. An administrator can also open **Audit log** and use a completed action's **Evidence** link, at `/admin/audit/REQUEST_ID/evidence`.
+Use the actual request ID from the approval page URL or the tool result, and your own origin if the demo runs elsewhere. Only the signed-in owner can download it. A phone opened with a one-time code cannot: its page says to download the receipt from the signed-in browser. An administrator can also open **Audit log** and use a completed action's **Evidence** link, at `/admin/audit/REQUEST_ID/evidence`. That link saves `approval-evidence.json`: the same evidence in compact JSON, so its bytes differ from the person's download, and either file verifies.
 
-Create a working directory and save the download there as `receipt.json`:
+Create a working directory and move the download into it as `receipt.json`. If your browser saves to `~/Downloads`:
 
 ```sh
 mkdir -p var/evidence-check
+mv ~/Downloads/receipt-REQUEST_ID.json var/evidence-check/receipt.json
 ```
 
 The download must be a completed action's evidence, not an error response. Its `format` is `verified-human-approval/evidence/v2`. Nothing is signed when you download it: it carries the receipt signed as the action committed.
@@ -49,7 +50,7 @@ curl -fsS http://localhost:8080/approval/receipt-keys.json -o var/evidence-check
 
 Its `format` is `verified-human-approval/receipt-keys/v2`. It names the key that signs now (`currentKeyId`), lists every key in `keys`, and gives the passkey relying party and origin (`rpId`, `origin`). Each key has a `keyId`, a base64url Ed25519 `publicKey`, and the window it signed in: `validFrom` and `validUntil`, RFC 3339 times, either of which may be `null` (no earlier limit, or still signing). Save it and keep it with your receipts: later checks use your saved copy, so a key the site added or changed afterwards would not match. For an independent review, obtain the keys through a source you trust, never from the receipt file itself.
 
-The site also serves the earlier one-key file at `/approval/receipt-key.json` (`verified-human-approval/receipt-key/v1`, with `keyId`, `publicKey`, `rpId` and `origin`). It names only the key signing now. The command below reads both files; a copy of the one-key file saved earlier keeps checking what its key signed.
+The site also serves a one-key file at `/approval/receipt-key.json` (`verified-human-approval/receipt-key/v1`, with `keyId`, `publicKey`, `rpId` and `origin`). It names only the key signing now. The command below reads both files, and a saved copy of the one-key file keeps checking what its key signed.
 
 ### 3. Verify the original
 
@@ -106,9 +107,24 @@ php src/webauthn/bin/verify-evidence.php \
   var/evidence-check/receipt-keys.json
 ```
 
-Expected result: `Verification failed: ...` and exit code `1`. The original file still verifies. Changes to the proposal, assertion, nonce or execution result also invalidate the evidence. Changing a field directly in the stored execution record has the same effect: the site answers `record_integrity_error` the next time it reads that request, and the record no longer verifies against its receipt.
+Expected result: exit code `1`, and this line:
+
+```text
+Verification failed: The record is not what the application signed: its receipt does not match its execution record.
+```
+
+The original file still verifies. A field changed directly in the stored execution record fails the same way: the site answers `record_integrity_error` the next time it reads that request, and the record no longer verifies against its receipt.
 
 Deleting the original receipt does not reset this protection. The site answers `record_integrity_error` for a completed request whose receipt is gone, and the exporter, called directly, refuses it (`receipt_missing`). Neither creates a fresh signature over possibly altered data. A receipt the person already downloaded stays valid on its own.
+
+`verify-evidence.php` checks the receipt's signature before it compares the record with what the receipt signs, so it reports a changed record only under a receipt that the trusted key signed. A changed proposal or approval proof, which holds the assertion and the nonce, is named the same way, and several changed parts are named together, as in `its proposal, approval proof and execution record`. Its other answers include these:
+
+- The trusted key did not sign this receipt: the receipt itself was changed, its signature or what it signs, or it is checked against another site's keys under the same key id, such as those a demo publishes after `php demo/bin/setup.php --reset`.
+- The trusted keys do not list the receipt's key, or the receipt claims a time outside its key's window.
+- The receipt names another id of the key that signed it, which a key set can list twice.
+- The evidence's parts, though signed, do not describe one action, or its approval proof is missing or not bound to the proposal.
+- The evidence holds fields that nothing in it signs.
+- The evidence does not verify, and nothing more, when its proposal is not JSON, or is an object that no longer reads back as a proposal.
 
 ### 5. Optional: check the passkey signature too
 
@@ -184,7 +200,7 @@ The trust files use these fields:
 | File | Required fields | Trusted source |
 | --- | --- | --- |
 | Application keys: the bundle's key set, `receipt-keys.json` | `format` (`verified-human-approval/receipt-keys/v2`), `keys`, `rpId`, `origin`; each key has `keyId`, `publicKey`, `validFrom` and `validUntil` | The application's published or independently supplied signing keys, the window each signed in, and its WebAuthn configuration. `publicKey` is a base64url Ed25519 public key; `validFrom` and `validUntil` are RFC 3339 times or `null`. `currentKeyId` is informational. |
-| Or one application key, such as the bundle's `receipt-key.json` | `keyId`, `publicKey`, `rpId`, `origin` | The earlier one-key file. Its key is trusted at any time, without a window. The bundle's file adds `format` (`verified-human-approval/receipt-key/v1`). |
+| Or one application key, such as the bundle's `receipt-key.json` | `keyId`, `publicKey`, `rpId`, `origin` | A one-key file. Its key is trusted at any time, without a window. The bundle's file adds `format` (`verified-human-approval/receipt-key/v1`). |
 | `trusted-credential.json`, optional | `id`, `userId`, `tenantId`, `sourceJson` | The original, trusted passkey enrollment for that account. `id` is the base64url credential ID. Without it, the passkey signature is not checked. |
 
 A receipt names the key that signed it. The CLI refuses a key the file does not list, and a receipt whose time falls outside its key's window. A receipt signed at commit was signed when its execution record says the action was recorded (`recordedAt`, which the receipt signs). A receipt signed at export does not record when it was exported, only that this came after `recordedAt`, so its key must not have retired before then.
@@ -195,7 +211,7 @@ The CLI checks the receipt with `ReceiptVerifier`, then checks the assertion wit
 
 The CLI uses the package's default hashed user handles. If your host supplies another `UserHandleProvider`, call `verifyEvidenceAssertion()` with that same trusted provider.
 
-An action whose policy did not require approval has no passkey proof. Its execution record says `approval: "not_required"`, and successful verification reports `credentialApprovedExactProposal: false`. Its application report is still verifiable. When a passkey did approve and no credential file is given, the CLI reports `credentialApprovedExactProposal: null`: that signature was not checked.
+An action whose rule did not require approval has no passkey proof. Its execution record says `approval: "not_required"`, and successful verification reports `credentialApprovedExactProposal: false`. Its application report is still verifiable. When a passkey did approve and no credential file is given, the CLI reports `credentialApprovedExactProposal: null`: that signature was not checked.
 
 ### Limits
 
@@ -212,6 +228,8 @@ One Ed25519 key signs new receipts and new audit log entries. Rotating it replac
 - A receipt's time is its execution record's `recordedAt`, as described above.
 - An audit entry's time is its `at`. Once the chain records the rotation, an entry signed with the old key after that point is refused, whatever time it claims.
 - A record that names a key the trusted keys do not list verifies nothing.
+
+An audit entry that breaks these rules stops every passkey enrolled before it: from the chain alone, it could be what is left of a rewritten revocation. One the old key signs after the rotation entry stays refused whatever window that key is given, so it stops them for good, and their owners enroll new passkeys, which the [security model](security-model.md#protection-after-storage) describes. Any other stops them only until the host's trusted keys list its key with a window that covers its time. The order of the steps below keeps a rotation from writing such entries.
 
 ### With the Symfony bundle
 
@@ -241,22 +259,26 @@ One Ed25519 key signs new receipts and new audit log entries. Rotating it replac
                - key_id: application-1
                  public_key: 'THE PUBLIC KEY OF application-1'
                  valid_from: '2026-01-05T09:00:00Z'  # optional: when it started, if you know
-                 valid_until: '2026-11-09T12:00:00Z' # when it stops signing
+                 valid_until: '2026-11-09T12:10:00Z' # a little after it stops signing
    ```
 
-   A key's window must cover everything it legitimately signs: the new key's `valid_from` no later than its first signature, the old key's `valid_until` no earlier than its last. On one host, both are the moment of the switch. When hosts switch one at a time, let the windows overlap for the length of the rollout, and keep that overlap short: until its window closes, a stolen copy of the old key can sign records that verify. The retired list holds public keys only, so it can live in your repository; an environment variable read with `%env(json:...)%` also works. Your `AuditLog` must check entries against the same keys, through the bundle's `VerifiedHumanApproval\Core\Evidence\TrustedKeys` service, as the first-action guide wires it.
+   A key's window must cover everything it legitimately signs: the new key's `valid_from` no later than its first signature, the old key's `valid_until` no earlier than its last. Set the old key's `valid_until` a little after the switch, so that requests already under way finish inside its window, and keep that overlap short: until the old key's window closes, a stolen copy of it can sign records that verify. The retired list holds public keys only, so it can live in your repository; an environment variable read with `%env(json:...)%` also works. Your `AuditLog` must check entries against the same keys, through the bundle's `VerifiedHumanApproval\Core\Evidence\TrustedKeys` service, as the first-action guide wires it.
 
-   The approval service reads stored receipts against these keys too. Leave the old key out of `retired`, or set a window that does not cover what it signed, and every request that key completed is answered with `record_integrity_error` until the list is corrected. Nothing is lost: the stored receipts are untouched and verify again once their key is listed.
+   Check the chain first: `verified-human-approval:audit-head` must report that every entry verifies. Once the old key has a `valid_until`, an entry edited, removed or put out of order anywhere in the chain stops every passkey that key enrolled, not only those enrolled before it.
 
-3. **Deploy to every host.** `/approval/receipt-keys.json` now lists both keys.
+   Switch every host and worker in the same deploy, and restart long-running workers with it. A host that does not list the new key yet cannot check what it signs: until it is updated, it answers `record_integrity_error` for receipts the new key signed, and refuses every passkey enrolled before an entry the new key signed (`credential_unvouched`), because an entry it cannot check could be a revocation. A host or worker that still signs with the old key after its window closes writes audit entries the log refuses, and each one stops every passkey enrolled before it. For one recorded before the rotation entry (step 4), moving the old key's `valid_until` to cover it ends that, but also widens the window a stolen copy of the key can backdate records into; one recorded after the rotation entry stops them for good, and their owners enroll new passkeys.
 
-4. **Record the rotation** in the signed audit log once every host signs with the new key:
+   The approval service reads stored receipts against these keys too. Leave the old key out of `retired`, or set a window that does not cover what it signed, and every request that key completed is answered with `record_integrity_error` until the list is corrected. The audit log reads its entries against them as well, and an entry they no longer accept stops passkeys the same way. Nothing is lost: the stored receipts and entries are untouched and verify again once the list is corrected.
+
+3. **Deploy to every host.** `/approval/receipt-keys.json` now lists both keys. A passkey that a host refused during the deploy, because it could not check the new key's entries, approves again once that host runs the new configuration.
+
+4. **Record the rotation** in the signed audit log once the old key's window has closed, every host and worker signs with the new key, and the requests begun before the switch have finished:
 
    ```sh
    php bin/console verified-human-approval:record-key-rotation application-1 --reason="scheduled rotation"
    ```
 
-   The entry, `signing_key.rotated`, is signed with the new key and names both keys, so the chain shows where trust moved. From it on, the log refuses any entry the old key signs. Record it as soon as the old key's window has closed: from then until the new key signs its first entry, nothing the old key signed counts, so passkeys enrolled under it cannot approve: a person who tries is told to ask the administrator (`credential_unvouched`), and `verified-human-approval:audit-head` names the key and this command (`AuditLog::unvouchedKeys()` lists such keys). It also names a closed key whose rotation is not recorded, from the moment its window closes (`AuditLog::unrecordedRotations()`). The new key's first entry vouches, through the chain, for every entry before it. The command refuses a rotation the configuration does not show yet: the old key needs a `valid_until`, the new one a `valid_from`. It prints the new head of the log.
+   The entry, `signing_key.rotated`, is signed with the new key and names both keys, so the chain shows where trust moved. From it on, the log refuses any entry the old key signs, whatever window that key is given, and each such entry stops every passkey enrolled before it for good. Record it as soon as the old key's window has closed: from then until the new key signs its first entry, nothing the old key signed counts, so passkeys enrolled under it cannot approve: a person who tries is told to ask the administrator (`credential_unvouched`), and `verified-human-approval:audit-head` names the key and this command (`AuditLog::unvouchedKeys()` lists such keys). It also names a closed key whose rotation is not recorded, from the moment its window closes (`AuditLog::unrecordedRotations()`). The new key's first entry vouches for the entries before it, back to the nearest earlier one the log refuses. The command refuses a rotation the configuration does not show yet: the old key needs a `valid_until`, the new one a `valid_from`. It prints the new head of the log.
 
 5. **Keep a checkpoint** of that head ([below](#keep-checkpoints-of-the-audit-log)), then **destroy the old private key** everywhere it was kept, backups included. Ask anyone who checks your receipts to save `/approval/receipt-keys.json` again.
 
@@ -264,11 +286,11 @@ The commands use the application's `AuditLog` service: the bundle's `audit_log` 
 
 ### In the demo
 
-`php demo/bin/console demo:rotate-receipt-key` does all of this on one host. It makes `demo-application-2`, closes the window of `demo-application-1` at that moment and keeps only its public key in `settings.json`, records the rotation in the audit log and prints a checkpoint. Run it while nobody is approving: a request already under way finishes with the old key, after its window closed. Receipts downloaded earlier still verify against a freshly saved `receipt-keys.json`, and the **Audit log** page lists both keys and the rotation entry.
+`php demo/bin/console demo:rotate-receipt-key` does all of this on one host. It makes `demo-application-2`, closes the window of `demo-application-1` at that moment and keeps only its public key in `settings.json`, records the rotation in the audit log and prints a checkpoint. Check first that the **Audit log** page says every entry is signed and in an unbroken chain, as in step 2 above. Run it while nobody is approving or changing passkeys: a request already under way finishes with the old key, after its window closed. An approval completed that way reads back as `record_integrity_error` until the old key's `valid_until` in `settings.json` is moved to cover the time it recorded. A passkey enrolled or revoked, a link issued or a connection revoked that way is an audit entry the log refuses, and it stops every passkey enrolled before it: until that `valid_until` is moved to cover it, if it was recorded before the rotation entry, or else for good, so their owners enroll new passkeys, as the [security model](security-model.md#browser-and-account-controls) describes for the demo. The approval service refuses to sign only when its own settings rule its key out, so it cannot catch a request whose settings predate the rotation. Receipts downloaded earlier still verify against a freshly saved `receipt-keys.json`, and the **Audit log** page lists both keys and the rotation entry.
 
 ### Without the bundle
 
-Build an `Evidence\TrustedKeys` from `Evidence\TrustedKey` values (key id, public key, and the window, as `DateTimeImmutable` or `null`). Pass it to `ApprovalService` as `$trustedKeys`, to `Audit\AuditLog` and to `Evidence\ReceiptVerifier::verify()`. Without it, the service trusts only its signer's current key and answers `record_integrity_error` for every request an earlier key completed. Then call `AuditLog::recordRotation($oldKeyId, $reason)` once the new signer is in place, and publish `TrustedKeys::toArray()` as the `keys` of a key-set file. The [integration contracts](integration-contract.md) list the methods.
+Build an `Evidence\TrustedKeys` from `Evidence\TrustedKey` values (key id, public key, and the window, as `DateTimeImmutable` or `null`). Pass it to `ApprovalService` as `$trustedKeys`, to `Audit\AuditLog` and to `Evidence\ReceiptVerifier::verify()`. Without it, the service trusts only its signer's current key and answers `record_integrity_error` for every request an earlier key completed. Then call `AuditLog::recordRotation($oldKeyId, $reason)` once every process signs with the new key and the old key's window has closed, and publish `TrustedKeys::toArray()` as the `keys` of a key-set file. The [integration contracts](integration-contract.md) list the methods.
 
 ## Keep checkpoints of the audit log
 
@@ -296,12 +318,12 @@ It passes only if the whole chain still verifies and entry 5 still has that hash
 
 Rotation limits what a stolen key can do from then on. It cannot take back what the key signed, and the time a receipt or an entry records is the application's own claim: a thief can sign a record backdated into the stolen key's window, and it verifies.
 
-1. **Rotate at once** as above, recording `--reason="suspected compromise"`, and close the old key's window at the switch. Closing it earlier, at the exposure, would refuse everything the key signed since, genuine receipts and entries included: the audit log would report those entries as failing from then on, and no checkpoint of it would verify again.
+1. **Rotate at once** as above, recording `--reason="suspected compromise"`, and close the old key's window at the switch, with no overlap, since someone else may hold the key. Closing it earlier, at the exposure, would refuse everything the key signed since, genuine receipts and entries included: the audit log would report those entries as failing from then on, each would stop every passkey enrolled before it, and no checkpoint of it would verify again.
 2. **Check the chain against your newest checkpoint from before the exposure** with `audit-head --check`. If it holds, every entry up to that checkpoint is as it was. Review the entries after it that the old key signed: enrollments, revocations, links issued. Treat a passkey enrolled in that period as suspect: revoke it and enroll it again through your trusted account process.
 3. **Keep a new checkpoint** right after the rotation entry.
 4. **Destroy the old private key**, publish the new key set, and say when the exposure started if you know.
 
-After the rotation, the old key cannot add an entry to the chain: one it signs after the rotation entry is refused, whatever time it claims. To slip in a backdated entry, someone would have to replace an entry from before the rotation, which breaks the chain at the next entry (the audit page and `audit-head` show it), or cut the chain back to before the rotation, which a checkpoint kept after it shows. A receipt is not in the chain: only its key's window bounds it. A receipt signed with the stolen key and dated inside its window cannot be told apart from a genuine one by its signature. Check a disputed one against your records, and against the copy its holder downloaded.
+After the rotation, the old key cannot add an entry to the chain: one it signs after the rotation entry is refused, whatever time it claims. Damaging the rotation entry, or signing it again with a retired key, does not change that, even while the old key's window is still open: what a key with an end signs after a damaged entry or a refused rotation counts for nothing. To slip in a backdated entry, someone would have to replace an entry from before the rotation, which breaks the chain at the next entry (the audit page and `audit-head` show it), or rewrite every entry from there on. A rewrite in which every entry still verifies, with the rotation gone, is shown only by a checkpoint kept after the rotation, and `audit-head` then names the old key and asks for the rotation away from it to be recorded. A receipt is not in the chain: only its key's window bounds it. A receipt signed with the stolen key and dated inside its window cannot be told apart from a genuine one by its signature. Check a disputed one against your records, and against the copy its holder downloaded.
 
 ## Regression checks
 

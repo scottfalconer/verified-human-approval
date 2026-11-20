@@ -9,7 +9,11 @@ use VerifiedHumanApproval\Bundle\Event\ApprovalCompleted;
 use VerifiedHumanApproval\Core\ApprovalObserver;
 use VerifiedHumanApproval\Core\ApprovalState;
 
-/** Turns the core's post-commit notice into a Symfony event, so an application only adds a listener. */
+/**
+ * Turns the core's post-commit notice into a Symfony event, so an application only adds a listener.
+ *
+ * @internal the bundle registers it; listen for ApprovalCompleted
+ */
 final readonly class EventDispatchingObserver implements ApprovalObserver
 {
     public function __construct(private EventDispatcherInterface $events)

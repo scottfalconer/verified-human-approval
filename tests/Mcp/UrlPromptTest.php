@@ -38,6 +38,12 @@ final class UrlPromptTest extends TestCase
         self::assertNotSame($binding, UrlPrompt::binding(new Actor('bob', 'tenant-a', 'agent-1'), 'publish', ['id' => 1, 'key' => 'k']));
         self::assertNotSame($binding, UrlPrompt::binding($actor, 'delete', ['id' => 1, 'key' => 'k']));
         self::assertNotSame($binding, UrlPrompt::binding($actor, 'publish', ['id' => 2, 'key' => 'k']));
+
+        // A refund of 12.50, with a nested filter whose keys arrive in another order on the retry.
+        $refund = UrlPrompt::binding($actor, 'refund', ['amount' => 12.5, 'filter' => ['b' => 0.1, 'a' => [1.0, 2]]]);
+        self::assertSame($refund, UrlPrompt::binding($actor, 'refund', ['filter' => ['a' => [1, 2], 'b' => 0.1], 'amount' => 12.5]), 'The same JSON numbers, in any key order.');
+        self::assertNotSame($refund, UrlPrompt::binding($actor, 'refund', ['amount' => 12.51, 'filter' => ['b' => 0.1, 'a' => [1.0, 2]]]));
+        self::assertNotSame($refund, UrlPrompt::binding($actor, 'refund', ['amount' => 12.5, 'filter' => ['b' => 0.1, 'a' => [2, 1]]]), 'The order of a list is part of the arguments.');
     }
 
     public function testAResumedRoundYieldsTheBoundRequestAndTheClientAnswer(): void
@@ -70,6 +76,8 @@ final class UrlPromptTest extends TestCase
         foreach (['decline', 'cancel', 'none'] as $answer) {
             self::assertStringContainsString('nothing was approved or changed', UrlPrompt::note($answer, $pending, 'approval_status'));
         }
+        self::assertStringStartsWith('The approval prompt was dismissed', UrlPrompt::note('decline', $pending, 'approval_status'));
+        self::assertStringStartsWith('The client sent no answer to the approval prompt', UrlPrompt::note('none', $pending, 'approval_status'), 'A client that answered nothing did not dismiss anything.');
         $cancelled = $fixture->service->cancel($fixture->reviewer, $pending->request->id);
         self::assertStringContainsString('did not change anything', UrlPrompt::note('accept', $cancelled, 'approval_status'));
         $message = UrlPrompt::message($pending, 'http://localhost:8080/approval/'.$pending->request->id);
@@ -80,7 +88,7 @@ final class UrlPromptTest extends TestCase
     public function testTheCardLinkMatchesTheSdkSerializationAndTheCardNeverRunsAPasskey(): void
     {
         self::assertSame(['ui' => (new UiToolMeta(resourceUri: ApprovalCard::URI))->jsonSerialize()], ApprovalCard::TOOL_META);
-        $resource = ApprovalCard::resource()->jsonSerialize();
+        $resource = ApprovalCard::resource('https://example.test', 'approval_status')->jsonSerialize();
         self::assertSame(McpApps::MIME_TYPE, $resource['mimeType']);
         self::assertSame(ApprovalCard::URI, $resource['uri']);
         self::assertStringContainsString('ui/open-link', $resource['text']);
@@ -89,9 +97,39 @@ final class UrlPromptTest extends TestCase
         $fixture = new CoreFixture();
         $pending = $fixture->service->request($fixture->actor, 'article.publish', ['id' => 1]);
         $view = ApprovalCard::view($pending, 'https://example.test/approval/x', 'approval_status');
-        self::assertSame(['requestId', 'status', 'reason', 'approvedWithPasskey', 'reviewUrl', 'statusTool', 'statement', 'handoffTool'], array_keys($view));
+        self::assertSame(['requestId', 'status', 'reason', 'approvedWithPasskey', 'completedAt', 'earlier', 'reviewUrl', 'statusTool', 'statement', 'handoffTool'], array_keys($view));
         self::assertSame('pending', $view['status']);
         self::assertFalse($view['approvedWithPasskey'], 'Nothing was approved yet.');
+        self::assertNull($view['completedAt'], 'Nothing has run yet.');
+        self::assertFalse($view['earlier']);
+    }
+
+    public function testTheCardIsWrittenForOneApplicationsOriginAndTools(): void
+    {
+        $application = '<script type="application/json" id="card-application">%s</script>';
+        self::assertStringContainsString(\sprintf($application, '{}'), (string) file_get_contents(\dirname(__DIR__, 2).'/src/mcp/resources/approval-card.html'), 'Served as it is, the card opens and calls nothing.');
+        self::assertStringContainsString(
+            \sprintf($application, '{"origin":"https://example.test","statusTool":"approval_status","handoffTool":"approval_handoff"}'),
+            ApprovalCard::html('https://example.test', 'approval_status', 'approval_handoff'),
+        );
+        self::assertStringContainsString(\sprintf($application, '{"origin":"http://localhost:8080","statusTool":"approval_status","handoffTool":null}'), ApprovalCard::html('http://localhost:8080', 'approval_status'));
+
+        $html = ApprovalCard::html('https://example.test', '</script><script>alert(1)</script>');
+        self::assertStringNotContainsString('<script>alert(1)', $html, 'No value closes the element it is written into.');
+        self::assertStringContainsString('"statusTool":"\\u003C/script\\u003E\\u003Cscript\\u003Ealert(1)\\u003C/script\\u003E"', $html);
+
+        foreach (['http://example.test', 'https://example.test/approval', 'https://alice@example.test', 'https://example.test?next=1', 'https://example.test/#top', 'example.test', 'javascript:alert(1)'] as $origin) {
+            self::assertFalse(ApprovalCard::isOrigin($origin), $origin);
+            try {
+                ApprovalCard::html($origin, 'approval_status');
+                self::fail('The card was written for '.$origin);
+            } catch (\InvalidArgumentException $error) {
+                self::assertSame('The approval card needs the review pages\' origin, on HTTPS or on HTTP localhost.', $error->getMessage());
+            }
+        }
+        foreach (['https://example.test', 'https://example.test/', 'https://example.test:8443', 'http://localhost', 'http://localhost:8080'] as $origin) {
+            self::assertTrue(ApprovalCard::isOrigin($origin), $origin);
+        }
     }
 
     private function assertReason(string $reason, callable $attempt): void

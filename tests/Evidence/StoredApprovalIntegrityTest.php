@@ -18,6 +18,7 @@ use VerifiedHumanApproval\Core\Evidence\EvidenceSigner;
 use VerifiedHumanApproval\Core\Evidence\Receipt;
 use VerifiedHumanApproval\Core\Evidence\ReceiptVerifier;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 use VerifiedHumanApproval\Core\ExecutionGuard;
 use VerifiedHumanApproval\StoreContracts\Fixture\FixtureAction;
 use VerifiedHumanApproval\Testing\VirtualAuthenticator;
@@ -104,7 +105,7 @@ final class StoredApprovalIntegrityTest extends TestCase
         self::assertSame(1, $this->fixture->effectCount());
         self::assertEquals($raw, $this->fixture->store->get($id), 'Reading or retrying never rewrites the damaged evidence.');
         self::assertEquals($original['receipt'], (object) $raw->receipt);
-        self::assertSame(Receipt::COMMIT, (new ReceiptVerifier())->verify($original, $this->signer->keyId(), $this->signer->publicKey())['receiptSignedAt'], 'The original retained receipt still verifies.');
+        self::assertSame(Receipt::COMMIT, (new ReceiptVerifier())->verify($original, TrustedKeys::single($this->signer->keyId(), $this->signer->publicKey()))['receiptSignedAt'], 'The original retained receipt still verifies.');
     }
 
     public static function projectionChanges(): iterable
@@ -153,7 +154,7 @@ final class StoredApprovalIntegrityTest extends TestCase
         self::assertEquals($state, $this->service->complete($this->fixture->reviewer, $ceremony->id, $assertion));
         self::assertEquals($state, $this->service->request($this->fixture->actor, 'article.publish', ['id' => 1], 'saved-request'));
         $export = (new EvidenceExporter($this->signer, signAtExport: true))->export($state);
-        self::assertSame(Receipt::EXPORT, (new ReceiptVerifier())->verify($export, $this->signer->keyId(), $this->signer->publicKey())['receiptSignedAt']);
+        self::assertSame(Receipt::EXPORT, (new ReceiptVerifier())->verify($export, TrustedKeys::single($this->signer->keyId(), $this->signer->publicKey()))['receiptSignedAt']);
         self::assertSame(1, $this->action->executeCalls);
         self::assertSame(1, $this->fixture->effectCount());
 

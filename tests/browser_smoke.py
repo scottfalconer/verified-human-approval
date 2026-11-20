@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 """Real Chromium + MCP/HTTP + virtual WebAuthn acceptance test. No physical biometrics or LLM calls."""
+import base64
+import hashlib
 import json
 import os
 from pathlib import Path
+import secrets
 import shutil
+import signal
 import socket
 import sqlite3
 import subprocess
 import tempfile
 import time
+import urllib.parse
 import urllib.request
 
 from playwright.sync_api import sync_playwright, expect
@@ -38,7 +43,8 @@ def main():
         subprocess.run([PHP, str(ROOT / "demo/bin/console"), "assets:install", str(ROOT / "demo/public"), "--symlink", "--relative"], env=env, capture_output=True, check=True)
         env.update({"VERIFIED_HUMAN_APPROVAL_MCP_URL": origin + "/mcp", "VERIFIED_HUMAN_APPROVAL_TOKEN": credentials["editor"]["personal_token"]})
         log = open(Path(temporary) / "server.log", "w+")
-        server = subprocess.Popen([PHP, "-S", f"localhost:{port}", "-t", str(ROOT / "demo/public"), str(ROOT / "demo/public/index.php")], env=env, stdout=log, stderr=log)
+        # In a process group of its own, so that stopping it also stops any workers it forks.
+        server = subprocess.Popen([PHP, "-S", f"localhost:{port}", "-t", str(ROOT / "demo/public"), str(ROOT / "demo/public/index.php")], env=env, stdout=log, stderr=log, start_new_session=True)
         try:
             for _ in range(100):
                 try:
@@ -68,7 +74,8 @@ def main():
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch(executable_path=CHROMIUM, headless=True, args=["--no-sandbox"])
                 # A reader far from the server: the page shows its times in the reader's own zone.
-                page = browser.new_page(viewport={"width": 1180, "height": 900}, timezone_id="Asia/Tokyo")
+                desktop = {"width": 1180, "height": 900}
+                page = browser.new_page(viewport=desktop, timezone_id="Asia/Tokyo")
                 errors = []
                 page.on("pageerror", lambda error: errors.append(str(error)))
                 cdp = page.context.new_cdp_session(page)
@@ -83,6 +90,30 @@ def main():
                 page.locator("#password").fill(credentials["editor"]["password"])
                 page.get_by_role("button", name="Sign in", exact=True).click()
                 page.wait_for_url(initial["review_url"])
+                sheet = page.locator(".approval-sheet")
+                expect(sheet).to_have_css("display", "grid")
+                expect(page.locator("body > main")).to_have_css("max-width", "1240px")
+                page.set_viewport_size({"width": 390, "height": 844})
+                expect(sheet).to_have_css("display", "block")
+                page.set_viewport_size(desktop)
+
+                # Consent shares the sheet's visual style and keeps the form in one column on desktop.
+                callback = f"http://127.0.0.1:{port}/layout-callback"
+                client = page.request.post(origin + "/oauth/register", data={"client_name": "Layout check", "redirect_uris": [callback]})
+                assert client.status == 201, client.text()
+                verifier = secrets.token_urlsafe(48)
+                challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+                query = urllib.parse.urlencode({
+                    "response_type": "code", "client_id": client.json()["client_id"], "redirect_uri": callback,
+                    "scope": "alert.read", "state": "layout-check", "code_challenge": challenge,
+                    "code_challenge_method": "S256", "resource": origin + "/mcp",
+                })
+                page.goto(origin + "/oauth/authorize?" + query)
+                page.wait_for_url(origin + "/oauth/consent")
+                expect(page.get_by_role("button", name="Allow", exact=True)).to_be_visible()
+                expect(sheet).to_have_css("display", "block")
+                expect(page.locator("body > main")).to_have_css("max-width", "920px")
+
                 # A password alone cannot add an approval passkey: the first one needs the account's one-time link.
                 page.goto(credentials["editor"]["passkey_link"])
                 page.wait_for_url(origin + "/account/passkeys")
@@ -190,7 +221,7 @@ def main():
                 assert errors == [], errors
                 browser.close()
 
-            # Exercise Symfony AI's actual Agent/McpToolbox, with a clearly labelled scripted model.
+            # Exercise Symfony AI's actual Agent/McpToolbox, with a clearly labeled scripted model.
             agent = subprocess.run([PHP, str(ROOT / "examples/agent.php"), "--scripted"], env=env, capture_output=True, text=True, check=True, timeout=30)
             assert "pending" in agent.stdout and "review_url" in agent.stdout, agent.stdout
             assert row()["mutation_count"] == 3
@@ -198,18 +229,18 @@ def main():
                 "passed": True,
                 "mcp_transport": "official PHP SDK over real HTTP to Symfony MCP Bundle",
                 "browser": "Chromium, headless; native WebAuthn API with CDP virtual authenticator",
-                "checks": ["tool discovery", "pending before approval", "human login", "passkey enrollment", "expired session offers sign-in recovery", "sign-in returns to the existing pending request without execution", "exact content review", "verified approval commits once", "MCP status", "idempotent request replay", "stale proposal refuses execution and shows as stopped", "a lost answer is reported as unconfirmed, not guessed", "a gateway error after sending is unconfirmed, not a refusal", "Symfony AI scripted runner uses real MCP"],
+                "checks": ["tool discovery", "pending before approval", "human login", "desktop review uses two columns and mobile review uses one", "desktop OAuth consent keeps one column", "passkey enrollment", "expired session offers sign-in recovery", "sign-in returns to the existing pending request without execution", "exact content review", "verified approval commits once", "MCP status", "idempotent request replay", "stale proposal refuses execution and shows as stopped", "a lost answer is reported as unconfirmed, not guessed", "a gateway error after sending is unconfirmed, not a refusal", "Symfony AI scripted runner uses real MCP"],
                 "committed_effects": 3,
                 "physical_biometrics_tested": False,
                 "external_hosted_clients_tested": False,
                 "live_model_calls": 0,
             }, indent=2))
         finally:
-            server.terminate()
+            os.killpg(server.pid, signal.SIGTERM)
             try:
                 server.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                server.kill()
+                os.killpg(server.pid, signal.SIGKILL)
                 server.wait()
             log.close()
 

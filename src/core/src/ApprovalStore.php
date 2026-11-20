@@ -6,19 +6,24 @@ namespace VerifiedHumanApproval\Core;
 
 /**
  * Durable storage for proposals, ceremonies and their outcomes, and the transaction boundary of an approval.
- * A new adapter (another database, a framework's own storage) must keep every rule below; the shared
- * contract tests in tests/Contract show what each one means in practice.
+ * A new adapter (another database, a framework's own storage) must keep every rule below; the storage
+ * contract tests (ApprovalStoreContract, in verified-human-approval/store-contracts) show what each one
+ * means in practice.
  *
  * 1. Own the root transaction. transaction() refuses, with a LogicException, to start inside an unrelated
  *    transaction, and a normal return means the root transaction committed durably: not that the callback
- *    finished, and not that a nested savepoint was released. Writes outside it are refused the same way.
+ *    finished, and not that a nested savepoint was released. Writes outside it are refused the same way, and so
+ *    is every write once code on the connection has committed, rolled back or replaced it, or the database has
+ *    rolled it back after an error: such a write would commit on its own.
  * 2. Include every authoritative write. The protected business change, the credential update, the proof,
  *    the execution record, the ceremony changes and the receipt signed at commit share that one transaction.
  * 3. Serialize the writers that matter. The source state, permissions and grants the decision reads must be
  *    protected from concurrent change until commit; locking the approval row alone does not do that.
  * 4. Run the callback once per call. Never retry it on deadlock, timeout or an uncertain commit.
  * 5. Keep canonical data exact. Stored proposals, proofs and records come back with the same bytes, and
- *    JSON keeps null, an empty object and an empty array apart.
+ *    JSON keeps null, an empty object and an empty array apart. A record that no longer reads back as it was
+ *    written is reported, never repaired or skipped: read it with ApprovalState::fromStorage(), whose
+ *    record_integrity_error get() and the lookups pass on as it is, with the request it carries.
  * 6. Enforce identity and immutability. A frozen proposal or a terminal record cannot be overwritten through
  *    this API, and database constraints back the identities and the request-key rules.
  * 7. Handle every Throwable. Roll back before rethrowing, reset any transaction bookkeeping, and if the
@@ -39,12 +44,21 @@ interface ApprovalStore
     /** Stores a new proposal. A second one with the same id, or the same actor and request key, must fail. */
     public function insert(ApprovalState $state, ?string $idempotencyKey, string $fingerprint): void;
 
+    /** @throws ApprovalException record_integrity_error when the stored record cannot be read back */
     public function get(string $id): ?ApprovalState;
 
-    /** @return array{state: ApprovalState, fingerprint: string}|null */
+    /**
+     * @return array{state: ApprovalState, fingerprint: string}|null
+     *
+     * @throws ApprovalException record_integrity_error when the stored record cannot be read back
+     */
     public function findByKey(Actor $actor, string $idempotencyKey): ?array;
 
-    /** The newest still-pending proposal this actor made with these exact arguments. */
+    /**
+     * The newest still-pending proposal this actor made with these exact arguments.
+     *
+     * @throws ApprovalException record_integrity_error when the stored record cannot be read back
+     */
     public function findPending(Actor $actor, string $fingerprint): ?ApprovalState;
 
     /** Records a new status, proof, execution and receipt. A terminal record refuses to change (`immutable_approval`). */
@@ -52,6 +66,11 @@ interface ApprovalStore
 
     public function putCeremony(Ceremony $ceremony): void;
 
+    /**
+     * Read the stored ceremony back with Ceremony::fromStorage() and pass its error on as it is.
+     *
+     * @throws ApprovalException corrupt_ceremony when the stored ceremony cannot be read back
+     */
     public function getCeremony(string $id): ?Ceremony;
 
     public function retireCeremony(string $id): void;

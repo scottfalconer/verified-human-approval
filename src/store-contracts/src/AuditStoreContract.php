@@ -12,6 +12,7 @@ use VerifiedHumanApproval\Core\Audit\AuditStore;
 use VerifiedHumanApproval\Core\ChallengeBinding;
 use VerifiedHumanApproval\Core\Evidence\EvidenceSigner;
 use VerifiedHumanApproval\Core\Evidence\SodiumEvidenceSigner;
+use VerifiedHumanApproval\Core\Evidence\TrustedKeys;
 
 /**
  * The audit storage contract (the rules on AuditStore), run against one store through its harness: rows are kept
@@ -25,6 +26,9 @@ abstract class AuditStoreContract extends TestCase
     private string $secretKey;
     private SodiumEvidenceSigner $signer;
 
+    /** @var list<AuditHarness> every harness connect() gave this test, closed when it ends */
+    private array $harnesses = [];
+
     /** @return class-string<AuditHarness> */
     abstract protected static function harness(): string;
 
@@ -37,12 +41,16 @@ abstract class AuditStoreContract extends TestCase
 
     protected function tearDown(): void
     {
+        foreach ($this->harnesses as $harness) {
+            $harness->close();
+        }
+        $this->harnesses = [];
         if (null !== $this->location) {
             static::harness()::destroy($this->location);
         }
     }
 
-    public function testAChainWrittenBeforeTheStoreWasExtractedStillVerifiesAndExtends(): void
+    public function testAChainInTheFirstEntryFormatStillVerifiesAndExtends(): void
     {
         $fixture = json_decode((string) file_get_contents(__DIR__.'/../resources/audit-v1-chain.json'), true, 16, \JSON_THROW_ON_ERROR);
         // The fixture's synthetic key comes from a public seed, so this test can append with the same key.
@@ -53,7 +61,7 @@ abstract class AuditStoreContract extends TestCase
         foreach ($fixture['rows'] as $row) {
             $harness->insertRaw($row);
         }
-        $log = new AuditLog($harness->store(), $signer, $fixture['publicKey'], new MockClock('2026-11-09 10:00:00 UTC'));
+        $log = new AuditLog($harness->store(), $signer, TrustedKeys::single($fixture['keyId'], $fixture['publicKey']), new MockClock('2026-11-09 10:00:00 UTC'));
 
         $report = $log->verify();
         self::assertTrue($report['intact']);
@@ -202,7 +210,7 @@ abstract class AuditStoreContract extends TestCase
             }
         };
         $host->begin(); // deferred, as a host's own transaction often is
-        $entry = (new AuditLog($hooked, $this->signer, $this->signer->publicKey(), new MockClock()))->append('tenant-a', 'passkey.revoked', 'key-1', ['userId' => 'alice']);
+        $entry = (new AuditLog($hooked, $this->signer, TrustedKeys::single($this->signer->keyId(), $this->signer->publicKey()), new MockClock()))->append('tenant-a', 'passkey.revoked', 'key-1', ['userId' => 'alice']);
         self::assertSame('held off', $outcome, 'Appenders are serialized before the head is read, even for an empty log.');
         self::assertSame($prior + 1, $entry['seq']);
 
@@ -275,7 +283,7 @@ abstract class AuditStoreContract extends TestCase
             }
         };
         try {
-            (new AuditLog($harness->store(), $outage, $this->signer->publicKey(), new MockClock()))->append('tenant-a', 'passkey.revoked', 'key-1', ['userId' => 'alice']);
+            (new AuditLog($harness->store(), $outage, TrustedKeys::single($this->signer->keyId(), $this->signer->publicKey()), new MockClock()))->append('tenant-a', 'passkey.revoked', 'key-1', ['userId' => 'alice']);
             self::fail('An entry was recorded without its signature.');
         } catch (\RuntimeException $error) {
             self::assertSame('Injected signer outage.', $error->getMessage());
@@ -339,12 +347,15 @@ abstract class AuditStoreContract extends TestCase
 
     private function connect(): AuditHarness
     {
-        return static::harness()::connect($this->location());
+        $harness = static::harness()::connect($this->location());
+        $this->harnesses[] = $harness;
+
+        return $harness;
     }
 
     private function log(AuditHarness $harness): AuditLog
     {
-        return new AuditLog($harness->store(), $this->signer, $this->signer->publicKey(), new MockClock('2026-11-09 10:00:00 UTC'));
+        return new AuditLog($harness->store(), $this->signer, TrustedKeys::single($this->signer->keyId(), $this->signer->publicKey()), new MockClock('2026-11-09 10:00:00 UTC'));
     }
 
     /**

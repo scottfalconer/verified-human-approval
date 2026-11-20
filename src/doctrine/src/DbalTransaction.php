@@ -19,12 +19,16 @@ use Doctrine\DBAL\Connections\PrimaryReadReplicaConnection;
  *   with forUpdate() and forShare().
  * - It runs the callback once, never retries, and rolls back on any Throwable, rethrowing the original error even
  *   when the rollback fails too.
+ * - It refuses the approval store's writes and the passkey counter's update once the root has ended or been
+ *   replaced underneath, and inside a nested transaction (assertActive()). The audit store's appends and the
+ *   passkey repository's add() and revoke() also run in the host's own transactions, so they are not checked
+ *   this way.
  *
  * Use the same connection for every protected write: the ORM's entity manager, the stores and your own queries.
  */
 final class DbalTransaction
 {
-    /** Marks the root transaction, so a root that was ended or replaced underneath is caught before commit. */
+    /** Marks the root transaction, so a root that was ended or replaced underneath is caught before a write and before commit. */
     private const ROOT = 'verified_human_approval_root';
 
     private const NESTED = 'The approval service must own the outermost database transaction, and one is already open on this connection. Do not call ApprovalService inside Connection::transactional(), EntityManager::wrapInTransaction() or a Messenger handler behind the doctrine_transaction middleware: call it outside that transaction, or from a handler without that middleware.';
@@ -101,7 +105,7 @@ final class DbalTransaction
             }
             // Fails if the root was rolled back and begun again, committed implicitly (MySQL commits on a schema
             // change), or aborted by a failed statement, which PostgreSQL would answer COMMIT with a silent rollback.
-            $this->connection->executeStatement('RELEASE SAVEPOINT '.self::ROOT);
+            $this->releaseRoot();
             $this->connection->commit();
             if ($this->connection->isTransactionActive() || $this->nativeTransactionActive()) {
                 throw new \LogicException('The approval root transaction did not finish.');
@@ -130,23 +134,39 @@ final class DbalTransaction
         return $this->active && $this->connection->isTransactionActive();
     }
 
-    /** Refuses a write outside the approval transaction. */
+    /**
+     * Refuses a write outside the approval transaction, including one after code on the connection ended or replaced
+     * the root past DBAL, through the driver or in SQL, or the database rolled it back by itself after an error. DBAL
+     * still counts the root then, and the write would commit on its own. Releasing the root's savepoint and setting it
+     * again shows whether the root is still open. Inside a nested transaction that would end the nested one too, and
+     * DBAL's count is no guide there either: once the root under it has ended, DBAL fails to roll a nested transaction
+     * back and still counts it. So the approval's writes run at the root, and a write inside a nested transaction is
+     * refused.
+     */
     public function assertActive(): void
     {
         if (!$this->isActive()) {
             throw new \LogicException('Approval writes require the approval transaction (DbalTransaction::run()).');
         }
+        if (1 !== $this->connection->getTransactionNestingLevel()) {
+            throw new \LogicException('Approval writes run at the root of the approval transaction, and a nested transaction is open on it.');
+        }
+        $this->releaseRoot();
+        $this->connection->executeStatement('SAVEPOINT '.self::ROOT);
     }
 
     /**
      * Registers what to undo in memory if the approval transaction rolls back, such as resetting an entity manager
-     * whose objects now describe rows that were never committed. Valid only inside the transaction.
+     * whose objects now describe rows that were never committed. Valid only inside the transaction, nested
+     * transactions included.
      *
      * @param callable(): void $listener
      */
     public function onRollback(callable $listener): void
     {
-        $this->assertActive();
+        if (!$this->isActive()) {
+            throw new \LogicException('Rollback listeners require the approval transaction (DbalTransaction::run()).');
+        }
         $this->onRollback[] = $listener;
     }
 
@@ -216,6 +236,16 @@ final class DbalTransaction
             } catch (\Throwable) {
                 // Nothing more can be done here; the original error is the one reported.
             }
+        }
+    }
+
+    /** Releases the savepoint that marks the root, which fails once the root is no longer the open transaction. */
+    private function releaseRoot(): void
+    {
+        try {
+            $this->connection->executeStatement('RELEASE SAVEPOINT '.self::ROOT);
+        } catch (\Throwable $error) {
+            throw new \LogicException('The approval transaction was committed, rolled back, replaced or aborted before the approval finished, so nothing more is written in it.', 0, $error);
         }
     }
 

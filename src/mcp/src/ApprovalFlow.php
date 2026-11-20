@@ -8,6 +8,7 @@ use Mcp\Schema\Content\TextContent;
 use Mcp\Schema\Result\CallToolResult;
 use Mcp\Schema\Result\InputRequiredResult;
 use Mcp\Server\RequestContext;
+use Psr\Clock\ClockInterface;
 use VerifiedHumanApproval\Core\Actor;
 use VerifiedHumanApproval\Core\ApprovalException;
 use VerifiedHumanApproval\Core\ApprovalService;
@@ -16,10 +17,20 @@ use VerifiedHumanApproval\Core\ApprovalState;
 /**
  * How a protected tool presents its approval.
  *
- * Every client gets the pending result at once, with the review link and the card's view. A
- * client the configuration names also gets a URL-mode elicitation. Its retry is bound to the same
- * caller, tool and arguments, and only reads the stored state: the client's answer never approves
- * anything, and the application has already executed the action if the passkey check passed.
+ * A client the configuration names is first sent a URL-mode elicitation, and gets the pending
+ * result when it retries with its answer; every other client gets the pending result at once,
+ * with the review link and the card's view. The retry is bound to the same caller, tool and
+ * arguments, and only reads the stored state: the client's answer never approves anything, and
+ * the application has already executed the action if the passkey check passed. The retry carries
+ * state the server signs, so a server without a request-state key refuses a prompted call before
+ * anything is made.
+ *
+ * A request key that names an earlier request that has finished returns that request's recorded
+ * outcome, and the result says so: nothing runs for that call. A pending request is not marked,
+ * whichever call made it: the person has yet to approve it.
+ *
+ * Every call that may open a proposal spends one from the person's {@see ProposalBudget}, and is
+ * refused with the reason rate_limited once it is spent. The retry of a prompt is free.
  */
 final readonly class ApprovalFlow
 {
@@ -63,6 +74,8 @@ final readonly class ApprovalFlow
                     'status' => ['type' => 'string'],
                     'reason' => ['type' => ['string', 'null']],
                     'approvedWithPasskey' => ['type' => 'boolean', 'description' => 'Whether a person approved it with their passkey. A completed request without one ran because the application’s rule did not require approval.'],
+                    'completedAt' => ['type' => ['string', 'null'], 'description' => 'When the action ran, as RFC 3339 in UTC, once it has.'],
+                    'earlier' => ['type' => 'boolean', 'description' => 'Whether this call’s request key named an earlier request that had already finished: this is that request’s recorded outcome, and nothing ran for this call. Never true while the request is pending, whichever call made it: it is still waiting for the person’s approval.'],
                     'reviewUrl' => ['type' => 'string'],
                     'statusTool' => ['type' => 'string', 'description' => 'The read-only tool that reports this request’s outcome.'],
                     'statement' => ['type' => 'string', 'description' => 'The exact statement the person approves.'],
@@ -75,7 +88,22 @@ final readonly class ApprovalFlow
         'additionalProperties' => true,
     ];
 
-    public function __construct(private ApprovalService $approvals, private ResultPresenter $presenter, private UrlPrompt $prompt)
+    /**
+     * The description for a protected tool's optional request key argument:
+     * `#[Schema(description: ApprovalFlow::REQUEST_KEY_DESCRIPTION)] ?string $request_key = null`.
+     *
+     * A request key is for a client that generates a unique id for each new request. Asked for "your
+     * own id for this request", Claude models built one from the arguments and the date, and often
+     * built the same one in a later conversation. The application then answers with the earlier
+     * request and its outcome, and does not ask the person again. With this wording they left the
+     * argument out, which is safe: a repeated call without a key returns the same pending request,
+     * and a new one once that request has finished. tests/claude_request_key.py checks this wording
+     * against Claude models.
+     */
+    public const REQUEST_KEY_DESCRIPTION = 'For clients that generate a unique random id for each new request and resend it to retry. Otherwise leave it out: a key used before returns that earlier request and its outcome, even after it finished, so never make one up from the arguments or the date.';
+
+    /** @param ClockInterface $clock the approval service's clock, which dates the requests it makes */
+    public function __construct(private ApprovalService $approvals, private ResultPresenter $presenter, private UrlPrompt $prompt, private ProposalBudget $budget, private ClockInterface $clock)
     {
     }
 
@@ -109,19 +137,43 @@ final readonly class ApprovalFlow
      */
     public function respond(RequestContext $context, Actor $actor, string $tool, array $arguments, callable $request): CallToolResult|InputRequiredResult
     {
-        $binding = UrlPrompt::binding($actor, $tool, $arguments);
-        $resumed = UrlPrompt::resumed($context->getInputContext(), $binding);
+        // The binding is worked out only for a call that carries a continuation, and for the prompt that starts one.
+        $input = $context->getInputContext();
+        $resumed = null === $input ? null : UrlPrompt::resumed($input, UrlPrompt::binding($actor, $tool, $arguments));
         if (null !== $resumed) {
             $state = $this->approvals->get($actor, $resumed['requestId']);
 
             return $this->presenter->toolResult($state, UrlPrompt::note($resumed['answer'], $state, $this->presenter->statusTool()));
         }
 
-        $state = $request();
-        if ('pending' === $state->status && $this->prompt->allowsContext($context)) {
-            return $this->prompt->ask($context, $state, $this->presenter->reviewUrl($state), $binding);
+        // Decided before anything is made: a prompt whose retry this server could not continue would leave a
+        // proposal that nobody was shown.
+        $prompt = $this->prompt->allowsContext($context);
+        if ($prompt && !UrlPrompt::canContinue($context)) {
+            throw new \LogicException('The URL prompt is on for this client, but this MCP server has no request-state key to sign its retry with: set one with Builder::setRequestState(), or request_state.key in the MCP bundle.');
         }
+        // Any call that may open a proposal spends the person's budget, before anything is prepared.
+        $this->budget->spend($actor);
+        $called = $this->clock->now();
+        $state = $request();
+        if ('pending' === $state->status && $prompt) {
+            return $this->prompt->ask($context, $state, $this->presenter->reviewUrl($state), UrlPrompt::binding($actor, $tool, $arguments));
+        }
+        // A call that makes a request gets it pending, or completed by a rule that needs no passkey. A finished
+        // request made before this call came back by its request key, and must not read as this call's outcome.
+        $earlier = 'pending' !== $state->status && new \DateTimeImmutable($state->request->payload()['createdAt']) < $called;
 
-        return $this->presenter->toolResult($state);
+        return $this->presenter->toolResult($state, $earlier ? self::earlier($state) : null, $earlier);
+    }
+
+    /** What the model is told when a request key named an earlier request that has finished. */
+    private static function earlier(ApprovalState $state): string
+    {
+        if ('completed' !== $state->status) {
+            return 'This request key belongs to an earlier request, which is '.$state->status.' and changed nothing. Nothing ran now. To ask again, call without this request key.';
+        }
+        $completed = ApprovalCard::completedAt($state);
+
+        return 'This request key belongs to an earlier request, completed'.(null === $completed ? '' : ' at '.$completed).'. This is the recorded outcome of that request: nothing ran now. To ask again, call without this request key.';
     }
 }
