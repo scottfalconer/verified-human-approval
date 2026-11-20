@@ -10,6 +10,7 @@ use Mcp\Exception\RequestException;
 use Mcp\Schema\Extension\Apps\McpApps;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use PHPUnit\Framework\Attributes\BackupGlobals;
+use PHPUnit\Framework\Attributes\TestWith;
 use PHPUnit\Framework\TestCase;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
@@ -249,13 +250,22 @@ final class SymfonyApprovalTest extends TestCase
         self::assertSame(['credential_required', 'pending'], [$refused['reason'], $refused['request_status'] ?? null]);
     }
 
-    public function testCurrentDelegationRevocationPreventsExecutionAfterReview(): void
+    /** @param list<string>|null $remainingScopes null means the connection was revoked */
+    #[TestWith([null], 'connection revoked')]
+    #[TestWith([['alert.read', 'approval.read']], 'publish scope removed')]
+    #[TestWith([['alert.read', 'alert.publish']], 'approval read scope removed')]
+    public function testChangesToTheStoredGrantPreventExecutionAfterReview(?array $remainingScopes): void
     {
         $id = $this->requestAction();
         $browser = $this->browser('editor');
         $authenticator = $this->enroll($browser);
         [$csrf, $ceremony] = $this->begin($browser, $id);
-        $this->database->pdo->exec("UPDATE demo_grants SET active = 0 WHERE id = 'editor-personal'");
+        if (null === $remainingScopes) {
+            $this->database->pdo->exec("UPDATE demo_grants SET active = 0 WHERE id = 'editor-personal'");
+        } else {
+            $this->database->pdo->prepare("UPDATE demo_grants SET scopes = ? WHERE id = 'editor-personal'")
+                ->execute([json_encode($remainingScopes, \JSON_THROW_ON_ERROR)]);
+        }
         $result = $this->post($browser, '/approval/'.$id.'/complete', $csrf, ['ceremony_id' => $ceremony['ceremony_id'], 'credential' => $authenticator->assertion($ceremony['publicKey'])]);
         self::assertContains($result['status'], ['denied', 'invalidated']);
         self::assertSame('delegation_denied', $result['reason']);
