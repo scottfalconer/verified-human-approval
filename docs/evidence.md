@@ -117,7 +117,7 @@ The original file still verifies. A field changed directly in the stored executi
 
 Deleting the original receipt does not reset this protection. The site answers `record_integrity_error` for a completed request whose receipt is gone, and the exporter, called directly, refuses it (`receipt_missing`). Neither creates a fresh signature over possibly altered data. A receipt the person already downloaded stays valid on its own.
 
-`verify-evidence.php` checks the receipt's signature before it compares the record with what the receipt signs, so it reports a changed record only under a receipt that the trusted key signed. A changed proposal or approval proof, which holds the assertion and the nonce, is named the same way, and several changed parts are named together, as in `its proposal, approval proof and execution record`. Its other answers:
+`verify-evidence.php` checks the receipt's signature before it compares the record with what the receipt signs, so it reports a changed record only under a receipt that the trusted key signed. A changed proposal or approval proof, which holds the assertion and the nonce, is named the same way, and several changed parts are named together, as in `its proposal, approval proof and execution record`. Its other answers include these:
 
 - The trusted key did not sign this receipt: the receipt itself was changed, its signature or what it signs, or it is checked against another site's keys under the same key id, such as those a demo publishes after `php demo/bin/setup.php --reset`.
 - The trusted keys do not list the receipt's key, or the receipt claims a time outside its key's window.
