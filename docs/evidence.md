@@ -124,7 +124,7 @@ Deleting the original receipt does not reset this protection. The site answers `
 - The receipt names another id of the key that signed it, which a key set can list twice.
 - The evidence's parts, though signed, do not describe one action, or its approval proof is missing or not bound to the proposal.
 - The evidence holds fields that nothing in it signs.
-- The evidence does not verify, and nothing more, when its proposal no longer reads back as a proposal.
+- The evidence does not verify, and nothing more, when its proposal is not JSON, or is an object that no longer reads back as a proposal.
 
 ### 5. Optional: check the passkey signature too
 
