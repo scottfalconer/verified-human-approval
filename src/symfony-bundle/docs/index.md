@@ -169,7 +169,7 @@ The approval transaction runs at `READ COMMITTED` on those databases, so a read 
 
 **Protected entities.** Mark an entity, or its approved-state fields, `#[RequiresApproval]` (or list them under `protected_entities`). Any flush on that connection that changes them outside an approved execution permitted for that entity fails with `approval_required`, whatever form, admin screen or command made the change. DQL bulk updates and plain SQL do not pass through the unit of work: keep those away from protected rows.
 
-In `protected_entities`, use the class name as declared in PHP and the property names as mapped by Doctrine. Symfony rejects unknown or incorrectly capitalized class names when building the container. Doctrine rejects unknown configured properties before flushing changes to the affected entity.
+In `protected_entities`, use the class name as declared in PHP and the property names as mapped by Doctrine. The bundle rejects unknown, incorrectly capitalized or duplicate class names when building the container. Its protection listener rejects unmapped configured properties when processing the affected entity during a flush.
 
 ## 3. Connect existing authentication
 
