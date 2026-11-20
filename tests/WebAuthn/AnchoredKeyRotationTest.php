@@ -294,12 +294,12 @@ final class AnchoredKeyRotationTest extends TestCase
         $challenge = random_bytes(32);
         $options = $verifier->requestOptions($this->actor, $challenge);
         self::assertCount(3, $options['allowCredentials'] ?? []);
-        self::assertSame(1, $store->readings, 'Opening the review weighs all three passkeys from one reading of the chain.');
+        self::assertSame(1, $store->readings, 'Preparing the passkey prompt weighs all three passkeys from one reading of the chain.');
         $verifier->verify($this->actor, $challenge, $passkeys[1]->assertion($options));
-        self::assertSame(2, $store->readings, 'Approving reads it once more.');
+        self::assertSame(2, $store->readings, 'Checking the passkey\'s answer reads it once more.');
     }
 
-    public function testOpeningAReviewThatNoPasskeyCanApproveReadsTheChainOnce(): void
+    public function testPreparingThePasskeyPromptWhenNoPasskeyCanApproveReadsTheChainOnce(): void
     {
         $before = $this->repository($this->old, new TrustedKeys([new TrustedKey('application-1', $this->old->publicKey(), TrustedKey::time('2026-11-01T00:00:00Z'))]));
         foreach ([new VirtualAuthenticator(), new VirtualAuthenticator()] as $passkey) {

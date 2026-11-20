@@ -422,7 +422,7 @@ final class OAuthTest extends TestCase
     }
 
     #[DataProvider('redirectUrisNamedOrLeftOut')]
-    public function testDontAllowForAClientThatChoseItsOwnReturnAddressEndsOnThisSite(?string $redirectUri): void
+    public function testDontAllowForAClientThatRegisteredItselfAndReturnsToAnotherComputerEndsOnThisSite(?string $redirectUri): void
     {
         // RFC 9700 §4.11.2: anyone can register a client that returns to a site of their own. A person who refuses
         // it, because something looks wrong, must not be sent there all the same.
@@ -488,6 +488,20 @@ final class OAuthTest extends TestCase
         self::assertArrayNotHasKey('code', $refusal);
         $browser->request('GET', self::ORIGIN.'/oauth/consent');
         self::assertSame(410, $browser->getResponse()->getStatusCode(), 'Neither request was put to the person.');
+    }
+
+    public function testALoopbackClientThatNamesNoRedirectUriLearnsHereOfAScopeThisServerDoesNotOffer(): void
+    {
+        // The client registered itself with one redirect URI, on this computer, where League would send the error.
+        // UnknownScopeGuard answers before League and looks only at a redirect URI the request names.
+        $reader = $this->json($this->client(), 'POST', '/oauth/register', ['redirect_uris' => [self::LOOPBACK], 'client_name' => 'Reader', 'scope' => 'alert.read']);
+        $browser = $this->signedIn('editor');
+        $browser->request('GET', self::ORIGIN.'/oauth/authorize?'.http_build_query(['scope' => 'alert.read offline_access'] + self::authorizeQuery($reader['client_id'], null)));
+        self::assertSame(400, $browser->getResponse()->getStatusCode(), (string) $browser->getResponse()->headers->get('Location'));
+        self::assertFalse($browser->getResponse()->headers->has('Location'), 'The error stays on this site.');
+        self::assertSame('invalid_scope', json_decode((string) $browser->getResponse()->getContent(), true, 8)['error'] ?? null);
+        $browser->request('GET', self::ORIGIN.'/oauth/consent');
+        self::assertSame(410, $browser->getResponse()->getStatusCode(), 'The request was not put to the person.');
     }
 
     public function testAClientNamedByItsMetadataDocumentLearnsOfAScopeThisServerDoesNotOffer(): void

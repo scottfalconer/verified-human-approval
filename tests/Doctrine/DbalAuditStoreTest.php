@@ -26,8 +26,15 @@ final class DbalAuditStoreTest extends TestCase
 {
     private ?string $location = null;
 
+    /** @var list<Connection> */
+    private array $connections = [];
+
     protected function tearDown(): void
     {
+        // Closed before the drop: a failure that keeps the test's objects alive would otherwise keep them open.
+        foreach ($this->connections as $connection) {
+            $connection->close();
+        }
         if (null !== $this->location) {
             TestDatabase::drop('sqlite', $this->location);
         }
@@ -37,6 +44,7 @@ final class DbalAuditStoreTest extends TestCase
     {
         $this->location = TestDatabase::create('sqlite');
         $template = TestDatabase::connect('sqlite', $this->location);
+        $this->connections[] = $template;
         ApprovalSchema::install($template);
         // The same database, on a connection that keeps the column names of every result it fetches.
         $connection = new class($template->getParams(), $template->getDriver(), $template->getConfiguration()) extends Connection {
@@ -51,6 +59,7 @@ final class DbalAuditStoreTest extends TestCase
                 return $result;
             }
         };
+        $this->connections[] = $connection;
         $store = new DbalAuditStore(new DbalTransaction($connection));
         $signer = new SodiumEvidenceSigner('app-key', sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair()));
         $log = new AuditLog($store, $signer, TrustedKeys::single($signer->keyId(), $signer->publicKey()), new MockClock());

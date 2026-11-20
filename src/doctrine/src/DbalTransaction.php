@@ -19,8 +19,10 @@ use Doctrine\DBAL\Connections\PrimaryReadReplicaConnection;
  *   with forUpdate() and forShare().
  * - It runs the callback once, never retries, and rolls back on any Throwable, rethrowing the original error even
  *   when the rollback fails too.
- * - It refuses the stores' writes once the root has ended or been replaced underneath, and inside a nested
- *   transaction (assertActive()).
+ * - It refuses the approval store's writes and the passkey counter's update once the root has ended or been
+ *   replaced underneath, and inside a nested transaction (assertActive()). The audit store's appends and the
+ *   passkey repository's add() and revoke() also run in the host's own transactions, so they are not checked
+ *   this way.
  *
  * Use the same connection for every protected write: the ORM's entity manager, the stores and your own queries.
  */
