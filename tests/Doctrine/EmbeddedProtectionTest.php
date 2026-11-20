@@ -49,7 +49,7 @@ final class EmbeddedProtectionTest extends TestCase
         // The guard's owner stands in for the approval service, so the test can run a flush as an approved action.
         $this->owner = new \stdClass();
         $this->guard->bind($this->owner);
-        $this->listener = new ProtectedEntityListener($this->guard, [Page::class => ['scheduled']]);
+        $this->listener = new ProtectedEntityListener($this->guard, [Page::class => ['scheduled', 'listing.notes.title', 'relatedPage']]);
         $this->manager->getEventManager()->addEventListener([Events::onFlush, Events::preUpdate], $this->listener);
         (new SchemaTool($this->manager))->createSchema([$this->manager->getClassMetadata(Page::class)]);
         $this->connection->insert('embedded_pages', ['id' => 1, 'draft' => 'Draft words.', 'published_title' => 'Approved title', 'published_body' => 'Approved words.']);
@@ -62,6 +62,8 @@ final class EmbeddedProtectionTest extends TestCase
             'the embedded object the configuration names' => [static function (Page $page): void { $page->scheduled->body = 'Not approved'; }, 'scheduled.body'],
             'the field its embeddable marks' => [static function (Page $page): void { $page->review->signedOffBy = 'mallory'; }, 'review.signedOffBy'],
             'the embedded object its embeddable marks' => [static function (Page $page): void { $page->listing->summary->title = 'Not approved'; }, 'listing.summary.title'],
+            'the dotted field the configuration names' => [static function (Page $page): void { $page->listing->notes->title = 'Not approved'; }, 'listing.notes.title'],
+            'the association the configuration names' => [static function (Page $page): void { $page->relatedPage = $page; }, 'relatedPage'],
         ];
         foreach ($changes as $what => [$change, $field]) {
             $page = $this->page();

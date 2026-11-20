@@ -33,6 +33,9 @@ class Page
     #[ORM\Embedded(class: Listing::class)]
     public Listing $listing;
 
+    #[ORM\ManyToOne(targetEntity: self::class)]
+    public ?self $relatedPage = null;
+
     public function __construct(
         #[ORM\Id]
         #[ORM\Column(type: Types::INTEGER)]

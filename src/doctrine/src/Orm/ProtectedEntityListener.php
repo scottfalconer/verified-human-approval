@@ -141,6 +141,11 @@ final class ProtectedEntityListener
             }
             if (\array_key_exists($reflection->getName(), $this->protected)) {
                 $configured = $this->protected[$reflection->getName()];
+                foreach ($configured ?? [] as $name) {
+                    if (!$metadata->hasField($name) && !$metadata->hasAssociation($name) && !isset($metadata->embeddedClasses[$name])) {
+                        throw new \LogicException(\sprintf('persistence.protected_entities lists %s::$%s, which Doctrine does not map.', $reflection->getName(), $name));
+                    }
+                }
                 $entity = $entity || null === $configured;
                 $marked = [...$marked, ...($configured ?? [])];
             }

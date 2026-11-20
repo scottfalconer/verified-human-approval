@@ -121,7 +121,7 @@ final class DoctrinePersistenceTest extends TestCase
 
     public function testTheOrmSchemaHasTheApprovalTablesAndProtectedEntitiesAreGuarded(): void
     {
-        $kernel = $this->boot(['protected_entities' => [Memo::class => ['signedOff']]]);
+        $kernel = $this->boot(['protected_entities' => ['\\'.Memo::class => ['signedOff']]]);
         $manager = $kernel->getContainer()->get('test.service_container')->get('doctrine.orm.entity_manager');
         \assert($manager instanceof EntityManagerInterface);
         $tool = new SchemaTool($manager);
@@ -149,6 +149,50 @@ final class DoctrinePersistenceTest extends TestCase
         $memo->signedOff = 'nobody';
         $manager->persist($memo);
         $this->expectException(ApprovalException::class);
+        $manager->flush();
+    }
+
+    public function testProtectedEntityClassesMustBeNamedUnambiguously(): void
+    {
+        foreach ([
+            [Memo::class.'Typo' => null],
+            [strtolower(Memo::class) => null],
+            [Memo::class => null, '\\'.Memo::class => ['signedOff']],
+        ] as $protected) {
+            try {
+                $this->boot(['protected_entities' => $protected]);
+                self::fail('An invalid class name or duplicate was accepted.');
+            } catch (InvalidConfigurationException $error) {
+                self::assertStringContainsString('persistence.protected_entities', $error->getMessage());
+                self::assertStringContainsString((string) array_key_first($protected), $error->getMessage());
+            }
+        }
+    }
+
+    public function testProtectedFieldsMustUseMappedPropertyNames(): void
+    {
+        foreach (['signedOf', 'signed_off'] as $field) {
+            $kernel = $this->boot(['protected_entities' => [Memo::class => [$field]]]);
+            $manager = $kernel->getContainer()->get('test.service_container')->get('doctrine.orm.entity_manager');
+            \assert($manager instanceof EntityManagerInterface);
+            $manager->persist(new Memo(1, 'Draft'));
+            try {
+                $manager->flush();
+                self::fail('An invalid protected property was accepted.');
+            } catch (\LogicException $error) {
+                self::assertStringContainsString(Memo::class.'::$'.$field.', which Doctrine does not map', $error->getMessage());
+            }
+        }
+    }
+
+    public function testNullProtectsTheWholeEntity(): void
+    {
+        $kernel = $this->boot(['protected_entities' => [Memo::class => null]]);
+        $manager = $kernel->getContainer()->get('test.service_container')->get('doctrine.orm.entity_manager');
+        \assert($manager instanceof EntityManagerInterface);
+        $manager->persist(new Memo(1, 'Draft'));
+        $this->expectException(ApprovalException::class);
+        $this->expectExceptionMessage(Memo::class.' cannot be inserted directly');
         $manager->flush();
     }
 

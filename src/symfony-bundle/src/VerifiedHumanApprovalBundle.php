@@ -6,6 +6,7 @@ namespace VerifiedHumanApproval\Bundle;
 
 use Doctrine\ORM\Tools\Event\GenerateSchemaEventArgs;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
+use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
@@ -386,7 +387,7 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
      * The Doctrine storage on one DBAL connection: the approval transaction, the three stores, the signed audit log,
      * the anchored passkey repository, the install command and, with the ORM, the schema and protection listeners.
      *
-     * @param array{driver: string, connection: string, protected_entities: array<class-string, list<string>|null>} $persistence
+     * @param array{driver: string, connection: string, protected_entities: array<array-key, list<string>|null>} $persistence
      *
      * @return string the approval store's service id
      */
@@ -395,6 +396,7 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
         if (!class_exists(DbalTransaction::class)) {
             throw new \LogicException('persistence.driver "doctrine" needs the Doctrine storage package: composer require verified-human-approval/doctrine.');
         }
+        $protected = self::normalizeProtectedEntities($persistence['protected_entities']);
         $connection = \sprintf('doctrine.dbal.%s_connection', $persistence['connection']);
         $services = $container->services();
 
@@ -431,12 +433,36 @@ final class VerifiedHumanApprovalBundle extends AbstractBundle
                 ->tag('doctrine.event_listener', ['event' => 'postGenerateSchema', 'connection' => $persistence['connection']]);
             // Last, so it sees what every other listener changed in the flush.
             $services->set('verified_human_approval.doctrine.protected_entities', ProtectedEntityListener::class)
-                ->args([service('verified_human_approval.execution_guard'), $persistence['protected_entities']])
+                ->args([service('verified_human_approval.execution_guard'), $protected])
                 ->tag('doctrine.event_listener', ['event' => 'onFlush', 'connection' => $persistence['connection'], 'priority' => -1024])
                 ->tag('doctrine.event_listener', ['event' => 'preUpdate', 'connection' => $persistence['connection'], 'priority' => -1024]);
             $services->alias(ProtectedEntityListener::class, 'verified_human_approval.doctrine.protected_entities');
+        } elseif ([] !== $protected) {
+            throw new InvalidConfigurationException('persistence.protected_entities requires Doctrine ORM.');
         }
 
         return 'verified_human_approval.doctrine.approval_store';
+    }
+
+    /**
+     * @param array<array-key, list<string>|null> $entries
+     *
+     * @return array<class-string, list<string>|null>
+     */
+    private static function normalizeProtectedEntities(array $entries): array
+    {
+        $protected = [];
+        foreach ($entries as $name => $fields) {
+            $class = ltrim((string) $name, '\\');
+            if (!class_exists($class) || $class !== (new \ReflectionClass($class))->getName()) {
+                throw new InvalidConfigurationException(\sprintf('persistence.protected_entities names "%s". Use the exact fully qualified class name, including its capitalization.', $name));
+            }
+            if (\array_key_exists($class, $protected)) {
+                throw new InvalidConfigurationException(\sprintf('persistence.protected_entities lists "%s" more than once.', $class));
+            }
+            $protected[$class] = $fields;
+        }
+
+        return $protected;
     }
 }
